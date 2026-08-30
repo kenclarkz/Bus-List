@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Vehicles{% endblock %}
+{% block content %}
+<h1>Vehicles</h1>
+<div class="flex between" style="margin-bottom:16px">
+  <span class="muted">{{ vehicles|length }} active vehicles</span>
+  <a class="btn" href="{{ url_for('vehicle_new') }}">+ Add Vehicle</a>
+</div>
+<div class="card">
+  <table>
+    <tr><th>Unit</th><th>Type</th><th>Route</th><th>Status</th><th>Last Washed</th><th>Last Detailed</th></tr>
+    {% for v in vehicles %}
+    <tr>
+      <td><a href="{{ url_for('vehicle_detail', vehicle_id=v.id) }}"><strong>{{ v.unit_number }}</strong></a></td>
+      <td>{{ v.vehicle_type.name if v.vehicle_type else '—' }}</td>
+      <td>{{ v.route or '—' }}</td>
+      <td>{{ v.status or '—' }}</td>
+      <td>{{ v.last_washed.strftime('%b %d %H:%M') if v.last_washed else '—' }}</td>
+      <td>{{ v.last_detailed.strftime('%b %d %H:%M') if v.last_detailed else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}
