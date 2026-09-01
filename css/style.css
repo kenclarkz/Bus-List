@@ -73,6 +73,8 @@ h2 { font-size: 1.2rem; margin: 1rem 0 .6rem; }
 }
 
 .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.stat-grid { margin-bottom: 16px; }
+.stats-row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
 
 .stat {
   background: var(--card);
@@ -187,6 +189,13 @@ tr:hover td { background: #f8fafc; }
 .status-unknown { color: var(--muted); font-weight: 600; }
 
 .row-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.row-replacement { border-color: var(--warn); border-style: dashed; }
+#current-employee { max-width: 260px; }
+.filters label { margin: 0 0 4px; min-width: 100%; }
+.filters input, .filters select { margin-bottom: 8px; }
+.print-header { display: flex; justify-content: space-between; align-items: center; }
+.print-header h1, .print-header h2 { border: none; }
+#report h2 { font-size: 16px; border-bottom: 2px solid #333; padding-bottom: 4px; }
 
 .muted { color: var(--muted); }
 .small { font-size: .85rem; }
