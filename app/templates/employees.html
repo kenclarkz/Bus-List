@@ -11,11 +11,13 @@
 </div>
 <div class="card">
   <h2>Current Staff</h2>
+  <div class="table-wrap">
   <table>
     <tr><th>Name</th><th>Active</th></tr>
     {% for e in employees %}
     <tr><td>{{ e.name }}</td><td>{{ 'Yes' if e.active else 'No' }}</td></tr>
     {% endfor %}
   </table>
+  </div>
 </div>
 {% endblock %}
