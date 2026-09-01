@@ -31,6 +31,7 @@
 <div class="card">
   <h2>Service History</h2>
   {% if vehicle.service_history %}
+  <div class="table-wrap">
   <table>
     <tr><th>Date</th><th>Type</th><th>Employee</th><th>Source</th><th>Notes</th></tr>
     {% for h in vehicle.service_history %}
@@ -43,12 +44,14 @@
     </tr>
     {% endfor %}
   </table>
+  </div>
   {% else %}<p class="muted">No service history yet.</p>{% endif %}
 </div>
 
 <div class="card">
   <h2>Replacements</h2>
   {% if vehicle.replacements_as_original or vehicle.replacements_as_replacement %}
+  <div class="table-wrap">
   <table>
     <tr><th>Date</th><th>Direction</th><th>Vehicle</th><th>Reason</th><th>Employee</th></tr>
     {% for r in vehicle.replacements_as_original %}
@@ -66,6 +69,7 @@
         <td>{{ r.employee.name if r.employee else '—' }}</td></tr>
     {% endfor %}
   </table>
+  </div>
   {% else %}<p class="muted">No replacements recorded.</p>{% endif %}
 </div>
 {% endblock %}

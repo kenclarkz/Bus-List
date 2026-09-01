@@ -21,18 +21,21 @@
 <div class="card">
   <h2>New Vehicles <span class="badge success">{{ preview.new|length }}</span></h2>
   {% if preview.new %}
+  <div class="table-wrap">
   <table>
     <tr><th>Unit</th><th>Type</th><th>Route</th></tr>
     {% for v in preview.new %}
     <tr><td><strong>{{ v.unit }}</strong></td><td>{{ v.type or '—' }}</td><td>{{ v.route or '—' }}</td></tr>
     {% endfor %}
   </table>
+  </div>
   {% else %}<p class="muted">No new vehicles.</p>{% endif %}
 </div>
 
 <div class="card">
   <h2>Updated / Unchanged Vehicles <span class="badge info">{{ (preview.updated|length + preview.unchanged|length) }}</span></h2>
   {% if preview.updated or preview.unchanged %}
+  <div class="table-wrap">
   <table>
     <tr><th>Unit</th><th>Type</th><th>Route</th><th>Action</th></tr>
     {% for v in preview.updated %}
@@ -44,30 +47,35 @@
         <td><span class="badge muted">no change</span></td></tr>
     {% endfor %}
   </table>
+  </div>
   {% else %}<p class="muted">No updated vehicles.</p>{% endif %}
 </div>
 
 <div class="card">
   <h2>Removed Vehicles (deactivated, not deleted) <span class="badge muted">{{ preview.removed|length }}</span></h2>
   {% if preview.removed %}
+  <div class="table-wrap">
   <table>
     <tr><th>Unit</th><th>Route</th></tr>
     {% for v in preview.removed %}
     <tr><td>{{ v.unit }}</td><td>{{ v.route or '—' }}</td></tr>
     {% endfor %}
   </table>
+  </div>
   {% else %}<p class="muted">No removed vehicles.</p>{% endif %}
 </div>
 
 <div class="card">
   <h2>Vehicle Replacements <span class="badge warn">{{ preview.replacements|length }}</span></h2>
   {% if preview.replacements %}
+  <div class="table-wrap">
   <table>
     <tr><th>Original</th><th>Replacement</th></tr>
     {% for v in preview.replacements %}
     <tr><td><strong>{{ v.original }}</strong></td><td>{{ v.replacement }}</td></tr>
     {% endfor %}
   </table>
+  </div>
   {% else %}<p class="muted">No replacements detected.</p>{% endif %}
 </div>
 
@@ -75,12 +83,14 @@
   <h2>Uncertain / Unreadable <span class="badge danger">{{ preview.uncertain|length }}</span></h2>
   {% if preview.uncertain %}
   <p class="muted">These could not be read confidently and should be reviewed manually.</p>
+  <div class="table-wrap">
   <table>
     <tr><th>Unit</th><th>Raw text</th></tr>
     {% for v in preview.uncertain %}
     <tr><td>{{ v.unit }}</td><td><code>{{ v.raw }}</code></td></tr>
     {% endfor %}
   </table>
+  </div>
   {% else %}<p class="muted">All information was read confidently.</p>{% endif %}
 </div>
 

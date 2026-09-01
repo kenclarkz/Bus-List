@@ -25,6 +25,7 @@
 <div class="card">
   <h2>Unfinished Checklist Items</h2>
   {% if incomplete_rows %}
+  <div class="table-wrap">
   <table>
     <tr><th>Unit</th><th>Route</th><th>Done</th><th>Color</th></tr>
     {% for r in incomplete_rows %}
@@ -40,6 +41,7 @@
     </tr>
     {% endfor %}
   </table>
+  </div>
   {% else %}<p style="color:var(--success)">All vehicles completed.</p>{% endif %}
 </div>
 

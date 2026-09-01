@@ -53,6 +53,7 @@ a { color: var(--primary); text-decoration: none; }
   padding: 10px 12px;
   border-radius: 8px;
   font-size: .9rem;
+  white-space: nowrap;
 }
 .nav a:hover { background: #1e293b; color: #fff; }
 .nav a.active { background: var(--primary); color: #fff; }
@@ -139,8 +140,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); b
 .filters form { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
 /* table */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 table { width: 100%; border-collapse: collapse; background: #fff; }
-th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 th { font-size: .75rem; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; }
 tr:hover td { background: #f8fafc; }
 
@@ -220,6 +222,10 @@ code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
 }
 
 @media (max-width: 600px) {
+  .topbar { flex-direction: column; align-items: stretch; }
+  .brand { margin-top: 8px; }
+  .nav { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; padding-bottom: 6px; }
+  .nav a { flex: 0 0 auto; }
   .vrow-header { flex-direction: column; align-items: flex-start; }
   .filters input, .filters select { max-width: 100%; flex: 1; }
   table { font-size: .85rem; }
