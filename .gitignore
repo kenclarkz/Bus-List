@@ -2,8 +2,7 @@ venv/
 __pycache__/
 *.pyc
 .env
-data/*.db
-data/*.sqlite
-uploads/
+node_modules/
 .pytest_cache/
 *.db-journal
+.DS_Store

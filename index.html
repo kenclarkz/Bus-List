@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Detailing Operations Dashboard</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">&#128736;&#65039;</span>
+      <span class="brand-name">Detailing Operations Dashboard</span>
+    </div>
+    <nav class="nav" id="nav">
+      <a href="#/" data-view="dashboard">Today</a>
+      <a href="#/vehicles" data-view="vehicles">Vehicles</a>
+      <a href="#/add-vehicle" data-view="add-vehicle">Add Vehicle</a>
+      <a href="#/end" data-view="end">End Day</a>
+      <a href="#/history" data-view="history">History</a>
+      <a href="#/staff" data-view="staff">Staff</a>
+      <a href="#/settings" data-view="settings">Settings</a>
+    </nav>
+  </header>
+
+  <main class="container" id="app">
+    <div class="card"><p class="muted">Loading…</p></div>
+  </main>
+
+  <div class="modal-bg" id="modal">
+    <div class="modal" id="modal-body"></div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
