@@ -145,6 +145,7 @@ table { width: 100%; border-collapse: collapse; background: #fff; }
 th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 th { font-size: .75rem; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; }
 tr:hover td { background: #f8fafc; }
+tr.row-inactive td { color: var(--muted); }
 
 /* vehicle row card (mobile friendly board) */
 .board { display: flex; flex-direction: column; gap: 12px; }

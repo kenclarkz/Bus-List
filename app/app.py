@@ -229,7 +229,9 @@ def register_routes(app):
     def dashboard():
         loc = vehicles.default_location()
         sched = sched_svc.get_or_create_schedule(location=loc)
-        rows = build_schedule_view(sched)
+        has_import = PrepReportImport.query.filter_by(
+            applied=True, schedule_date=sched.work_date).first() is not None
+        rows = build_schedule_view(sched) if has_import else []
 
         total = len(rows)
         completed = sum(1 for r in rows if r["entry"].status == "completed")
@@ -279,8 +281,7 @@ def register_routes(app):
     @app.route("/vehicles")
     def vehicle_list():
         loc = vehicles.default_location()
-        vq = Vehicle.query.filter_by(location_id=loc.id).filter(
-            Vehicle.active.is_(True)).all()
+        vq = Vehicle.query.filter_by(location_id=loc.id).all()
         return render_template("vehicles.html", vehicles=vq)
 
     @app.route("/vehicles/new", methods=["GET", "POST"])
@@ -383,6 +384,7 @@ def register_routes(app):
             source="import")
         imp.applied = True
         imp.applied_at = datetime.utcnow()
+        imp.schedule_date = sched.work_date
         db.session.commit()
         flash("Prep report applied. Today's work list updated.", "success")
         return redirect(url_for("dashboard"))

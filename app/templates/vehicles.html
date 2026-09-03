@@ -3,7 +3,7 @@
 {% block content %}
 <h1>Vehicles</h1>
 <div class="flex between" style="margin-bottom:16px">
-  <span class="muted">{{ vehicles|length }} active vehicles</span>
+  <span class="muted">{{ vehicles|length }} vehicles</span>
   <a class="btn" href="{{ url_for('vehicle_new') }}">+ Add Vehicle</a>
 </div>
 <div class="card">
@@ -11,8 +11,8 @@
   <table>
     <tr><th>Unit</th><th>Type</th><th>Make</th><th>Model</th><th>Capacity</th><th>Status</th><th>Description</th></tr>
     {% for v in vehicles %}
-    <tr>
-      <td><a href="{{ url_for('vehicle_detail', vehicle_id=v.id) }}"><strong>{{ v.unit_number }}</strong></a></td>
+    <tr class="{{ 'row-inactive' if not v.active }}">
+      <td><a href="{{ url_for('vehicle_detail', vehicle_id=v.id) }}"><strong>{{ v.unit_number }}</strong></a>{% if not v.active %} <span class="badge muted">Inactive</span>{% endif %}</td>
       <td>{{ v.vehicle_type.name if v.vehicle_type else '—' }}</td>
       <td>{{ v.make or '—' }}</td>
       <td>{{ v.model or '—' }}</td>

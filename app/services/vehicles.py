@@ -120,8 +120,10 @@ def remove_import(imp):
       their schedule entries, tasks, and service history.
     - Vehicles the import deactivated (preview 'removed') are reactivated.
     - The import record itself is deleted.
+    - If no applied import remains for that schedule's day, that day's work
+      list is cleared so the Today board resets to empty.
     """
-    from app.models import ScheduleEntry
+    from app.models import ScheduleEntry, DailySchedule
 
     preview = json.loads(imp.preview_json or "{}")
     units_new = [item.get("unit") for item in preview.get("new", [])
@@ -146,7 +148,18 @@ def remove_import(imp):
         if vehicle:
             vehicle.active = True
 
+    sched_date = imp.schedule_date
     db.session.delete(imp)
+    db.session.flush()
+
+    if sched_date is not None:
+        remaining = PrepReportImport.query.filter_by(
+            applied=True, schedule_date=sched_date).count()
+        if remaining == 0:
+            for sched in DailySchedule.query.filter_by(work_date=sched_date).all():
+                for entry in list(sched.entries):
+                    db.session.delete(entry)
+
     db.session.commit()
 
     return len(units_new)

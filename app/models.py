@@ -205,6 +205,7 @@ class PrepReportImport(db.Model):
     imported_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     applied = db.Column(db.Boolean, default=False)
     applied_at = db.Column(db.DateTime)
+    schedule_date = db.Column(db.Date)
     employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"))
     extraction_method = db.Column(db.String(40))  # text / table / ocr
     summary = db.Column(db.Text)

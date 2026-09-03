@@ -8,6 +8,7 @@ import pytest
 from app import create_app
 from app.models import db, Vehicle, ScheduleEntry, TaskCompletion, Replacement, \
     DailySchedule
+from app.services.vehicles import find_or_create_vehicle
 from app.services.pdf_parser import normalize_unit
 from app.services.pdf_parser import parse_prep_report
 from app.services import schedule as sched_svc
@@ -302,6 +303,50 @@ def test_import_delete_removes_imported_vehicles(client, app):
         assert ScheduleEntry.query.filter_by(vehicle_id=0).count() == 0
 
 
+def test_today_board_tracks_import(client, app):
+    """Today's total is 0 until a prep report is imported and applied, and
+    resets to 0 once the import is deleted (matches the separate Vehicles tab,
+    which always lists all vehicles)."""
+    import fitz
+    import re
+
+    def today_total():
+        html = client.get("/").data.decode()
+        m = re.search(
+            r'<div class="num">(\d+)</div><div class="lbl">Total Vehicles',
+            html)
+        return int(m.group(1)) if m else None
+
+    # No import yet -> Today shows zero
+    assert today_total() == 0
+
+    # Build and upload a prep report with two vehicles
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Unit  Type  Route")
+    page.insert_text((72, 100), "710   Coach  R1")
+    page.insert_text((72, 130), "720   Van    R2")
+    data = doc.tobytes()
+
+    r = client.post("/import", data={
+        "pdf": (io.BytesIO(data), "prep3.pdf"),
+    }, content_type="multipart/form-data")
+    assert r.status_code == 200
+
+    with app.app_context():
+        from app.models import PrepReportImport
+        iid = PrepReportImport.query.first().id
+
+    r = client.post(f"/import/{iid}/apply")
+    assert r.status_code == 302
+    assert today_total() == 2
+
+    # Delete the import -> Today resets to zero
+    r = client.post(f"/import/{iid}/delete")
+    assert r.status_code == 302
+    assert today_total() == 0
+
+
 # ---------------------------------------------------------------------------
 # Checklist + progress
 # ---------------------------------------------------------------------------
@@ -449,6 +494,17 @@ def test_vehicle_crud(client, app):
     assert b"999" in r.data
     r = client.get("/vehicles")
     assert b"999" in r.data
+
+
+def test_vehicle_list_shows_inactive_vehicles(client, app):
+    with app.app_context():
+        v, _ = find_or_create_vehicle("888", vehicle_type="Van", route="R8")
+        v.active = False
+        db.session.commit()
+    r = client.get("/vehicles")
+    assert r.status_code == 200
+    assert b"888" in r.data
+    assert b"Inactive" in r.data
 
 
 def test_employees_and_history_pages(client):
