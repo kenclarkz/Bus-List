@@ -410,6 +410,13 @@ def register_routes(app):
         return render_template(
             "history.html", days=days, imports=imports, replacements=replacements)
 
+    @app.route("/import/<int:import_id>/delete", methods=["POST"])
+    def import_delete(import_id):
+        imp = PrepReportImport.query.get_or_404(import_id)
+        count = vehicles.remove_import(imp)
+        flash(f"Prep report import deleted along with {count} vehicle(s)", "success")
+        return redirect(url_for("history_days"))
+
     @app.route("/history/vehicle/<int:vehicle_id>")
     def vehicle_history(vehicle_id):
         vehicle = Vehicle.query.get_or_404(vehicle_id)

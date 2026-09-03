@@ -111,3 +111,42 @@ def record_import(filename, applied, summary, preview, employee_id=None,
     db.session.add(imp)
     db.session.commit()
     return imp
+
+
+def remove_import(imp):
+    """Remove a prep report import along with the information it introduced.
+
+    - Newly created vehicles (from preview 'new') are deleted together with
+      their schedule entries, tasks, and service history.
+    - Vehicles the import deactivated (preview 'removed') are reactivated.
+    - The import record itself is deleted.
+    """
+    from app.models import ScheduleEntry
+
+    preview = json.loads(imp.preview_json or "{}")
+    units_new = [item.get("unit") for item in preview.get("new", [])
+                 if item.get("unit")]
+    units_removed = [item.get("unit") for item in preview.get("removed", [])
+                     if item.get("unit")]
+
+    for unit in units_new:
+        vehicle = Vehicle.query.filter(
+            db.func.lower(Vehicle.unit_number) == str(unit).lower()
+        ).first()
+        if vehicle:
+            for entry in ScheduleEntry.query.filter_by(
+                    vehicle_id=vehicle.id).all():
+                db.session.delete(entry)
+            db.session.delete(vehicle)
+
+    for unit in units_removed:
+        vehicle = Vehicle.query.filter(
+            db.func.lower(Vehicle.unit_number) == str(unit).lower()
+        ).first()
+        if vehicle:
+            vehicle.active = True
+
+    db.session.delete(imp)
+    db.session.commit()
+
+    return len(units_new)
