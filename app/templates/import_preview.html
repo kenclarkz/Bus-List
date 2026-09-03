@@ -23,9 +23,9 @@
   {% if preview.new %}
   <div class="table-wrap">
   <table>
-    <tr><th>Unit</th><th>Type</th><th>Route</th></tr>
+    <tr><th>Unit</th><th>Type</th><th>Route</th><th>Prep</th></tr>
     {% for v in preview.new %}
-    <tr><td><strong>{{ v.unit }}</strong></td><td>{{ v.type or '—' }}</td><td>{{ v.route or '—' }}</td></tr>
+    <tr><td><strong>{{ v.unit }}</strong></td><td>{{ v.type or '—' }}</td><td>{{ v.route or '—' }}</td><td>{{ v.prep_time or '—' }}</td></tr>
     {% endfor %}
   </table>
   </div>
@@ -37,13 +37,13 @@
   {% if preview.updated or preview.unchanged %}
   <div class="table-wrap">
   <table>
-    <tr><th>Unit</th><th>Type</th><th>Route</th><th>Action</th></tr>
+    <tr><th>Unit</th><th>Type</th><th>Route</th><th>Prep</th><th>Action</th></tr>
     {% for v in preview.updated %}
-    <tr><td><strong>{{ v.unit }}</strong></td><td>{{ v.type or '—' }}</td><td>{{ v.route or '—' }}</td>
+    <tr><td><strong>{{ v.unit }}</strong></td><td>{{ v.type or '—' }}</td><td>{{ v.route or '—' }}</td><td>{{ v.prep_time or '—' }}</td>
         <td><span class="badge warn">updated</span></td></tr>
     {% endfor %}
     {% for v in preview.unchanged %}
-    <tr><td>{{ v.unit }}</td><td>{{ v.type or '—' }}</td><td>{{ v.route or '—' }}</td>
+    <tr><td>{{ v.unit }}</td><td>{{ v.type or '—' }}</td><td>{{ v.route or '—' }}</td><td>{{ v.prep_time or '—' }}</td>
         <td><span class="badge muted">no change</span></td></tr>
     {% endfor %}
   </table>

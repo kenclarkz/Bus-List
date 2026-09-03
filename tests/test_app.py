@@ -139,6 +139,9 @@ def test_echo_format_parsing():
     assert parsed["9331"].type == "Van"
     assert parsed["9331"].route == "Hourly"
 
+    assert parsed["9205"].prep_time == "01:45"
+    assert parsed["4301"].prep_time == "04:00"
+
 
 # ---------------------------------------------------------------------------
 # Import preview / apply
@@ -263,6 +266,12 @@ def test_import_echo_format_end_to_end(client, app):
         sched = DailySchedule.query.filter_by(work_date=date.today()).first()
         assert sched is not None
         assert len(sched.entries) == 2
+        prep_times = {}
+        for e in sched.entries:
+            v = Vehicle.query.get(e.vehicle_id)
+            prep_times[v.unit_number] = e.prep_time
+        assert prep_times.get("100") == "01:45"
+        assert prep_times.get("200") == "02:00"
 
 
 def test_import_delete_removes_imported_vehicles(client, app):

@@ -37,10 +37,33 @@ def create_app(test_config=None):
     db.init_app(app)
     with app.app_context():
         db.create_all()
+        _migrate()
         seed_defaults()
 
     register_routes(app)
     return app
+
+
+def _migrate():
+    """Lightweight column migrations for sqlite (no migration framework)."""
+    import sqlite3
+    from flask import current_app
+
+    uri = current_app.config["SQLALCHEMY_DATABASE_URI"]
+    if not uri.startswith("sqlite:///"):
+        return
+    path = uri.replace("sqlite:///", "", 1)
+    if path == ":memory:":
+        return
+    try:
+        con = sqlite3.connect(path)
+        cols = {r[1] for r in con.execute("PRAGMA table_info(schedule_entries)")}
+        if "prep_time" not in cols:
+            con.execute("ALTER TABLE schedule_entries ADD COLUMN prep_time VARCHAR(40)")
+            con.commit()
+        con.close()
+    except Exception:
+        pass
 
 
 def seed_defaults():

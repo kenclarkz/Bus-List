@@ -132,6 +132,7 @@ class ScheduleEntry(db.Model):
     is_replacement = db.Column(db.Boolean, default=False)
     replacement_of_entry_id = db.Column(db.Integer)
     order_index = db.Column(db.Integer, default=0)
+    prep_time = db.Column(db.String(40))
 
     schedule = db.relationship("DailySchedule", back_populates="entries")
     vehicle = db.relationship("Vehicle")

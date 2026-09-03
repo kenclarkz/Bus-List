@@ -7,3 +7,6 @@ data/*.sqlite
 uploads/
 .pytest_cache/
 *.db-journal
+.venv/
+data/*.db.bak-*
+data/*.db.importfix-*

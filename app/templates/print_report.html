@@ -29,12 +29,13 @@
 
     <h2>Daily Work List</h2>
     <table>
-      <tr><th>Unit</th><th>Type</th><th>Route</th><th>Status</th><th>Checklist</th></tr>
+      <tr><th>Unit</th><th>Type</th><th>Route</th><th>Prep</th><th>Status</th><th>Checklist</th></tr>
       {% for r in rows %}
       <tr>
         <td><strong>{{ r.vehicle.unit_number }}</strong>{% if r.entry.is_replacement %} *{% endif %}</td>
         <td>{{ r.vehicle.vehicle_type.name if r.vehicle.vehicle_type else '—' }}</td>
         <td>{{ r.vehicle.route or '—' }}</td>
+        <td>{{ r.entry.prep_time or '—' }}</td>
         <td>{{ r.entry.status }}</td>
         <td>
           {% for t in r.entry.tasks|sort(attribute='task_name') %}

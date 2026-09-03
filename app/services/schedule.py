@@ -24,7 +24,7 @@ def get_or_create_schedule(d=None, location=None):
     return sched
 
 
-def ensure_entry(sched, vehicle, order_index=0):
+def ensure_entry(sched, vehicle, order_index=0, prep_time=None):
     entry = ScheduleEntry.query.filter_by(schedule_id=sched.id,
                                           vehicle_id=vehicle.id).first()
     if not entry:
@@ -33,10 +33,14 @@ def ensure_entry(sched, vehicle, order_index=0):
             vehicle_id=vehicle.id,
             status="pending",
             order_index=order_index,
+            prep_time=prep_time,
         )
         db.session.add(entry)
         db.session.flush()
         create_task_rows(entry)
+        db.session.commit()
+    elif prep_time and entry.prep_time != prep_time:
+        entry.prep_time = prep_time
         db.session.commit()
     return entry
 
@@ -216,7 +220,8 @@ def build_preview(parsed, location=None):
         key = p.unit.lower()
         seen.add(key)
         existing = db_units.get(key)
-        v = {"unit": p.unit, "type": p.type, "route": p.route, "raw": p.raw}
+        v = {"unit": p.unit, "type": p.type, "route": p.route, "raw": p.raw,
+             "prep_time": p.prep_time}
         if p.uncertain:
             preview["uncertain"].append(v)
 
@@ -269,7 +274,8 @@ def apply_import(preview, location=None, employee_id=None, source="import",
         if item.get("route"):
             vehicle.route = item["route"]
         vehicle.active = True
-        ensure_entry(sched, vehicle, order_index=position)
+        ensure_entry(sched, vehicle, order_index=position,
+                     prep_time=item.get("prep_time"))
         position += 1
         db.session.commit()
 

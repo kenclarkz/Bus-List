@@ -66,14 +66,16 @@ def normalize_type(raw):
 
 
 class ParsedVehicle:
-    __slots__ = ("unit", "type", "route", "raw", "uncertain")
+    __slots__ = ("unit", "type", "route", "raw", "uncertain", "prep_time")
 
-    def __init__(self, unit, type=None, route=None, raw=None, uncertain=False):
+    def __init__(self, unit, type=None, route=None, raw=None, uncertain=False,
+                 prep_time=None):
         self.unit = unit
         self.type = type
         self.route = route
         self.raw = raw
         self.uncertain = uncertain
+        self.prep_time = prep_time
 
     def to_dict(self):
         return {
@@ -82,6 +84,7 @@ class ParsedVehicle:
             "route": self.route,
             "raw": self.raw,
             "uncertain": self.uncertain,
+            "prep_time": self.prep_time,
         }
 
 
@@ -207,6 +210,9 @@ def _echo_row_to_vehicle(cols, found):
     """
     raw = " | ".join(c for c in cols if c)
 
+    # Column 0: Prep Time — the time the vehicle needs to be detailed
+    prep_time = normalize_route(cols[0]) if len(cols) > 0 and cols[0] else None
+
     # Column 1: Vehicle — unit number is first line before the newline
     vehicle_cell = cols[1]
     unit_lines = [l.strip() for l in vehicle_cell.split("\n") if l.strip()]
@@ -227,12 +233,15 @@ def _echo_row_to_vehicle(cols, found):
 
     existing = found.get(unit)
     if existing is None:
-        found[unit] = ParsedVehicle(unit, type=vt, route=route, raw=raw)
+        found[unit] = ParsedVehicle(unit, type=vt, route=route, raw=raw,
+                                    prep_time=prep_time)
     else:
         if not existing.type and vt:
             existing.type = vt
         if not existing.route and route:
             existing.route = route
+        if not existing.prep_time and prep_time:
+            existing.prep_time = prep_time
 
 
 def _words_to_vehicle(words, found):

@@ -66,6 +66,7 @@
       <div class="vmeta">
         {{ v.vehicle_type.name if v.vehicle_type else '—' }}
         {% if v.route %} · Route {{ v.route }}{% endif %}
+        {% if entry.prep_time %} · Prep {{ entry.prep_time }}{% endif %}
       </div>
       <span class="badge {{ 'success' if entry.status == 'completed' else ('info' if entry.status == 'in_progress' else 'muted') }}">
         {{ {'pending': 'Pending', 'in_progress': 'In Progress', 'completed': 'Completed'}[entry.status] }}
