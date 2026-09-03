@@ -264,6 +264,44 @@ def test_import_echo_format_end_to_end(client, app):
         assert len(sched.entries) == 2
 
 
+def test_import_delete_removes_imported_vehicles(client, app):
+    """Deleting a prep report import also removes the vehicles it introduced."""
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Unit  Type  Route")
+    page.insert_text((72, 100), "610   Coach  R1")
+    page.insert_text((72, 130), "620   Van    R2")
+    data = doc.tobytes()
+
+    r = client.post("/import", data={
+        "pdf": (io.BytesIO(data), "prep2.pdf"),
+    }, content_type="multipart/form-data")
+    assert r.status_code == 200
+
+    with app.app_context():
+        from app.models import PrepReportImport
+        imp = PrepReportImport.query.first()
+        iid = imp.id
+
+    r = client.post(f"/import/{iid}/apply")
+    assert r.status_code == 302
+
+    with app.app_context():
+        assert Vehicle.query.filter_by(unit_number="610").first() is not None
+        assert Vehicle.query.filter_by(unit_number="620").first() is not None
+
+    r = client.post(f"/import/{iid}/delete")
+    assert r.status_code == 302
+
+    with app.app_context():
+        from app.models import PrepReportImport, ScheduleEntry
+        assert PrepReportImport.query.get(iid) is None
+        assert Vehicle.query.filter_by(unit_number="610").first() is None
+        assert Vehicle.query.filter_by(unit_number="620").first() is None
+        assert ScheduleEntry.query.filter_by(vehicle_id=0).count() == 0
+
+
 # ---------------------------------------------------------------------------
 # Checklist + progress
 # ---------------------------------------------------------------------------
