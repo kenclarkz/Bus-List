@@ -44,7 +44,7 @@ def create_app(test_config=None):
 
 
 def seed_defaults():
-    from .models import Location, Employee
+    from .models import Location, Employee, VehicleType
     loc = Location.query.filter_by(name="Main Depot").first()
     if not loc:
         loc = Location(name="Main Depot")
@@ -53,6 +53,86 @@ def seed_defaults():
     if Employee.query.count() == 0:
         db.session.add(Employee(name="User", location_id=loc.id, active=True))
         db.session.commit()
+    if Vehicle.query.count() == 0:
+        _seed_vehicles(loc)
+
+
+VEHICLE_SEED_DATA = [
+    ("UNF", "4301", "TRANSITB", "Active", "TRANSIT BUS", "El Dorado ENC", "EZ Rider II", 33),
+    ("UNF", "4302", "TRANSITB", "Active", "TRANSIT BUS", "El Dorado ENC", "EZ Rider II", 33),
+    ("UNF", "4303", "TRANSITB", "Active", "TRANSIT BUS", "El Dorado ENC", "EZ Rider II", 33),
+    ("UNF", "4304", "TRANSITB", "Active", "TRANSIT BUS", "El Dorado ENC", "EZ Rider II", 33),
+    ("UNF", "4305", "TRANSITB", "Active", "TRANSIT BUS", "El Dorado ENC", "EZ Rider II", 33),
+    ("UNF", "4306", "TRANSITB", "Active", "TRANSIT BUS", "El Dorado ENC", "EZ Rider II", 33),
+    ("UNF", "4307", "TRANSITB", "Active", "TRANSIT BUS", "El Dorado ENC", "EZ Rider II", 33),
+    ("UNF", "4308", "TRANSITB", "Active", "TRANSIT BUS", "El Dorado ENC", "EZ Rider II", 33),
+    ("UNF", "5100", "ADAMINIVAN", "Active", "MINIBUS ADA LIFT", "Ford", "F450", 14),
+    ("UNF", "5307", "ADAMINIBUS", "Active", "MINIBUS ADA LIFT", "Starcraft", "Allstar XL 32", 30),
+    ("UNF", "5308", "ADAMINIBUS", "Active", "MINIBUS ADA LIFT", "Starcraft", "Allstar XL 32", 30),
+    ("ECHO JAX", "7101", "MINIC34", "Active", "MINI COACH", "TEMSA", "TS-30", 34),
+    ("ECHO JAX", "8401", "MOTORC", "Active", "MOTORCOACH", "Vanhool", "CX45", 56),
+    ("ECHO JAX", "8406", "MOTORC", "Active", "MOTORCOACH", "VanHool", "CX45", 56),
+    ("ECHO JAX", "8414", "MOTORC", "Active", "MOTORCOACH", "VanHool", "CX45", 56),
+    ("ECHO JAX", "8415", "MOTORC", "Active", "MOTORCOACH", "VanHool", "CX45", 56),
+    ("ECHO JAX", "8416", "MOTORC", "Active", "MOTORCOACH", "VanHool", "CX45", 56),
+    ("ECHO JAX", "8437", "ADAMOTORC", "Active", "MOTORCOACH ADA LIFT", "Vanhool", "CX45", 56),
+    ("ECHO JAX", "8438", "ADAMOTORC", "Active", "Motorcoach ADA Lift", "VanHool", "CX45", 56),
+    ("ECHO JAX", "8439", "ADAMOTORC", "Active", "Motorcoach ADA Lift", "Vanhool", "CX45", 56),
+    ("ECHO JAX", "8492", "MOTORC", "Active", "MOTORCOACH", "VanHool", "CX45", 56),
+    ("ECHO JAX", "8493", "MOTORC", "Active", "MOTORCOACH", "VanHool", "CX45", 56),
+    ("ECHO JAX", "8494", "MOTORC", "Active", "MOTORCOACH", "VanHool", "CX45", 56),
+    ("ECHO JAX", "8495", "MOTORC", "Active", "MOTORCOACH", "VanHool", "CX45", 56),
+    ("ECHO JAX", "9101", "SEDAN", "Active", "SEDAN", "Volvo", "S90", 3),
+    ("ECHO JAX", "9102", "SEDAN", "Active", "SEDAN", "Volvo", "S90", 3),
+    ("ECHO JAX", "9142", "SEDAN", "Active", "SEDAN", "Genesis", "G90", 3),
+    ("ECHO JAX", "9145", "SEDAN", "Active", "SEDAN", "Genesis", "G80", 3),
+    ("ECHO JAX", "9146", "SEDAN", "Out Of Service", "SEDAN", "Cadillac", "XTS", 3),
+    ("ECHO JAX", "9201", "SUVSUB", "Active", "SUV - REID", "CHEVROLET", "SUBURBAN", 6),
+    ("ECHO JAX", "9202", "SUVSUB", "Active", "SUV - BUNTEN", "CHEVROLET", "SUBURBAN", 6),
+    ("ECHO JAX", "9203", "SUVSUB", "Active", "SUV - RICKETTS", "CHEVROLET", "SUBURBAN", 7),
+    ("ECHO JAX", "9204", "SUVSUB", "Active", "SUV - WILLIAMS", "CHEVROLET", "SUBURBAN", 7),
+    ("ECHO JAX", "9205", "SUVSUB", "Active", "SUV", "CHEVROLET", "SUBURBAN", 7),
+    ("ECHO JAX", "9232", "SUVYUKON", "Active", "SUV", "GMC XL", "YUKON", 7),
+    ("ECHO JAX", "9233", "SUVYUKON", "Active", "SUV", "GMC", "Yukon Denali", 5),
+    ("ECHO JAX", "9234", "SUVSUB", "Active", "SUV", "Ford", "Expedition", 7),
+    ("ECHO JAX", "9301", "Van.", "Active", "", "Ford", "Transit", 14),
+    ("MSG", "9313", "ADAMINIVAN", "Active", "", "Ford", "Transit", 12),
+    ("ECHO JAX", "9321", "VANSPRINTEREXEC", "Active", "", "Mercedes Benz", "Grech Executive", 13),
+    ("ECHO JAX", "9331", "Van.", "Active", "WHITE", "Ford", "Transit", 14),
+    ("ECHO JAX", "9332", "VANSPRINTEREXEC", "Active", "MERCEDES SPRINTER", "Mercedes", "Sprinter", 14),
+    ("ECHO JAX", "9333", "Van.", "Active", "", "Ford", "Transit", 13),
+    ("ECHO JAX", "9334", "TRUCK", "Maintenance", "LUGGAGE VEHICLE ONLY - NO PASSENGERS", "Ford", "Venterra", 0),
+    ("ECHO JAX", "9335", "Van.", "Active", "Executive Van", "Ford", "Transit", 13),
+    ("ECHO JAX", "9336", "Van.", "Active", "Executive Van", "Ford", "Transit", 13),
+    ("MSG", "9341", "Van.", "Active", "Marriott Shuttle", "Ford", "E-350", 14),
+    ("MSG", "9342", "Van.", "Active", "Marriott Shuttle", "Ford", "E-350", 14),
+    ("ECHO JAX", "9416", "MINIBUS", "Active", "MINI BUS / REAR LUGGAGE", "Ford", "Grech GM33", 28),
+    ("ECHO JAX", "9417", "MINIBUS", "Active", "MINI BUS / REAR LUGGAGE", "Ford", "Grech GM 33", 28),
+    ("ECHO JAX", "9421", "MINIBUS", "Active", "MINI BUS / REAR LUGGAGE", "GMC", "DIAMOND VIP", 24),
+    ("ECHO JAX", "9422", "MINIBUS", "Active", "MINI BUS / REAR LUGGAGE", "Ford", "Grech GM28", 22),
+    ("ECHO JAX", "9423", "MINIBUS", "Active", "MINI BUS / REAR LUGGAGE", "Ford", "Grech GM28", 22),
+    ("ECHO JAX", "9440", "MINIC40", "Active", "GRECH GM40", "Grech", "GM-40", 40),
+]
+
+
+def _seed_vehicles(loc):
+    from .services.vehicles import get_or_create_vehicle_type
+    for entity, unit, vtype, status, desc, make, model, cap in VEHICLE_SEED_DATA:
+        vt = get_or_create_vehicle_type(vtype)
+        v = Vehicle(
+            unit_number=unit,
+            vehicle_type_id=vt.id if vt else None,
+            status=status,
+            description=desc or None,
+            make=make,
+            model=model,
+            capacity=cap,
+            active=(status != "Maintenance"),
+            cleaning_frequency=vt.cleaning_frequency_days if vt else 7,
+            location_id=loc.id,
+        )
+        db.session.add(v)
+    db.session.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +298,13 @@ def register_routes(app):
                 location_id=vehicles.default_location().id,
             )
             vehicle.status = request.form.get("status") or "Active"
+            vehicle.make = request.form.get("make") or None
+            vehicle.model = request.form.get("model") or None
+            vehicle.description = request.form.get("description") or None
+            try:
+                vehicle.capacity = int(request.form.get("capacity", 0))
+            except (ValueError, TypeError):
+                pass
             db.session.commit()
             flash(f"Vehicle {vehicle.unit_number} created", "success")
             return redirect(url_for("vehicle_detail", vehicle_id=vehicle.id))
@@ -237,6 +324,9 @@ def register_routes(app):
             vehicle.route = request.form.get("route") or None
             vehicle.status = request.form.get("status") or "Active"
             vehicle.notes = request.form.get("notes") or None
+            vehicle.make = request.form.get("make") or None
+            vehicle.model = request.form.get("model") or None
+            vehicle.description = request.form.get("description") or None
             vehicle.active = request.form.get("active") == "on"
             vt_name = request.form.get("vehicle_type")
             if vt_name:
@@ -244,6 +334,7 @@ def register_routes(app):
             try:
                 vehicle.cleaning_frequency = int(
                     request.form.get("cleaning_frequency", vehicle.cleaning_frequency))
+                vehicle.capacity = int(request.form.get("capacity", 0))
             except (ValueError, TypeError):
                 pass
             db.session.commit()

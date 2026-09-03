@@ -8,15 +8,21 @@
 
 <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(160px,1fr))">
   <div class="stat"><div class="num" style="font-size:1rem">{{ vehicle.vehicle_type.name if vehicle.vehicle_type else '—' }}</div><div class="lbl">Type</div></div>
-  <div class="stat"><div class="num" style="font-size:1rem">{{ vehicle.route or '—' }}</div><div class="lbl">Route</div></div>
+  <div class="stat"><div class="num" style="font-size:1rem">{{ vehicle.make or '—' }}</div><div class="lbl">Make</div></div>
+  <div class="stat"><div class="num" style="font-size:1rem">{{ vehicle.model or '—' }}</div><div class="lbl">Model</div></div>
+  <div class="stat"><div class="num" style="font-size:1rem">{{ vehicle.capacity or '—' }}</div><div class="lbl">Capacity</div></div>
   <div class="stat"><div class="num" style="font-size:1rem">{{ vehicle.status or '—' }}</div><div class="lbl">Status</div></div>
-  <div class="stat"><div class="num" style="font-size:1rem">{{ vehicle.cleaning_frequency or '—' }}d</div><div class="lbl">Frequency</div></div>
   <div class="stat"><div class="num" style="font-size:1rem"><span class="{{ indicator[1] }}">{{ indicator[0] }}</span></div><div class="lbl">Wash Status</div></div>
 </div>
 
 <div class="card">
   <h2>Details</h2>
   <p><strong>Unit:</strong> {{ vehicle.unit_number }}</p>
+  <p><strong>Description:</strong> {{ vehicle.description or '—' }}</p>
+  <p><strong>Make:</strong> {{ vehicle.make or '—' }}</p>
+  <p><strong>Model:</strong> {{ vehicle.model or '—' }}</p>
+  <p><strong>Capacity:</strong> {{ vehicle.capacity or '—' }}</p>
+  <p><strong>Route:</strong> {{ vehicle.route or '—' }}</p>
   <p><strong>Last Washed:</strong> {{ vehicle.last_washed.strftime('%b %d %Y %H:%M') if vehicle.last_washed else 'Never' }}</p>
   <p><strong>Last Detailed:</strong> {{ vehicle.last_detailed.strftime('%b %d %Y %H:%M') if vehicle.last_detailed else 'Never' }}</p>
   <p><strong>Active:</strong> {{ 'Yes' if vehicle.active else 'No' }}</p>
