@@ -354,6 +354,15 @@ def register_routes(app):
         overall = round((sum(r["done"] for r in rows) /
                         (sum(r["total"] for r in rows) or 1)) * 100) if rows else 0
         incomplete_rows = [r for r in rows if r["entry"].status != "completed"]
+        completed_rows = []
+        for r in rows:
+            if r["entry"].status != "completed":
+                continue
+            emp_tasks = {}
+            for t in r["entry"].tasks:
+                if t.completed and t.employee:
+                    emp_tasks.setdefault(t.employee.name, []).append(t.task_name)
+            completed_rows.append({**r, "employees": emp_tasks})
 
         if request.method == "POST" and request.form.get("confirm") == "yes":
             sched.finalized = True
@@ -370,6 +379,7 @@ def register_routes(app):
             replacements=replacements, d=d,
             total=total, completed=completed, incomplete=incomplete,
             overall=overall, incomplete_rows=incomplete_rows,
+            completed_rows=completed_rows,
             finalized=sched.finalized, employees=employees_list())
 
     @app.route("/print/<path:date>")
