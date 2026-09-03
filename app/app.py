@@ -186,9 +186,19 @@ def status_indicator(last_washed):
     return ("Overdue", "status-overdue")
 
 
+def _prep_time_sort_key(entry):
+    """Sort schedule entries by prep time (earliest first). Entries without a
+    prep time are moved after all timed ones, ordered by their import position."""
+    import re
+    m = re.match(r"\s*(\d{1,2}):(\d{2})", entry.prep_time or "")
+    if not m:
+        return (1, entry.order_index)
+    return (0, int(m.group(1)) * 60 + int(m.group(2)))
+
+
 def build_schedule_view(sched):
     rows = []
-    for entry in sorted(sched.entries, key=lambda e: e.order_index):
+    for entry in sorted(sched.entries, key=_prep_time_sort_key):
         done, total, pct = sched_svc.entry_progress(entry)
         rows.append({
             "entry": entry,

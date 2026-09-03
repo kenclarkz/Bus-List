@@ -520,3 +520,28 @@ def test_employees_and_history_pages(client):
     assert client.get("/employees").status_code == 200
     assert client.get("/history").status_code == 200
     assert client.get("/settings").status_code == 200
+
+
+def test_schedule_view_orders_by_prep_time(app):
+    """Entries on the board are ordered by prep time (earliest first), falling
+    back to import order for entries without a prep time."""
+    from app.app import build_schedule_view
+    from app.services import schedule as ss
+    from app.services.vehicles import find_or_create_vehicle
+
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+
+        def add(unit, prep):
+            v, _ = find_or_create_vehicle(unit, location_id=loc.id)
+            ss.ensure_entry(sched, v, order_index=int(unit),
+                            prep_time=prep)
+
+        add("300", "09:45")
+        add("400", "04:00")
+        add("500", None)      # no prep time -> goes after timed ones
+        add("100", "01:45")
+
+        order = [r["vehicle"].unit_number for r in build_schedule_view(sched)]
+        assert order == ["100", "400", "300", "500"]
