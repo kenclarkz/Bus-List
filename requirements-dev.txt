@@ -1,0 +1,2 @@
+# Test dependencies (optional)
+pytest>=7.0
