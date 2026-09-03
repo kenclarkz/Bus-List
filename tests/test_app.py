@@ -48,6 +48,24 @@ def test_normalize_unit_variants():
     assert normalize_unit(None) is None
 
 
+def test_normalize_unit_trailing_dash():
+    from app.services.pdf_parser import normalize_unit
+    assert normalize_unit("9205-") == "9205"
+    assert normalize_unit("4301-") == "4301"
+    assert normalize_unit("187") == "187"
+
+
+def test_normalize_type_preserves_uppercase_codes():
+    from app.services.pdf_parser import normalize_type
+    assert normalize_type("SUVSUB") == "SUVSUB"
+    assert normalize_type("TRANSITB") == "TRANSITB"
+    assert normalize_type("MINIBUS") == "MINIBUS"
+    assert normalize_type("Van") == "Van"
+    assert normalize_type("Shuttle") == "Shuttle"
+    assert normalize_type(None) is None
+    assert normalize_type("") is None
+
+
 def test_text_pdf_parsing(app):
     import fitz
     doc = fitz.open()
@@ -60,6 +78,65 @@ def test_text_pdf_parsing(app):
     assert "142" in parsed
     assert "155" in parsed
     assert method == "text"
+
+
+def test_echo_format_parsing():
+    """Test ECHO prep report format with multi-line Vehicle cells."""
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+
+    # Draw bordered table in ECHO format
+    headers = ["Prep Time", "Vehicle", "Vehicle Type", "Type", "Trips #"]
+    col_widths = [60, 90, 80, 90, 45]
+    row_h = 30
+    x0, y0 = 40, 60
+
+    data_rows = [
+        ["01:45", "9205-\nJAXSUV", "SUVSUB", "Departure", "4"],
+        ["02:00", "9203-\nJAXSUV", "SUVSUB", "As Directed", "1"],
+        ["04:00", "4301-\nJAXUNF", "TRANSITB", "Shuttle", "2"],
+        ["04:15", "7101-\nJAXMINIC", "MINIC34", "Transfer", "2"],
+        ["09:45", "9331-\nJAXVAN", "Van", "Hourly", "1"],
+    ]
+
+    # Draw header row
+    all_rows = [headers] + data_rows
+    for ri, row in enumerate(all_rows):
+        ry = y0 + ri * row_h
+        cx = x0
+        for ci, (cell, w) in enumerate(zip(row, col_widths)):
+            shape = page.new_shape()
+            shape.draw_rect(fitz.Rect(cx, ry, cx + w, ry + row_h))
+            shape.finish(color=(0, 0, 0))
+            shape.commit()
+            if ci == 1 and "\n" in cell:
+                lines = cell.split("\n", 1)
+                page.insert_text((cx + 3, ry + 14), lines[0], fontsize=8)
+                page.insert_text((cx + 3, ry + 24), lines[1], fontsize=7)
+            else:
+                page.insert_text((cx + 3, ry + 14), cell, fontsize=8)
+            cx += w
+
+    buf = doc.tobytes()
+    parsed, method, warnings = parse_prep_report(buf)
+
+    assert len(parsed) == 5
+    assert "9205" in parsed
+    assert parsed["9205"].type == "SUVSUB"
+    assert parsed["9205"].route == "Departure"
+    assert "9203" in parsed
+    assert parsed["9203"].type == "SUVSUB"
+    assert parsed["9203"].route == "As Directed"
+    assert "4301" in parsed
+    assert parsed["4301"].type == "TRANSITB"
+    assert parsed["4301"].route == "Shuttle"
+    assert "7101" in parsed
+    assert parsed["7101"].type == "MINIC34"
+    assert parsed["7101"].route == "Transfer"
+    assert "9331" in parsed
+    assert parsed["9331"].type == "Van"
+    assert parsed["9331"].route == "Hourly"
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +202,66 @@ def test_import_detects_substitution(app):
         assert any(r["original"] == "190" for r in preview["replacements"])
         assert any(r["original"] == "142" for r in preview["updated"]) or \
             any(r["unit"] == "142" for r in preview["unchanged"])
+
+
+def test_import_echo_format_end_to_end(client, app):
+    """Import an ECHO-format PDF through the full import flow."""
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+
+    headers = ["Prep Time", "Vehicle", "Vehicle Type", "Type", "Trips #"]
+    col_widths = [60, 90, 80, 90, 45]
+    row_h = 30
+    x0, y0 = 40, 60
+
+    data_rows = [
+        ["01:45", "100-\nJAXUNF", "TRANSITB", "Shuttle", "2"],
+        ["02:00", "200-\nJAXSUV", "SUVSUB", "Hourly", "1"],
+    ]
+
+    all_rows = [headers] + data_rows
+    for ri, row in enumerate(all_rows):
+        ry = y0 + ri * row_h
+        cx = x0
+        for ci, (cell, w) in enumerate(zip(row, col_widths)):
+            shape = page.new_shape()
+            shape.draw_rect(fitz.Rect(cx, ry, cx + w, ry + row_h))
+            shape.finish(color=(0, 0, 0))
+            shape.commit()
+            if ci == 1 and "\n" in cell:
+                lines = cell.split("\n", 1)
+                page.insert_text((cx + 3, ry + 14), lines[0], fontsize=8)
+                page.insert_text((cx + 3, ry + 24), lines[1], fontsize=7)
+            else:
+                page.insert_text((cx + 3, ry + 14), cell, fontsize=8)
+            cx += w
+
+    data = doc.tobytes()
+
+    r = client.post("/import", data={
+        "pdf": (io.BytesIO(data), "echo_prep.pdf"),
+    }, content_type="multipart/form-data")
+    assert r.status_code == 200
+    assert b"Import Preview" in r.data
+    assert b"TRANSITB" in r.data
+    assert b"SUVSUB" in r.data
+
+    # Apply the import
+    with app.app_context():
+        from app.models import PrepReportImport
+        imp = PrepReportImport.query.first()
+        iid = imp.id
+
+    r = client.post(f"/import/{iid}/apply")
+    assert r.status_code == 302
+
+    with app.app_context():
+        assert Vehicle.query.filter_by(unit_number="100").first() is not None
+        assert Vehicle.query.filter_by(unit_number="200").first() is not None
+        sched = DailySchedule.query.filter_by(work_date=date.today()).first()
+        assert sched is not None
+        assert len(sched.entries) == 2
 
 
 # ---------------------------------------------------------------------------

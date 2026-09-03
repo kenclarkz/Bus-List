@@ -27,12 +27,14 @@ UNIT_RE = re.compile(r"(?i)(?:unit|bus|veh|vehicle|no|#)?\s*[\s.#-]{0,3}(\d{2,6}
 
 
 def normalize_unit(raw):
-    """Normalize 'BUS 142', 'Unit 142', '142' to '142'."""
+    """Normalize 'BUS 142', 'Unit 142', '142', '9205-' to '142' / '9205'."""
     if raw is None:
         return None
     text = str(raw).strip()
     if not text:
         return None
+    # Strip trailing dashes that some report formats add to unit numbers
+    text = text.rstrip("-").strip()
     # Strong match for a bus/unit number token
     m = UNIT_RE.search(text)
     if m:
@@ -50,8 +52,12 @@ def normalize_route(raw):
 def normalize_type(raw):
     if raw is None:
         return None
-    text = str(raw).strip().title()
-    return text or None
+    text = str(raw).strip()
+    if not text:
+        return None
+    if text.isupper() and len(text) > 1:
+        return text
+    return text.title()
 
 
 # ---------------------------------------------------------------------------
@@ -88,20 +94,45 @@ def _find_table_cells(page):
     found = {}
 
     # 1. Built-in table detection
+    is_echo = False
     try:
         tabs = page.find_tables()
         for tab in tabs:
             data = tab.extract()
             for row in data:
-                _cells_to_vehicle(row, found)
+                if _is_echo_header(row):
+                    is_echo = True
+                    continue
+                if _is_echo_date_row(row):
+                    continue
+                _cells_to_vehicle(row, found, echo=is_echo)
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("Table detection failed: %s", exc)
 
-    # 2. Word-based scan across the whole page (captures lists too)
-    words = page.get_text("words")
-    _words_to_vehicle(words, found)
+    # 2. Word-based scan for non-ECHO pages (captures plain-text lists too)
+    # Skip on ECHO pages: the table extraction already handles all rows,
+    # and the word scan would pick up headers/page numbers as false positives.
+    if not is_echo:
+        words = page.get_text("words")
+        _words_to_vehicle(words, found)
 
     return found
+
+
+def _is_echo_header(row):
+    """Detect ECHO prep report header: ['Prep Time', 'Vehicle', 'Vehicle Type', ...]"""
+    if not row or len(row) < 3:
+        return False
+    vals = [str(c).strip().replace("\n", " ") if c else "" for c in row]
+    return vals[0] == "Prep Time" and vals[1] == "Vehicle" and vals[2] == "Vehicle Type"
+
+
+def _is_echo_date_row(row):
+    """Detect ECHO date/day header row: ['08/31/2026', None, 'MONDAY', ...]"""
+    if not row:
+        return False
+    first = str(row[0]).strip() if row[0] else ""
+    return bool(re.match(r"\d{2}/\d{2}/\d{4}", first))
 
 
 def _row_tokens_to_vehicle(tokens, found):
@@ -149,18 +180,59 @@ def _row_tokens_to_vehicle(tokens, found):
             existing.route = route
 
 
-def _cells_to_vehicle(row, found):
+def _cells_to_vehicle(row, found, echo=False):
     cols = []
     for cell in row:
         value = cell
         if isinstance(cell, (tuple, list)):
             value = " ".join(str(x) for x in cell if x)
         cols.append(str(value).strip() if value else "")
+
+    if echo and len(cols) >= 4:
+        _echo_row_to_vehicle(cols, found)
+        return
+
     # flatten cell strings into tokens in order
     tokens = []
     for c in cols:
         tokens.extend(c.split())
     _row_tokens_to_vehicle(tokens, found)
+
+
+def _echo_row_to_vehicle(cols, found):
+    """Parse an ECHO prep report data row by column index.
+
+    Columns: 0=Prep Time, 1=Vehicle, 2=Vehicle Type, 3=Type, 4=Trips#, ...
+    Vehicle cell format: '9205-\\nJAXSUV' (unit on first line, location code below).
+    """
+    raw = " | ".join(c for c in cols if c)
+
+    # Column 1: Vehicle — unit number is first line before the newline
+    vehicle_cell = cols[1]
+    unit_lines = [l.strip() for l in vehicle_cell.split("\n") if l.strip()]
+    unit_line = unit_lines[0] if unit_lines else vehicle_cell
+    unit = normalize_unit(unit_line)
+    if not unit:
+        return
+
+    # Column 2: Vehicle Type (e.g. SUVSUB, TRANSITB, MINIBUS)
+    vt = normalize_type(cols[2]) if cols[2] else None
+    if vt and re.fullmatch(r"(?i)route|assignment|location|status", vt):
+        vt = None
+
+    # Column 3: Type / service assignment (e.g. Shuttle, Hourly, Airport Arrival)
+    route = normalize_route(cols[3]) if cols[3] else None
+    if route and re.fullmatch(r"(?i)route|assignment|location|status", route):
+        route = None
+
+    existing = found.get(unit)
+    if existing is None:
+        found[unit] = ParsedVehicle(unit, type=vt, route=route, raw=raw)
+    else:
+        if not existing.type and vt:
+            existing.type = vt
+        if not existing.route and route:
+            existing.route = route
 
 
 def _words_to_vehicle(words, found):
