@@ -11,6 +11,18 @@
         <input type="text" name="vehicle_type" value="{{ vehicle.vehicle_type.name if vehicle and vehicle.vehicle_type else '' }}"></div>
     </div>
     <div class="form-row">
+      <div><label>Make</label>
+        <input type="text" name="make" value="{{ vehicle.make if vehicle and vehicle.make else '' }}"></div>
+      <div><label>Model</label>
+        <input type="text" name="model" value="{{ vehicle.model if vehicle and vehicle.model else '' }}"></div>
+    </div>
+    <div class="form-row">
+      <div><label>Capacity</label>
+        <input type="number" name="capacity" value="{{ vehicle.capacity if vehicle else 0 }}"></div>
+      <div><label>Description</label>
+        <input type="text" name="description" value="{{ vehicle.description if vehicle and vehicle.description else '' }}"></div>
+    </div>
+    <div class="form-row">
       <div><label>Route / Assignment</label>
         <input type="text" name="route" value="{{ vehicle.route if vehicle else '' }}"></div>
       <div><label>Status / Location</label>
