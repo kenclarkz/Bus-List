@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}History{% endblock %}
+{% block content %}
+<h1>History</h1>
+
+<div class="card">
+  <h2>Previous Days</h2>
+  {% if days %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>Date</th><th>Status</th><th>Total</th><th>Completed</th><th>%</th><th>Report</th></tr>
+    {% for day in days %}
+    {% set s = day.summary and day.summary|fromjson or {} %}
+    <tr>
+      <td>{{ day.work_date.strftime('%b %d %Y') }}</td>
+      <td><span class="badge {{ 'success' if day.finalized else 'warn' }}">{{ 'Finalized' if day.finalized else 'In progress' }}</span></td>
+      <td>{{ s.get('total', '—') }}</td>
+      <td>{{ s.get('completed', '—') }}</td>
+      <td>{{ s.get('overall', '—') }}%</td>
+      <td><a target="_blank" href="{{ url_for('print_report', date=day.work_date.isoformat()) }}">View</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}<p class="muted">No saved days yet.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Prep Report Imports</h2>
+  {% if imports %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>Time</th><th>Filename</th><th>Method</th><th>Applied</th><th>Summary</th></tr>
+    {% for i in imports %}
+    <tr>
+      <td>{{ i.imported_at.strftime('%b %d %H:%M') }}</td>
+      <td>{{ i.filename }}</td>
+      <td>{{ i.extraction_method or '—' }}</td>
+      <td><span class="badge {{ 'success' if i.applied else 'warn' }}">{{ 'Yes' if i.applied else 'No' }}</span></td>
+      <td class="small">{{ i.summary or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}<p class="muted">No imports yet.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Replacements</h2>
+  {% if replacements %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>Date</th><th>Original</th><th>Replacement</th><th>Reason</th><th>Employee</th><th>Source</th></tr>
+    {% for r in replacements %}
+    <tr>
+      <td>{{ r.replaced_at.strftime('%b %d %H:%M') }}</td>
+      <td>{{ r.original_vehicle.unit_number }}</td>
+      <td>{{ r.replacement_vehicle.unit_number }}</td>
+      <td>{{ r.reason or '—' }}</td>
+      <td>{{ r.employee.name if r.employee else '—' }}</td>
+      <td>{{ r.source }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}<p class="muted">No replacements recorded.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Vehicle Cleaning History</h2>
+  <p class="muted">Open any vehicle from the <a href="{{ url_for('vehicle_list') }}">Vehicles</a> page to view its full service history, or browse by unit via search below.</p>
+  <form method="get" action="{{ url_for('vehicle_list') }}" class="flex">
+    <input type="text" name="unit" placeholder="Search unit number">
+    <button class="btn small" type="submit">Go</button>
+  </form>
+</div>
+{% endblock %}

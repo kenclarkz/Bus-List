@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<div class="card">
+  <form method="post" action="{{ url_for('settings_page') }}">
+    <div class="form-row">
+      <div><label>Recently Washed threshold (days)</label>
+        <input type="number" name="recent_days" value="{{ settings.recent_days }}"></div>
+      <div><label>Due Soon threshold (days)</label>
+        <input type="number" name="due_soon_days" value="{{ settings.due_soon_days }}"></div>
+    </div>
+    <label>Default Location</label>
+    <input type="text" name="location" value="{{ settings.location }}">
+    <label>Checklist tasks (comma-separated)</label>
+    <input type="text" name="checklist" value="{{ settings.checklist }}">
+    <div style="margin-top:16px" class="flex">
+      <button type="submit" class="btn success">Save Settings</button>
+    </div>
+  </form>
+</div>
+<div class="card">
+  <h2>Status Legend</h2>
+  <p><span class="status-recent">●</span> Recently Washed — within {{ settings.recent_days }} days</p>
+  <p><span class="status-due">●</span> Due Soon — past {{ settings.recent_days }} days, within {{ settings.due_soon_days }} days</p>
+  <p><span class="status-overdue">●</span> Overdue — more than {{ settings.due_soon_days }} days</p>
+</div>
+{% endblock %}

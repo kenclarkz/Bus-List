@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}End My Day{% endblock %}
+{% block content %}
+<h1>End My Day <span class="muted small">{{ d.strftime('%A, %B %d %Y') }}</span></h1>
+
+{% if finalized %}
+<div class="card" style="border-color: var(--success)">
+  <h2 style="color:var(--success)">✓ Day finalized</h2>
+  <p class="muted">This day has been finalized and saved to history.</p>
+  <div class="flex">
+    <a class="btn" target="_blank" href="{{ url_for('print_report', date=d.isoformat()) }}">View / Print Report</a>
+    <a class="btn secondary" href="{{ url_for('history_days') }}">History</a>
+  </div>
+</div>
+{% endif %}
+
+<div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(150px,1fr))">
+  <div class="stat"><div class="num">{{ total }}</div><div class="lbl">Total</div></div>
+  <div class="stat success"><div class="num">{{ completed }}</div><div class="lbl">Completed</div></div>
+  <div class="stat danger"><div class="num">{{ incomplete }}</div><div class="lbl">Incomplete</div></div>
+  <div class="stat warn"><div class="num">{{ replacements }}</div><div class="lbl">Replacements</div></div>
+  <div class="stat"><div class="num">{{ overall }}%</div><div class="lbl">Completion</div></div>
+</div>
+
+<div class="card">
+  <h2>Unfinished Checklist Items</h2>
+  {% if incomplete_rows %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>Unit</th><th>Route</th><th>Done</th><th>Color</th></tr>
+    {% for r in incomplete_rows %}
+    <tr>
+      <td><strong>{{ r.vehicle.unit_number }}</strong></td>
+      <td>{{ r.vehicle.route or '—' }}</td>
+      <td>{{ r.done }}/{{ r.total }}</td>
+      <td>
+        {% for t in r.entry.tasks if not t.completed %}
+          <span class="badge danger">{{ t.task_name }}</span>
+        {% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}<p style="color:var(--success)">All vehicles completed.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Replacements Today</h2>
+  {% if replacements %}<p class="muted">{{ replacements }} replacement(s) recorded. See History for details.</p>
+  {% else %}<p class="muted">No replacements today.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Important Notes</h2>
+  {% if notes %}
+  <ul>
+    {% for n in notes %}
+    <li>{{ n.text }} <span class="muted small">— {{ n.employee.name if n.employee else 'Staff' }}, {{ n.created_at.strftime('%H:%M') }}</span></li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="muted">No notes added.</p>{% endif %}
+  <form method="post" action="{{ url_for('add_note', date=d.isoformat()) }}" class="flex" style="margin-top:12px">
+    <input type="text" name="text" placeholder="Add a note for end-of-day…" style="flex:1">
+    <button type="submit" class="btn secondary small">Add</button>
+  </form>
+</div>
+
+<div class="card no-print" style="border-color: var(--danger)">
+  <h2>Finalize Day</h2>
+  <p class="muted">Finalizing locks in today's work, calculates the completion
+    totals shown above, and saves the completed day to history. This cannot be
+    reversed without admin access.</p>
+  <button class="btn danger big" data-modal-target="modal-finalize">END MY DAY</button>
+</div>
+
+<div class="modal-bg" id="modal-finalize">
+  <div class="modal">
+    <h3>Confirm Finalize</h3>
+    <p>Are you sure you want to finalize today?<br>
+      <strong>{{ total }}</strong> vehicles · <strong>{{ completed }}</strong> completed ·
+      <strong>{{ incomplete }}</strong> incomplete · <strong>{{ overall }}%</strong>.
+    </p>
+    <form method="post" action="{{ url_for('end_day') }}">
+      <input type="hidden" name="date" value="{{ d.isoformat() }}">
+      <input type="hidden" name="confirm" value="yes">
+      <div class="flex">
+        <button type="submit" class="btn danger">Yes, Finalize Day</button>
+        <button type="button" class="btn secondary" data-modal-close="modal-finalize">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
