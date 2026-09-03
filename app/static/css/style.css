@@ -26,7 +26,10 @@ body {
   background: var(--bg);
   color: var(--text);
   line-height: 1.5;
+  overflow-x: hidden;
 }
+
+img, svg, canvas, table { max-width: 100%; }
 
 a { color: var(--primary); text-decoration: none; }
 
@@ -44,8 +47,8 @@ a { color: var(--primary); text-decoration: none; }
   z-index: 50;
 }
 
-.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; }
-.brand-name { font-size: 1rem; }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; min-width: 0; }
+.brand-name { font-size: 1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
 .nav { display: flex; gap: 4px; flex-wrap: wrap; }
 .nav a {
@@ -140,7 +143,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); b
 .filters form { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
 /* table */
-.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
 table { width: 100%; border-collapse: collapse; background: #fff; }
 th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 th { font-size: .75rem; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; }
@@ -229,6 +232,14 @@ code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
   .nav a { flex: 0 0 auto; }
   .vrow-header { flex-direction: column; align-items: flex-start; }
   .filters input, .filters select { max-width: 100%; flex: 1; }
-  table { font-size: .85rem; }
+  .stat { padding: 12px; }
+  .stat .num { font-size: 1.5rem; }
+  .stats-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stats-row .stat { margin: 0; }
+  .ck { flex: 1 1 auto; min-width: calc(50% - 8px); justify-content: center; }
+  .table-wrap { -webkit-overflow-scrolling: touch; }
   th, td { padding: 8px; }
+  .container { padding: 16px 12px 60px; }
+  .modal { max-height: 85vh; overflow-y: auto; }
+  .form-row > div { min-width: 100%; }
 }
