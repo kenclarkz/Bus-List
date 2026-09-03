@@ -46,6 +46,31 @@
 </div>
 
 <div class="card">
+  <h2>Completed Vehicles</h2>
+  {% if completed_rows %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>Unit</th><th>Route</th><th>Completed By</th></tr>
+    {% for r in completed_rows %}
+    <tr>
+      <td><strong>{{ r.vehicle.unit_number }}</strong></td>
+      <td>{{ r.vehicle.route or '—' }}</td>
+      <td>
+        {% for emp, tasks in r.employees.items() %}
+          <span class="badge success">{{ emp }}</span>
+        {% endfor %}
+        {% if not r.employees %}
+          <span class="muted">No employee recorded</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}<p class="muted">No vehicles completed yet.</p>{% endif %}
+</div>
+
+<div class="card">
   <h2>Replacements Today</h2>
   {% if replacements %}<p class="muted">{{ replacements }} replacement(s) recorded. See History for details.</p>
   {% else %}<p class="muted">No replacements today.</p>{% endif %}
