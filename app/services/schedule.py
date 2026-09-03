@@ -24,6 +24,21 @@ def get_or_create_schedule(d=None, location=None):
     return sched
 
 
+def refresh_type_entries(vtype):
+    """Re-sync checklist rows for all open (non-finalized) schedule entries
+    whose vehicle is of the given vehicle type."""
+    if vtype is None:
+        return
+    for entry in ScheduleEntry.query.join(
+            Vehicle, ScheduleEntry.vehicle_id == Vehicle.id
+    ).filter(
+        Vehicle.vehicle_type_id == vtype.id,
+        DailySchedule.finalized.is_(False),
+    ).join(DailySchedule, ScheduleEntry.schedule_id == DailySchedule.id):
+        destroy_and_recreate_tasks(entry)
+    db.session.commit()
+
+
 def ensure_entry(sched, vehicle, order_index=0, prep_time=None):
     entry = ScheduleEntry.query.filter_by(schedule_id=sched.id,
                                           vehicle_id=vehicle.id).first()
@@ -45,8 +60,14 @@ def ensure_entry(sched, vehicle, order_index=0, prep_time=None):
     return entry
 
 
+def _entry_checklist(entry):
+    vehicle = entry.vehicle
+    vtype = vehicle.vehicle_type if vehicle else None
+    return settings.get_type_checklist(vtype)
+
+
 def create_task_rows(entry):
-    for tname in settings.get_checklist():
+    for tname in _entry_checklist(entry):
         if not any(t.task_name == tname for t in entry.tasks):
             entry.tasks.append(TaskCompletion(
                 entry_id=entry.id,
@@ -171,7 +192,7 @@ def move_entry_to_replacement(sched, original_entry, replacement_vehicle,
 def destroy_and_recreate_tasks(entry):
     """Recreate the checklist rows for an entry (keeps completed state)."""
     existing = {t.task_name: t for t in entry.tasks}
-    new_names = settings.get_checklist()
+    new_names = _entry_checklist(entry)
     for task in list(entry.tasks):
         if task.task_name not in existing:
             continue

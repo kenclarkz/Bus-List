@@ -545,3 +545,36 @@ def test_schedule_view_orders_by_prep_time(app):
 
         order = [r["vehicle"].unit_number for r in build_schedule_view(sched)]
         assert order == ["100", "400", "300", "500"]
+
+
+def test_per_vehicle_type_checklist(app):
+    """A vehicle type with its own checklist gets those tasks; a type without
+    one falls back to the global default checklist."""
+    from app.models import VehicleType
+    from app.services import schedule as ss
+    from app.services.vehicles import find_or_create_vehicle, \
+        get_or_create_vehicle_type, default_location
+
+    with app.app_context():
+        custom = get_or_create_vehicle_type("TRANSITB")
+        custom.checklist = "Sweep,Windows,Bay Checked"
+        db.session.commit()
+
+        plain = get_or_create_vehicle_type("VAN")  # no checklist
+
+        loc = default_location()
+        sched = ss.get_or_create_schedule(location=loc)
+
+        v1, _ = find_or_create_vehicle("711", vehicle_type="TRANSITB",
+                                       location_id=loc.id)
+        v2, _ = find_or_create_vehicle("722", vehicle_type="VAN",
+                                       location_id=loc.id)
+
+        e1 = ss.ensure_entry(sched, v1, order_index=0)
+        e2 = ss.ensure_entry(sched, v2, order_index=1)
+
+        t1 = sorted(t.task_name for t in e1.tasks)
+        t2 = sorted(t.task_name for t in e2.tasks)
+        assert t1 == ["Bay Checked", "Sweep", "Windows"]
+        assert t2 == ["Bathroom", "Bay Checked", "Dump", "Final Inspection",
+                      "Mop", "Seats", "Sweep", "Windows"]

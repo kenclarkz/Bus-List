@@ -61,6 +61,10 @@ def _migrate():
         if "prep_time" not in cols:
             con.execute("ALTER TABLE schedule_entries ADD COLUMN prep_time VARCHAR(40)")
             con.commit()
+        tcols = {r[1] for r in con.execute("PRAGMA table_info(vehicle_types)")}
+        if "checklist" not in tcols:
+            con.execute("ALTER TABLE vehicle_types ADD COLUMN checklist TEXT")
+            con.commit()
         con.close()
     except Exception:
         pass
@@ -564,6 +568,8 @@ def register_routes(app):
 
     @app.route("/settings", methods=["GET", "POST"])
     def settings_page():
+        from .models import VehicleType
+        from .services.schedule import refresh_type_entries
         if request.method == "POST":
             for key in ["recent_days", "due_soon_days", "location"]:
                 val = request.form.get(key)
@@ -572,13 +578,25 @@ def register_routes(app):
             checklist = request.form.get("checklist", "")
             if checklist:
                 settings.set_setting("checklist", checklist)
+            # Per-vehicle-type checklists. A type uses the global default
+            # unless its own checklist field is submitted and non-empty.
+            for vt in VehicleType.query.all():
+                val = request.form.get(f"type_checklist_{vt.id}")
+                if val is not None:
+                    val = val.strip()
+                    if vt.checklist != (val or None):
+                        vt.checklist = val or None
+                        db.session.commit()
+                        refresh_type_entries(vt)
+            db.session.commit()
             flash("Settings saved", "success")
             return redirect(url_for("settings_page"))
+        vtypes = VehicleType.query.order_by(VehicleType.name).all()
         return render_template("settings.html", settings={
             "recent_days": settings.get_setting("recent_days", 2),
             "due_soon_days": settings.get_setting("due_soon_days", 7),
             "location": settings.get_setting("location") or "Main Depot",
             "checklist": ", ".join(settings.get_checklist()),
-        })
+        }, vehicle_types=vtypes)
 
     return app

@@ -20,6 +20,26 @@
   </form>
 </div>
 <div class="card">
+  <h2>Vehicle Type Checklists</h2>
+  <p class="muted">Each vehicle type can have its own detailing checklist. Leave a type blank to use the default checklist above. Existing scheduled vehicles are updated to match automatically.</p>
+  {% if vehicle_types %}
+  <form method="post" action="{{ url_for('settings_page') }}">
+    {% for vt in vehicle_types %}
+    <label>{{ vt.name }}</label>
+    <input type="text" name="type_checklist_{{ vt.id }}"
+           value="{{ vt.checklist or '' }}"
+           placeholder="Use default checklist">
+    {% endfor %}
+    <div style="margin-top:16px" class="flex">
+      <button type="submit" class="btn success">Save Checklists</button>
+    </div>
+  </form>
+  {% else %}
+  <p class="muted">No vehicle types yet. Import a prep report to create them.</p>
+  {% endif %}
+</div>
+
+<div class="card">
   <h2>Status Legend</h2>
   <p><span class="status-recent">●</span> Recently Washed — within {{ settings.recent_days }} days</p>
   <p><span class="status-due">●</span> Due Soon — past {{ settings.recent_days }} days, within {{ settings.due_soon_days }} days</p>

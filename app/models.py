@@ -35,6 +35,7 @@ class VehicleType(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(80), nullable=False)
     cleaning_frequency_days = db.Column(db.Integer, nullable=False, default=7)
+    checklist = db.Column(db.Text)  # comma-separated; empty/None => global default
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     vehicles = db.relationship("Vehicle", back_populates="vehicle_type")

@@ -35,6 +35,15 @@ def get_checklist():
     return [x.strip() for x in raw.split(",") if x.strip()]
 
 
+def get_type_checklist(vehicle_type):
+    """Return the comma-split checklist for a vehicle type, or the global
+    default checklist when the type has none set."""
+    if vehicle_type is not None and vehicle_type.checklist:
+        return [x.strip() for x in vehicle_type.checklist.split(",")
+                if x.strip()]
+    return get_checklist()
+
+
 def default_location():
     name = get_setting("location")
     if not name:
