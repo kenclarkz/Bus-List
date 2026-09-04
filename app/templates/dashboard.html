@@ -20,13 +20,26 @@
 </div>
 {% endif %}
 
-<div class="card flex between">
-  <span class="muted"><strong>I am:</strong></span>
-  <select id="current-employee" onchange="setEmployee(this)" {{ 'disabled' if current_role == 'manager' }}>
-    <option value="">— Select employee —</option>
-    {% for e in employees %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}
-  </select>
-  <span class="muted small right">Checked tasks are attributed to the selected employee</span>
+<div class="card">
+  <div class="flex between" style="margin-bottom:8px">
+    <span class="muted"><strong>I am:</strong></span>
+    <select id="current-employee" onchange="setEmployee(this)" {{ 'disabled' if current_role == 'manager' }}>
+      <option value="">— Select employee —</option>
+      {% for e in employees %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}
+    </select>
+    <span class="muted small">Checked tasks are attributed to you</span>
+  </div>
+  {% set working = active_employees|selectattr('current_vehicle')|list %}
+  {% if working %}
+  <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
+    <span class="muted small" style="display:block;margin-bottom:4px"><strong>Currently working:</strong></span>
+    <div class="flex" style="gap:6px;flex-wrap:wrap">
+      {% for emp in working %}
+      <span class="badge info" style="font-size:.7rem">{{ emp.initials }} → {{ emp.current_vehicle }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 <div class="stat-grid">
@@ -92,6 +105,12 @@
       <span class="badge {{ 'success' if entry.status == 'completed' else ('info' if entry.status == 'in_progress' else 'muted') }}">
         {{ {'pending': 'Pending', 'in_progress': 'In Progress', 'completed': 'Completed'}[entry.status] }}
       </span>
+      {% set workers = active_employees|selectattr('current_vehicle', 'equalto', v.unit_number)|list %}
+      {% if workers %}
+      <span class="badge success" style="font-size:.6rem">
+        {% for w in workers %}{{ w.initials }}{% if not loop.last %}, {% endif %}{% endfor %} working
+      </span>
+      {% endif %}
       <span class="spacer"></span>
       <span class="{{ r.indicator[1] }}">{{ r.indicator[0] }}</span>
       {% if v.last_washed %}

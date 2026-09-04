@@ -66,6 +66,10 @@ def _migrate():
         if "checklist" not in tcols:
             con.execute("ALTER TABLE vehicle_types ADD COLUMN checklist TEXT")
             con.commit()
+        ecols = {r[1] for r in con.execute("PRAGMA table_info(employees)")}
+        if "current_vehicle_id" not in ecols:
+            con.execute("ALTER TABLE employees ADD COLUMN current_vehicle_id INTEGER")
+            con.commit()
         con.close()
     except Exception:
         pass
@@ -268,6 +272,17 @@ def register_routes(app):
             session["role"] = role
         return redirect(request.referrer or url_for("dashboard"))
 
+    @app.route("/set-current-vehicle", methods=["POST"])
+    def set_current_vehicle():
+        emp_id = request.form.get("employee_id")
+        vehicle_id = request.form.get("vehicle_id") or None
+        if emp_id:
+            emp = Employee.query.get(int(emp_id))
+            if emp:
+                emp.current_vehicle_id = int(vehicle_id) if vehicle_id else None
+                db.session.commit()
+        return redirect(request.referrer or url_for("dashboard"))
+
     @app.route("/")
     def dashboard():
         from datetime import timedelta
@@ -337,6 +352,16 @@ def register_routes(app):
 
         types = sorted({v.vehicle_type.name for v in Vehicle.query
                         if v.vehicle_type and v.vehicle_type.name})
+
+        # Build employee current vehicle map for active employees today
+        active_employees = []
+        for emp in Employee.query.filter_by(active=True).order_by(Employee.name).all():
+            cv = emp.current_vehicle
+            active_employees.append({
+                "id": emp.id, "name": emp.name, "initials": emp.initials,
+                "current_vehicle": cv.unit_number if cv else None,
+            })
+
         return render_template(
             "dashboard.html",
             rows=frows, all_rows=rows, sched=sched,
@@ -346,6 +371,7 @@ def register_routes(app):
             employees=employees_list(),
             nav_dates=nav_dates, view_date=view_date,
             imported_dates=imported_dates,
+            active_employees=active_employees,
         )
 
     @app.route("/vehicles")

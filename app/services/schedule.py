@@ -109,6 +109,12 @@ def toggle_task(entry_id, task_name, checked, employee_id=None):
     task.completed = bool(checked)
     task.completed_at = datetime.utcnow() if checked else None
     task.employee_id = employee_id if checked else None
+    # Update employee's current vehicle when they check a task
+    if checked and employee_id:
+        from ..models import Employee
+        emp = Employee.query.get(employee_id)
+        if emp:
+            emp.current_vehicle_id = entry.vehicle_id
     db.session.commit()
     # Record last washed / detailed in history when appropriate
     if checked:

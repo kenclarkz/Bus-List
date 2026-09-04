@@ -89,6 +89,7 @@ class Employee(db.Model):
     location_id = db.Column(db.Integer, db.ForeignKey("locations.id"))
     active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    current_vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicles.id"))
 
     location = db.relationship("Location", back_populates="employees")
     completed_tasks = db.relationship("TaskCompletion", back_populates="employee")
@@ -97,6 +98,7 @@ class Employee(db.Model):
         "Replacement", back_populates="employee",
         foreign_keys="Replacement.employee_id"
     )
+    current_vehicle = db.relationship("Vehicle", foreign_keys=[current_vehicle_id])
 
     @property
     def initials(self):
