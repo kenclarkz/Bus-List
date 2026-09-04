@@ -193,6 +193,7 @@ tr.row-inactive td { color: var(--muted); }
   -webkit-user-select: none; user-select: none;
 }
 .ck input { width: 22px; height: 22px; cursor: pointer; accent-color: var(--success); }
+.ck:has(input:checked) { background: var(--success-bg); border-color: var(--success); color: #14532d; }
 .ck.done { background: var(--success-bg); border-color: var(--success); color: #14532d; }
 .progress { display: flex; align-items: center; gap: 10px; font-size: .9rem; }
 .progress-bar { flex: 1; height: 8px; background: var(--border); border-radius: 999px; overflow: hidden; }
