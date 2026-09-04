@@ -12,15 +12,17 @@
     <div class="brand">
       <span class="logo">🛠️</span>
       <span class="brand-name">{{ app_name }}</span>
+      <div class="role-group">
+        <form method="post" action="{{ url_for('set_role') }}">
+          <input type="hidden" name="role" value="employee">
+          <button type="submit" class="role-btn {{ 'active' if current_role == 'employee' }}">Employee</button>
+        </form>
+        <form method="post" action="{{ url_for('set_role') }}">
+          <input type="hidden" name="role" value="manager">
+          <button type="submit" class="role-btn {{ 'active' if current_role == 'manager' }}">Manager</button>
+        </form>
+      </div>
     </div>
-    <form method="post" action="{{ url_for('set_role') }}" class="role-picker">
-      <input type="hidden" name="role" value="employee">
-      <button type="submit" class="btn small {{ 'success' if current_role == 'employee' else 'secondary' }}">Employee</button>
-    </form>
-    <form method="post" action="{{ url_for('set_role') }}" class="role-picker">
-      <input type="hidden" name="role" value="manager">
-      <button type="submit" class="btn small {{ 'success' if current_role == 'manager' else 'secondary' }}">Manager</button>
-    </form>
     <nav class="nav">
       <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Today</a>
       <a href="{{ url_for('vehicle_list') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('vehicle') }}">Vehicles</a>

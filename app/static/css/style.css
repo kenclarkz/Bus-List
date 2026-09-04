@@ -47,8 +47,28 @@ a { color: var(--primary); text-decoration: none; }
   z-index: 50;
 }
 
-.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; min-width: 0; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; min-width: 0; }
 .brand-name { font-size: 1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+.role-group { display: flex; gap: 0; }
+.role-group form { margin: 0; padding: 0; }
+.role-btn {
+  background: #334155;
+  color: #94a3b8;
+  border: 1px solid #475569;
+  padding: 4px 10px;
+  font-size: .7rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  white-space: nowrap;
+}
+.role-group form:first-child .role-btn { border-radius: 6px 0 0 6px; }
+.role-group form:last-child .role-btn { border-radius: 0 6px 6px 0; border-left: none; }
+.role-btn:hover { background: #475569; color: #e2e8f0; }
+.role-btn.active { background: var(--success); color: #fff; border-color: var(--success); }
+.role-btn.active + .role-btn, .role-group form:first-child .role-btn.active { border-left-color: var(--success); }
 
 .nav { display: flex; gap: 4px; flex-wrap: wrap; }
 .nav a {
@@ -137,8 +157,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); b
 .flash-success { background: var(--success-bg); color: var(--success); }
 .flash-error { background: var(--danger-bg); color: var(--danger); }
 .flash-info { background: #e0f2fe; color: #0369a1; }
-
-.role-picker { display: inline; margin: 0; padding: 0; border: none; background: none; }
 
 /* filters */
 .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
@@ -230,7 +248,7 @@ code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
 
 @media (max-width: 600px) {
   .topbar { flex-direction: column; align-items: stretch; }
-  .brand { margin-top: 8px; }
+  .brand { flex-wrap: wrap; }
   .nav { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; padding-bottom: 6px; }
   .nav a { flex: 0 0 auto; }
   .vrow-header { flex-direction: column; align-items: flex-start; }
