@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   document.querySelectorAll('.ck input').forEach(function (chk) {
     chk.addEventListener('change', function () {
+      if (chk.disabled) return;
       var entryId = chk.dataset.entry;
       var taskName = chk.dataset.task;
       var checked = chk.checked;

@@ -3,7 +3,8 @@ import os
 import json
 from datetime import date, datetime, timedelta
 
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, \
+    jsonify, session
 
 from .models import db, Vehicle, Employee, ScheduleEntry, Replacement, Note, \
     DailySchedule, PrepReportImport
@@ -260,7 +261,15 @@ def register_routes(app):
             "today": date.today,
             "checklist": settings.get_checklist(),
             "app_name": "Detailing Operations Dashboard",
+            "current_role": session.get("role", "employee"),
         }
+
+    @app.route("/set-role", methods=["POST"])
+    def set_role():
+        role = request.form.get("role")
+        if role in ("manager", "employee"):
+            session["role"] = role
+        return redirect(request.referrer or url_for("dashboard"))
 
     @app.route("/")
     def dashboard():
@@ -428,6 +437,8 @@ def register_routes(app):
 
     @app.route("/task/<int:entry_id>/<path:task_name>", methods=["POST"])
     def task_toggle(entry_id, task_name):
+        if session.get("role", "employee") != "employee":
+            return jsonify(ok=False, error="Manager view is read-only"), 403
         checked = request.form.get("checked") == "true"
         emp = request.form.get("employee_id") or None
         task = sched_svc.toggle_task(entry_id, task_name, checked, emp)

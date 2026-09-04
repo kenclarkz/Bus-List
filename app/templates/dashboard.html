@@ -4,9 +4,16 @@
 {% block content %}
 <h1>Today's Detailing Board <span class="muted small">{{ today().strftime('%A, %B %d %Y') }}</span></h1>
 
+{% if current_role == 'manager' %}
+<div class="flash flash-info">
+  <strong>Manager view (read-only).</strong> You can see what's been done and the
+  final report at end of day, but you cannot check vehicles. Switch to Employee to do work.
+</div>
+{% endif %}
+
 <div class="card flex between">
   <span class="muted"><strong>I am:</strong></span>
-  <select id="current-employee" onchange="setEmployee(this)">
+  <select id="current-employee" onchange="setEmployee(this)" {{ 'disabled' if current_role == 'manager' }}>
     <option value="">— Select employee —</option>
     {% for e in employees %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}
   </select>
@@ -84,7 +91,8 @@
       {% for t in entry.tasks|sort(attribute='task_name') %}
       <label class="ck {{ 'done' if t.completed }}">
         <input type="checkbox" data-entry="{{ entry.id }}" data-task="{{ t.task_name }}"
-               {{ 'checked' if t.completed }}>
+               {{ 'checked' if t.completed }}
+               {{ 'disabled' if current_role == 'manager' }}>
         {{ t.task_name }}
         {% if t.completed_at %}<span class="small muted">· {{ t.completed_at.strftime('%H:%M') }}</span>{% endif %}
       </label>
