@@ -26,6 +26,7 @@
 <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(150px,1fr))">
   <div class="stat"><div class="num">{{ total }}</div><div class="lbl">Total</div></div>
   <div class="stat success"><div class="num">{{ completed }}</div><div class="lbl">Completed</div></div>
+  <div class="stat warn"><div class="num">{{ skipped }}</div><div class="lbl">Skipped</div></div>
   <div class="stat danger"><div class="num">{{ incomplete }}</div><div class="lbl">Incomplete</div></div>
   <div class="stat warn"><div class="num">{{ replacements }}</div><div class="lbl">Replacements</div></div>
   <div class="stat"><div class="num">{{ overall }}%</div><div class="lbl">Completion</div></div>
@@ -73,21 +74,25 @@
 </div>
 
 <div class="card">
-  <h2>Completed Vehicles</h2>
+  <h2>Completed / Skipped Vehicles</h2>
   {% if completed_rows %}
   <div class="table-wrap">
   <table>
     <tr><th>Unit</th><th>Route</th><th>Completed By</th></tr>
     {% for r in completed_rows %}
     <tr>
-      <td><strong>{{ r.vehicle.unit_number }}</strong></td>
+      <td><strong>{{ r.vehicle.unit_number }}</strong>{% if r.entry.status == 'skipped' %} <span class="badge warn">Skipped</span>{% endif %}</td>
       <td>{{ r.vehicle.route or '—' }}</td>
       <td>
+        {% if r.entry.status == 'skipped' %}
+          <span class="muted">Skipped</span>
+        {% else %}
         {% for emp, tasks in r.employees.items() %}
           <span class="badge success">{{ emp }}</span>
         {% endfor %}
         {% if not r.employees %}
           <span class="muted">No employee recorded</span>
+        {% endif %}
         {% endif %}
       </td>
     </tr>

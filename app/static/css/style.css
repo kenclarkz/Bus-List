@@ -198,6 +198,7 @@ tr.row-inactive td { color: var(--muted); }
 .progress { display: flex; align-items: center; gap: 10px; font-size: .9rem; }
 .progress-bar { flex: 1; height: 8px; background: var(--border); border-radius: 999px; overflow: hidden; }
 .progress-fill { height: 100%; background: var(--success); border-radius: 999px; transition: width .3s; }
+.progress-fill.fill-warn { background: var(--warn); }
 
 /* badges / status */
 .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: .75rem; font-weight: 700; }

@@ -79,14 +79,20 @@ def create_task_rows(entry):
 def entry_progress(entry):
     tasks = entry.tasks
     if not tasks:
-        return 0, 0, 0.0
-    done = sum(1 for t in tasks if t.completed)
-    total = len(tasks)
-    pct = round(done / total * 100) if total else 0
+        done, total = 0, 0
+    else:
+        done = sum(1 for t in tasks if t.completed)
+        total = len(tasks)
+    # A skipped vehicle counts as fully complete.
+    if getattr(entry, "status", None) == "skipped":
+        done = total
+    pct = round(done / total * 100) if total else (100 if entry.status == "skipped" else 0)
     return done, total, pct
 
 
 def update_entry_status(entry):
+    if getattr(entry, "status", None) == "skipped":
+        return "skipped"
     done, total, pct = entry_progress(entry)
     if total and done == total:
         entry.status = "completed"
@@ -94,6 +100,22 @@ def update_entry_status(entry):
         entry.status = "in_progress"
     else:
         entry.status = "pending"
+    db.session.commit()
+    return entry.status
+
+
+def set_entry_skipped(entry, skipped=True):
+    """Mark a vehicle as skipped (counts toward completion) or un-skip it."""
+    if skipped:
+        entry.status = "skipped"
+    else:
+        entry.status = "pending"
+        update_entry_status(entry)
+    # Skipping frees the vehicle from anyone currently working it.
+    if entry.vehicle_id:
+        from ..models import Employee
+        Employee.query.filter_by(current_vehicle_id=entry.vehicle_id).update(
+            {"current_vehicle_id": None}, synchronize_session=False)
     db.session.commit()
     return entry.status
 

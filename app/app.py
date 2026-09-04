@@ -300,8 +300,9 @@ def register_routes(app):
         rows = build_schedule_view(sched) if has_import else []
 
         total = len(rows)
-        completed = sum(1 for r in rows if r["entry"].status == "completed")
+        completed = sum(1 for r in rows if r["entry"].status in ("completed", "skipped"))
         in_progress = sum(1 for r in rows if r["entry"].status == "in_progress")
+        skipped = sum(1 for r in rows if r["entry"].status == "skipped")
         remaining = total - completed - in_progress
         overall = round((sum(r["done"] for r in rows) /
                         (sum(r["total"] for r in rows) or 1)) * 100) if rows else 0
@@ -509,6 +510,26 @@ def register_routes(app):
             done, total, pct = sched_svc.entry_progress(task.entry)
         return jsonify(ok=True, done=done, total=total, pct=pct)
 
+    @app.route("/entry/<int:entry_id>/skip", methods=["POST"])
+    def entry_skip(entry_id):
+        if session.get("role", "employee") != "employee":
+            flash("Manager view is read-only", "error")
+            return redirect(url_for("dashboard"))
+        entry = ScheduleEntry.query.get_or_404(entry_id)
+        status = sched_svc.set_entry_skipped(entry, skipped=True)
+        flash(f"Vehicle {entry.vehicle.unit_number} marked as skipped", "success")
+        return redirect(request.referrer or url_for("dashboard"))
+
+    @app.route("/entry/<int:entry_id>/unskip", methods=["POST"])
+    def entry_unskip(entry_id):
+        if session.get("role", "employee") != "employee":
+            flash("Manager view is read-only", "error")
+            return redirect(url_for("dashboard"))
+        entry = ScheduleEntry.query.get_or_404(entry_id)
+        sched_svc.set_entry_skipped(entry, skipped=False)
+        flash(f"Vehicle {entry.vehicle.unit_number} un-skipped", "success")
+        return redirect(request.referrer or url_for("dashboard"))
+
     @app.route("/schedule/<int:entry_id>/replace", methods=["POST"])
     def entry_replace(entry_id):
         entry = ScheduleEntry.query.get_or_404(entry_id)
@@ -552,14 +573,15 @@ def register_routes(app):
         replacements = replacement_count_for_date(d)
 
         total = len(rows)
-        completed = sum(1 for r in rows if r["entry"].status == "completed")
+        completed = sum(1 for r in rows if r["entry"].status in ("completed", "skipped"))
+        skipped = sum(1 for r in rows if r["entry"].status == "skipped")
         incomplete = total - completed
         overall = round((sum(r["done"] for r in rows) /
                         (sum(r["total"] for r in rows) or 1)) * 100) if rows else 0
-        incomplete_rows = [r for r in rows if r["entry"].status != "completed"]
+        incomplete_rows = [r for r in rows if r["entry"].status not in ("completed", "skipped")]
         completed_rows = []
         for r in rows:
-            if r["entry"].status != "completed":
+            if r["entry"].status not in ("completed", "skipped"):
                 continue
             emp_tasks = {}
             for t in r["entry"].tasks:
@@ -608,6 +630,7 @@ def register_routes(app):
             "end_day.html", rows=rows, sched=sched, notes=notes,
             replacements=replacements, d=d,
             total=total, completed=completed, incomplete=incomplete,
+            skipped=skipped,
             overall=overall, incomplete_rows=incomplete_rows,
             completed_rows=completed_rows,
             finalized=sched.finalized, employees=employees_list(),
@@ -622,7 +645,8 @@ def register_routes(app):
         notes = notes_for_date(d)
         replacements = replacement_count_for_date(d)
         total = len(rows)
-        completed = sum(1 for r in rows if r["entry"].status == "completed")
+        completed = sum(1 for r in rows if r["entry"].status in ("completed", "skipped"))
+        skipped = sum(1 for r in rows if r["entry"].status == "skipped")
         overall = round((sum(r["done"] for r in rows) /
                         (sum(r["total"] for r in rows) or 1)) * 100) if rows else 0
         # Per-employee stats
@@ -643,6 +667,7 @@ def register_routes(app):
         return render_template(
             "print_report.html", rows=rows, notes=notes, d=d, sched=sched,
             replacements=replacements, total=total, completed=completed,
+            skipped=skipped,
             overall=overall, employee_stats=employee_stats)
 
     @app.route("/history")

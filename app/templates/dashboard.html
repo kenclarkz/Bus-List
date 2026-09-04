@@ -68,7 +68,8 @@
     <div class="stat"><div class="num">{{ total }}</div><div class="lbl">Total Vehicles</div></div>
     <div class="stat success"><div class="num">{{ completed }}</div><div class="lbl">Completed</div></div>
     <div class="stat info"><div class="num">{{ in_progress }}</div><div class="lbl">In Progress</div></div>
-    <div class="stat warn"><div class="num">{{ remaining }}</div><div class="lbl">Remaining</div></div>
+    <div class="stat warn"><div class="num">{{ skipped }}</div><div class="lbl">Skipped</div></div>
+    <div class="stat danger"><div class="num">{{ remaining }}</div><div class="lbl">Remaining</div></div>
     <div class="stat danger"><div class="num">{{ overdue }}</div><div class="lbl">Overdue</div></div>
     <div class="stat"><div class="num">{{ replacements }}</div><div class="lbl">Replacements</div></div>
     <div class="stat"><div class="num">{{ overall }}%</div><div class="lbl">Completion</div></div>
@@ -90,6 +91,7 @@
         <option value="pending" {{ 'selected' if filters.status == 'pending' }}>Pending</option>
         <option value="in_progress" {{ 'selected' if filters.status == 'in_progress' }}>In Progress</option>
         <option value="completed" {{ 'selected' if filters.status == 'completed' }}>Completed</option>
+        <option value="skipped" {{ 'selected' if filters.status == 'skipped' }}>Skipped</option>
       </select>
       <button class="btn small" type="submit">Filter</button>
       <a class="btn small secondary" href="{{ url_for('dashboard', date=view_date.isoformat()) }}">Clear</a>
@@ -119,8 +121,8 @@
         {% if v.route %} · Route {{ v.route }}{% endif %}
         {% if entry.prep_time %} · Prep {{ entry.prep_time }}{% endif %}
       </div>
-      <span class="badge {{ 'success' if entry.status == 'completed' else ('info' if entry.status == 'in_progress' else 'muted') }}">
-        {{ {'pending': 'Pending', 'in_progress': 'In Progress', 'completed': 'Completed'}[entry.status] }}
+      <span class="badge {{ 'warn' if entry.status == 'skipped' else ('success' if entry.status == 'completed' else ('info' if entry.status == 'in_progress' else 'muted')) }}">
+        {{ {'pending': 'Pending', 'in_progress': 'In Progress', 'completed': 'Completed', 'skipped': 'Skipped'}[entry.status] }}
       </span>
       {% set workers = active_employees|selectattr('current_vehicle', 'equalto', v.unit_number)|list %}
       {% if workers %}
@@ -137,6 +139,7 @@
       {% endif %}
     </div>
 
+    {% if entry.status != 'skipped' %}
     <div class="checklist">
       {% for t in entry.tasks|sort(attribute='task_name') %}
       <label class="ck {{ 'done' if t.completed }}">
@@ -149,15 +152,27 @@
       </label>
       {% endfor %}
     </div>
+    {% else %}
+    <p class="muted small" style="margin:12px 0 4px">Skipped — counts toward completion. Un-skip to work this vehicle.</p>
+    {% endif %}
 
     <div class="progress">
-      <div class="progress-bar"><div class="progress-fill" style="width: {{ r.pct }}%"></div></div>
-      <span class="pct">{{ r.done }}/{{ r.total }} — {{ r.pct }}%</span>
+      <div class="progress-bar"><div class="progress-fill {{ 'fill-warn' if entry.status == 'skipped' }}" style="width: {{ r.pct }}%"></div></div>
+      <span class="pct">{{ r.done }}/{{ r.total }} — {{ r.pct }}%{% if entry.status == 'skipped' %} (skipped){% endif %}</span>
     </div>
 
     <div class="row-actions">
-      {% if entry.status != 'completed' %}
+      {% if entry.status not in ('completed', 'skipped') %}
       <button class="btn small secondary" data-modal-target="modal-replace-{{ entry.id }}">Replace Vehicle</button>
+      {% endif %}
+      {% if entry.status == 'skipped' %}
+      <form method="post" action="{{ url_for('entry_unskip', entry_id=entry.id) }}" style="display:inline">
+        <button type="submit" class="btn small secondary">Un-skip</button>
+      </form>
+      {% elif entry.status != 'completed' %}
+      <form method="post" action="{{ url_for('entry_skip', entry_id=entry.id) }}" style="display:inline">
+        <button type="submit" class="btn small warn" {{ 'disabled' if current_role == 'manager' }}>Skip</button>
+      </form>
       {% endif %}
       <a class="btn small" href="{{ url_for('vehicle_detail', vehicle_id=v.id) }}">History</a>
     </div>

@@ -669,3 +669,38 @@ def test_current_vehicle_cleared_when_vehicle_completed(client, app):
         e = ScheduleEntry.query.get(ea)
         assert e.status == "completed"
         assert Employee.query.get(emp_id).current_vehicle_id is None
+
+
+def test_skip_vehicle_counts_as_complete(client, app):
+    """Skipping a vehicle counts it toward completion and it can be un-skipped."""
+    with app.app_context():
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        v, _ = find_or_create_vehicle("740", location_id=vehicles_loc(app).id)
+        sched = ss.get_or_create_schedule(location=vehicles_loc(app))
+        entry = ss.ensure_entry(sched, v)
+        ea = entry.id
+        assert entry.status == "pending"
+
+    # Skip it
+    r = client.post(f"/entry/{ea}/skip")
+    assert r.status_code == 302
+    with app.app_context():
+        e = ScheduleEntry.query.get(ea)
+        assert e.status == "skipped"
+        done, total, pct = sched_svc.entry_progress(e)
+        assert done == total
+        assert pct == 100
+
+    # Dashboard counts it toward completed and shows skipped stat
+    import re
+    html = client.get("/").data.decode()
+    assert "Skipped" in html
+    assert '"skipped"' in html
+
+    # Un-skip restores to pending (no tasks done)
+    r = client.post(f"/entry/{ea}/unskip")
+    assert r.status_code == 302
+    with app.app_context():
+        e = ScheduleEntry.query.get(ea)
+        assert e.status == "pending"
