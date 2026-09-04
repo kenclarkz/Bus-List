@@ -29,18 +29,35 @@
     </select>
     <span class="muted small">Checked tasks are attributed to you</span>
   </div>
-  {% set working = active_employees|selectattr('current_vehicle')|list %}
-  {% if working %}
-  <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
-    <span class="muted small" style="display:block;margin-bottom:4px"><strong>Currently working:</strong></span>
-    <div class="flex" style="gap:6px;flex-wrap:wrap">
-      {% for emp in working %}
-      <span class="badge info" style="font-size:.7rem">{{ emp.initials }} → {{ emp.current_vehicle }}</span>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
 </div>
+
+{% set working = active_employees|selectattr('current_vehicle')|list %}
+{% if working %}
+<div class="card now-working" style="border-color:var(--success);background:var(--success-bg)">
+  <div class="flex between" style="margin-bottom:10px">
+    <h1 style="margin:0">Now Working</h1>
+    <span class="badge success" style="font-size:1rem;padding:6px 14px">{{ working|length }} on the floor</span>
+  </div>
+  <div class="now-working-grid">
+    {% for emp in working %}
+    <div class="now-worker">
+      <div class="now-worker-avatar">{{ emp.initials }}</div>
+      <div class="now-worker-info">
+        <div class="now-worker-name">{{ emp.name }}</div>
+        <div class="now-worker-unit">{{ emp.current_vehicle }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="card now-working" style="border-color:var(--success);background:var(--success-bg)">
+  <div class="flex between" style="margin-bottom:10px">
+    <h1 style="margin:0">Now Working</h1>
+  </div>
+  <p class="muted" style="margin:0">No vehicles in progress right now. Check a task to start.</p>
+</div>
+{% endif %}
 
 <div class="stat-grid">
   <div class="flex between" style="margin-bottom:8px">

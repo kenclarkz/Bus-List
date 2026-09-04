@@ -212,6 +212,35 @@ tr.row-inactive td { color: var(--muted); }
 .status-overdue { color: var(--danger); font-weight: 700; }
 .status-unknown { color: var(--muted); font-weight: 600; }
 
+/* big "Now Working" showcase */
+.now-working { border-width: 2px; }
+.now-working-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+.now-worker {
+  display: flex; align-items: center; gap: 12px;
+  background: #fff; border: 1px solid var(--border);
+  border-radius: 14px; padding: 16px;
+}
+.now-worker-avatar {
+  width: 56px; height: 56px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; font-size: 1.3rem; font-weight: 800;
+  background: var(--success); color: #fff;
+}
+.now-worker-name { font-size: 1.05rem; font-weight: 700; }
+.now-worker-unit {
+  font-size: 1.7rem; font-weight: 900; color: var(--success);
+  line-height: 1.1;
+}
+@media (max-width: 480px) {
+  .now-working-grid { grid-template-columns: 1fr; gap: 10px; }
+  .now-worker-avatar { width: 48px; height: 48px; font-size: 1.1rem; }
+  .now-worker-unit { font-size: 1.4rem; }
+}
+
 .row-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
 
 .muted { color: var(--muted); }
