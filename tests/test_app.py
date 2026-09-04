@@ -635,3 +635,37 @@ def test_per_vehicle_type_checklist(app):
         assert t1 == ["Bay Checked", "Sweep", "Windows"]
         assert t2 == ["Bathroom", "Bay Checked", "Dump", "Final Inspection",
                       "Mop", "Seats", "Sweep", "Windows"]
+
+
+def test_current_vehicle_cleared_when_vehicle_completed(client, app):
+    """Once the last task is checked and a vehicle is complete, employees
+    are no longer shown as currently working on it."""
+    from app.models import Employee
+
+    with app.app_context():
+        emp = Employee(name="Bob Jones")
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        v, _ = find_or_create_vehicle("730", location_id=vehicles_loc(app).id)
+        sched = ss.get_or_create_schedule(location=vehicles_loc(app))
+        entry = ss.ensure_entry(sched, v)
+        tasks = [t.task_name for t in entry.tasks]
+        ea = entry.id
+
+    for tname in tasks:
+        r = client.post(f"/task/{ea}/{tname}",
+                        data={"checked": "true", "employee_id": str(emp_id)})
+        assert r.status_code == 200
+        with app.app_context():
+            e = ScheduleEntry.query.get(ea)
+            if e.status != "completed":
+                assert Employee.query.get(emp_id).current_vehicle_id is not None
+
+    with app.app_context():
+        e = ScheduleEntry.query.get(ea)
+        assert e.status == "completed"
+        assert Employee.query.get(emp_id).current_vehicle_id is None

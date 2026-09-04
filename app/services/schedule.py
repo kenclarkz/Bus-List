@@ -129,6 +129,13 @@ def toggle_task(entry_id, task_name, checked, employee_id=None):
                 employee_id=employee_id, source="checklist",
                 at=datetime.utcnow())
     update_entry_status(entry)
+    # A completed vehicle is no longer "currently working" — clear it so the
+    # employee(s) move on to the next vehicle.
+    if entry.status == "completed" and entry.vehicle_id:
+        from ..models import Employee
+        Employee.query.filter_by(current_vehicle_id=entry.vehicle_id).update(
+            {"current_vehicle_id": None}, synchronize_session=False)
+        db.session.commit()
     return task
 
 
