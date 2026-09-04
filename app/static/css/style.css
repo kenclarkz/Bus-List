@@ -247,20 +247,31 @@ code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
 }
 
 @media (max-width: 600px) {
-  .topbar { flex-direction: column; align-items: stretch; }
-  .brand { flex-wrap: wrap; }
-  .nav { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; padding-bottom: 6px; }
-  .nav a { flex: 0 0 auto; }
-  .vrow-header { flex-direction: column; align-items: flex-start; }
+  .topbar { flex-direction: column; align-items: stretch; gap: 6px; padding: 8px 10px; }
+  .brand { flex-wrap: wrap; gap: 6px; }
+  .brand-name { font-size: .85rem; }
+  .role-btn { padding: 3px 8px; font-size: .6rem; }
+  .nav { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; overflow: hidden; }
+  .nav a { padding: 8px 4px; font-size: .7rem; text-align: center; white-space: nowrap; }
+  .vrow-header { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .filters { flex-direction: column; align-items: stretch; }
   .filters input, .filters select { max-width: 100%; flex: 1; }
-  .stat { padding: 12px; }
-  .stat .num { font-size: 1.5rem; }
-  .stats-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat { padding: 10px; }
+  .stat .num { font-size: 1.3rem; }
+  .stats-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .stats-row .stat { margin: 0; }
-  .ck { flex: 1 1 auto; min-width: calc(50% - 8px); justify-content: center; }
+  .ck { flex: 1 1 auto; min-width: calc(50% - 8px); justify-content: center; font-size: .8rem; padding: 6px 8px; }
+  .ck input { width: 18px; height: 18px; }
   .table-wrap { -webkit-overflow-scrolling: touch; }
-  th, td { padding: 8px; }
-  .container { padding: 16px 12px 60px; }
+  th, td { padding: 6px 8px; font-size: .8rem; }
+  .container { padding: 12px 10px 60px; }
   .modal { max-height: 85vh; overflow-y: auto; }
   .form-row > div { min-width: 100%; }
+  .vrow { padding: 10px; }
+  .progress { font-size: .8rem; }
+  .row-actions { gap: 6px; }
+  .row-actions .btn { padding: 5px 8px; font-size: .7rem; }
+  h1 { font-size: 1.2rem; margin: .3rem 0 .6rem; }
+  h2 { font-size: 1rem; }
+  .flash { padding: 8px 12px; font-size: .8rem; }
 }
