@@ -96,9 +96,11 @@
 
 <div class="card no-print" style="border-color: var(--success)">
   <h2>Apply Updates</h2>
-  <p class="muted">Applying will create/update vehicles, build today's work list,
-    record substitutions, and deactivate removed vehicles. Historical data is preserved.</p>
+  <p class="muted">Applying will create/update vehicles, build the work list for
+    <strong>{{ sched_date }}</strong>, record substitutions, and deactivate removed
+    vehicles. Historical data is preserved.</p>
   <form method="post" action="{{ url_for('import_apply', import_id=import_id) }}">
+    <input type="hidden" name="sched_date" value="{{ sched_date }}">
     <div class="flex">
       <button type="submit" class="btn success">Apply Updates</button>
       <a class="btn secondary" href="{{ url_for('import_report') }}">Cancel</a>

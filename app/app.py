@@ -270,8 +270,16 @@ def register_routes(app):
 
     @app.route("/")
     def dashboard():
+        from datetime import timedelta
+        # Accept ?date=YYYY-MM-DD, default to today
+        date_str = request.args.get("date", "").strip()
+        try:
+            view_date = date.fromisoformat(date_str) if date_str else date.today()
+        except ValueError:
+            view_date = date.today()
+
         loc = vehicles.default_location()
-        sched = sched_svc.get_or_create_schedule(location=loc)
+        sched = sched_svc.get_or_create_schedule(d=view_date, location=loc)
         has_import = PrepReportImport.query.filter_by(
             applied=True, schedule_date=sched.work_date).first() is not None
         rows = build_schedule_view(sched) if has_import else []
@@ -284,6 +292,23 @@ def register_routes(app):
                         (sum(r["total"] for r in rows) or 1)) * 100) if rows else 0
         overdue = sum(1 for r in rows if r["indicator"][0] == "Overdue")
         replacements = replacement_count_for_date(sched.work_date)
+
+        # Build date navigation links (today, tomorrow, +2 days)
+        nav_dates = []
+        for offset in range(3):
+            d = date.today() + timedelta(days=offset)
+            nav_dates.append({
+                "date": d,
+                "label": ["Today", "Tomorrow", "+2 Days"][offset],
+                "iso": d.isoformat(),
+                "active": view_date == d,
+            })
+
+        # Check which dates have imports applied
+        imported_dates = set()
+        for imp in PrepReportImport.query.filter_by(applied=True).all():
+            if imp.schedule_date:
+                imported_dates.add(imp.schedule_date.isoformat())
 
         filters = {
             "unit": request.args.get("unit", "").strip(),
@@ -319,6 +344,8 @@ def register_routes(app):
             remaining=remaining, overall=overall, overdue=overdue,
             replacements=replacements, types=types, filters=filters,
             employees=employees_list(),
+            nav_dates=nav_dates, view_date=view_date,
+            imported_dates=imported_dates,
         )
 
     @app.route("/vehicles")
@@ -401,6 +428,12 @@ def register_routes(app):
                 flash("Please choose a prep report PDF", "error")
                 return redirect(url_for("import_report"))
             data = file.read()
+            # Which day to import for (default today)
+            sched_date = request.form.get("sched_date", "").strip()
+            try:
+                sched_dt = date.fromisoformat(sched_date) if sched_date else date.today()
+            except ValueError:
+                sched_dt = date.today()
             from app.services.pdf_parser import parse_prep_report
             from app.services import schedule as ss
             parsed, method, warnings = parse_prep_report(data, file.filename)
@@ -413,24 +446,30 @@ def register_routes(app):
                 "import_preview.html",
                 preview=preview, warnings=warnings, method=method,
                 import_id=imp.id,
-                sched_date=date.today().isoformat())
-        return render_template("import.html")
+                sched_date=sched_dt.isoformat())
+        return render_template("import.html", import_dates=_import_date_options())
 
     @app.route("/import/<int:import_id>/apply", methods=["POST"])
     def import_apply(import_id):
         imp = PrepReportImport.query.get_or_404(import_id)
         preview = json.loads(imp.preview_json)
+        sched_date_str = request.form.get("sched_date", "").strip()
+        try:
+            sched_dt = date.fromisoformat(sched_date_str) if sched_date_str else date.today()
+        except ValueError:
+            sched_dt = date.today()
         sched = sched_svc.apply_import(
             preview,
             location=vehicles.default_location(),
             employee_id=request.form.get("employee_id") or None,
-            source="import")
+            source="import",
+            schedule_date=sched_dt)
         imp.applied = True
         imp.applied_at = datetime.utcnow()
         imp.schedule_date = sched.work_date
         db.session.commit()
-        flash("Prep report applied. Today's work list updated.", "success")
-        return redirect(url_for("dashboard"))
+        flash(f"Prep report applied for {sched_dt.strftime('%b %d')}. Work list updated.", "success")
+        return redirect(url_for("dashboard", date=sched_dt.isoformat()))
 
     @app.route("/task/<int:entry_id>/<path:task_name>", methods=["POST"])
     def task_toggle(entry_id, task_name):
@@ -512,13 +551,25 @@ def register_routes(app):
             flash("Day finalized and saved to history", "success")
             return redirect(url_for("history_days"))
 
+        # Date nav for end day (today, tomorrow, +2 days)
+        from datetime import timedelta
+        nav_dates = []
+        for offset in range(3):
+            nd = date.today() + timedelta(days=offset)
+            nav_dates.append({
+                "date": nd, "iso": nd.isoformat(),
+                "label": ["Today", "Tomorrow", "+2 Days"][offset],
+                "active": d == nd,
+            })
+
         return render_template(
             "end_day.html", rows=rows, sched=sched, notes=notes,
             replacements=replacements, d=d,
             total=total, completed=completed, incomplete=incomplete,
             overall=overall, incomplete_rows=incomplete_rows,
             completed_rows=completed_rows,
-            finalized=sched.finalized, employees=employees_list())
+            finalized=sched.finalized, employees=employees_list(),
+            nav_dates=nav_dates)
 
     @app.route("/print/<path:date>")
     def print_report(date):
@@ -606,5 +657,17 @@ def register_routes(app):
             "location": settings.get_setting("location") or "Main Depot",
             "checklist": ", ".join(settings.get_checklist()),
         }, vehicle_types=vtypes)
+
+    def _import_date_options():
+        """Build date options for import: today, tomorrow, +2 days."""
+        from datetime import timedelta
+        labels = ["Today", "Tomorrow", "+2 Days"]
+        return [
+            {"iso": (date.today() + timedelta(days=i)).isoformat(),
+             "label": labels[i],
+             "display": (date.today() + timedelta(days=i)).strftime("%b %d"),
+             "is_today": i == 0}
+            for i in range(3)
+        ]
 
     return app

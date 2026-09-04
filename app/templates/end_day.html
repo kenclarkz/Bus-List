@@ -3,6 +3,15 @@
 {% block content %}
 <h1>End My Day <span class="muted small">{{ d.strftime('%A, %B %d %Y') }}</span></h1>
 
+<div class="flex" style="gap:4px;margin-bottom:12px;flex-wrap:wrap">
+  {% for nd in nav_dates %}
+  <a href="{{ url_for('end_day', date=nd.iso) }}"
+     class="btn small {{ 'success' if nd.active else 'secondary' }}">
+    {{ nd.label }} <span class="small">({{ nd.date.strftime('%b %d') }})</span>
+  </a>
+  {% endfor %}
+</div>
+
 {% if finalized %}
 <div class="card" style="border-color: var(--success)">
   <h2 style="color:var(--success)">✓ Day finalized</h2>
