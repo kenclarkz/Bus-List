@@ -139,6 +139,8 @@ def remove_import(imp):
             for entry in ScheduleEntry.query.filter_by(
                     vehicle_id=vehicle.id).all():
                 db.session.delete(entry)
+            Employee.query.filter_by(current_vehicle_id=vehicle.id).update(
+                {"current_vehicle_id": None})
             db.session.delete(vehicle)
 
     for unit in units_removed:
@@ -157,6 +159,14 @@ def remove_import(imp):
             applied=True, schedule_date=sched_date).count()
         if remaining == 0:
             for sched in DailySchedule.query.filter_by(work_date=sched_date).all():
+                # Clear current vehicle for employees working vehicles on
+                # this day's board, since the board is being reset to empty.
+                removed_ids = [e.vehicle_id for e in sched.entries]
+                if removed_ids:
+                    Employee.query.filter(
+                        Employee.current_vehicle_id.in_(removed_ids)
+                    ).update({"current_vehicle_id": None},
+                             synchronize_session=False)
                 for entry in list(sched.entries):
                     db.session.delete(entry)
 

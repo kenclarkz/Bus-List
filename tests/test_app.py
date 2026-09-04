@@ -312,6 +312,63 @@ def test_import_delete_removes_imported_vehicles(client, app):
         assert ScheduleEntry.query.filter_by(vehicle_id=0).count() == 0
 
 
+def test_delete_import_clears_employee_current_vehicle(client, app):
+    """Deleting an import must clear the 'currently working' vehicle for any
+    employee who had checked tasks on that day's board."""
+    import fitz
+    from app.models import Employee
+
+    with app.app_context():
+        emp = Employee(name="Jane Smith")
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Unit  Type  Route")
+    page.insert_text((72, 100), "710   Coach  R1")
+    data = doc.tobytes()
+
+    r = client.post("/import", data={
+        "pdf": (io.BytesIO(data), "prep3.pdf"),
+    }, content_type="multipart/form-data")
+    assert r.status_code == 200
+
+    with app.app_context():
+        from app.models import PrepReportImport
+        imp = PrepReportImport.query.first()
+        iid = imp.id
+
+    r = client.post(f"/import/{iid}/apply")
+    assert r.status_code == 302
+
+    # Find the entry and check a task as the employee
+    with app.app_context():
+        from app.models import PrepReportImport
+        v = Vehicle.query.filter_by(unit_number="710").first()
+        assert v is not None
+        entry = ScheduleEntry.query.filter_by(vehicle_id=v.id).first()
+        assert entry is not None
+        eid = entry.id
+
+    r = client.post(f"/task/{eid}/Sweep",
+                    data={"checked": "true", "employee_id": str(emp_id)})
+    assert r.status_code == 200
+
+    with app.app_context():
+        emp = Employee.query.get(emp_id)
+        assert emp.current_vehicle_id is not None
+        assert Vehicle.query.get(emp.current_vehicle_id).unit_number == "710"
+
+    r = client.post(f"/import/{iid}/delete")
+    assert r.status_code == 302
+
+    with app.app_context():
+        emp = Employee.query.get(emp_id)
+        assert emp.current_vehicle_id is None
+
+
 def test_today_board_tracks_import(client, app):
     """Today's total is 0 until a prep report is imported and applied, and
     resets to 0 once the import is deleted (matches the separate Vehicles tab,
