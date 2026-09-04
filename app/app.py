@@ -70,6 +70,10 @@ def _migrate():
         if "current_vehicle_id" not in ecols:
             con.execute("ALTER TABLE employees ADD COLUMN current_vehicle_id INTEGER")
             con.commit()
+        scols = {r[1] for r in con.execute("PRAGMA table_info(schedule_entries)")}
+        if "skip_reason" not in scols:
+            con.execute("ALTER TABLE schedule_entries ADD COLUMN skip_reason VARCHAR(255)")
+            con.commit()
         con.close()
     except Exception:
         pass
@@ -516,7 +520,10 @@ def register_routes(app):
             flash("Manager view is read-only", "error")
             return redirect(url_for("dashboard"))
         entry = ScheduleEntry.query.get_or_404(entry_id)
-        status = sched_svc.set_entry_skipped(entry, skipped=True)
+        reason = request.form.get("reason", "").strip()
+        if not reason:
+            reason = entry.skip_reason or ""
+        status = sched_svc.set_entry_skipped(entry, skipped=True, reason=reason)
         flash(f"Vehicle {entry.vehicle.unit_number} marked as skipped", "success")
         return redirect(request.referrer or url_for("dashboard"))
 

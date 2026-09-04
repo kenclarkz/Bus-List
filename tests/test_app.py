@@ -704,3 +704,38 @@ def test_skip_vehicle_counts_as_complete(client, app):
     with app.app_context():
         e = ScheduleEntry.query.get(ea)
         assert e.status == "pending"
+
+
+def test_skip_does_not_record_cleaning_and_stores_reason(client, app):
+    """Skipping a vehicle must NOT mark it as cleaned (still needs cleaning),
+    and the skip reason is stored and rendered."""
+    from app.models import ServiceRecord
+    from datetime import date
+
+    with app.app_context():
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        v, _ = find_or_create_vehicle("750", location_id=vehicles_loc(app).id)
+        assert v.last_washed is None
+        sched = ss.get_or_create_schedule(location=vehicles_loc(app))
+        entry = ss.ensure_entry(sched, v)
+        ea = entry.id
+
+    # Skip with a reason
+    r = client.post(f"/entry/{ea}/skip", data={"reason": "not in service today"})
+    assert r.status_code == 302
+
+    with app.app_context():
+        e = ScheduleEntry.query.get(ea)
+        assert e.status == "skipped"
+        assert e.skip_reason == "not in service today"
+        # No service record created -> vehicle still needs cleaning
+        assert ServiceRecord.query.filter_by(vehicle_id=e.vehicle_id).count() == 0
+        v = e.vehicle
+        assert v.last_washed is None
+        assert v.last_detailed is None
+
+    # End-day report and print report show the reason
+    assert client.get("/end").data.decode().find("not in service today") != -1
+    assert client.get(f"/print/{date.today().isoformat()}").data.decode().find(
+        "not in service today") != -1

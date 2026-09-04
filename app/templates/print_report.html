@@ -37,7 +37,7 @@
         <td>{{ r.vehicle.vehicle_type.name if r.vehicle.vehicle_type else '—' }}</td>
         <td>{{ r.vehicle.route or '—' }}</td>
         <td>{{ r.entry.prep_time or '—' }}</td>
-        <td>{{ r.entry.status }}</td>
+        <td>{{ r.entry.status }}{% if r.entry.status == 'skipped' and r.entry.skip_reason %} — {{ r.entry.skip_reason }}{% endif %}</td>
         <td>
           {% for t in r.entry.tasks|sort(attribute='task_name') %}
             {{ '☑' if t.completed else '☐' }} {{ t.task_name }}{% if t.completed and t.employee %} <span style="font-size:10px;background:#e0f2fe;padding:1px 4px;border-radius:3px">{{ t.employee.initials }}</span>{% endif %}&nbsp;

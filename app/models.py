@@ -144,6 +144,7 @@ class ScheduleEntry(db.Model):
     replacement_of_entry_id = db.Column(db.Integer)
     order_index = db.Column(db.Integer, default=0)
     prep_time = db.Column(db.String(40))
+    skip_reason = db.Column(db.String(255))
 
     schedule = db.relationship("DailySchedule", back_populates="entries")
     vehicle = db.relationship("Vehicle")

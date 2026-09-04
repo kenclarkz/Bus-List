@@ -104,12 +104,14 @@ def update_entry_status(entry):
     return entry.status
 
 
-def set_entry_skipped(entry, skipped=True):
+def set_entry_skipped(entry, skipped=True, reason=""):
     """Mark a vehicle as skipped (counts toward completion) or un-skip it."""
     if skipped:
         entry.status = "skipped"
+        entry.skip_reason = (reason or "").strip()[:255] or None
     else:
         entry.status = "pending"
+        entry.skip_reason = None
         update_entry_status(entry)
     # Skipping frees the vehicle from anyone currently working it.
     if entry.vehicle_id:
