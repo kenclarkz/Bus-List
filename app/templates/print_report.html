@@ -39,12 +39,26 @@
         <td>{{ r.entry.status }}</td>
         <td>
           {% for t in r.entry.tasks|sort(attribute='task_name') %}
-            {{ '☑' if t.completed else '☐' }} {{ t.task_name }}&nbsp;
+            {{ '☑' if t.completed else '☐' }} {{ t.task_name }}{% if t.completed and t.employee %} <span style="font-size:10px;background:#e0f2fe;padding:1px 4px;border-radius:3px">{{ t.employee.initials }}</span>{% endif %}&nbsp;
           {% endfor %}
         </td>
       </tr>
       {% endfor %}
     </table>
+
+    {% if employee_stats %}
+    <h2>Employee Completion</h2>
+    <table>
+      <tr><th>Employee</th><th>Tasks Done</th><th>% of Total</th></tr>
+      {% for emp in employee_stats %}
+      <tr>
+        <td>{{ emp.name }} <span style="font-size:10px;background:#e0f2fe;padding:1px 4px;border-radius:3px">{{ emp.initials }}</span></td>
+        <td>{{ emp.done }}</td>
+        <td>{{ emp.pct }}%</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% endif %}
     {% if replacements %}
       <p style="font-size:12px">* Replacement vehicle</p>
     {% endif %}

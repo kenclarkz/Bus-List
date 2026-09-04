@@ -109,6 +109,7 @@
                {{ 'disabled' if current_role == 'manager' }}>
         {{ t.task_name }}
         {% if t.completed_at %}<span class="small muted">· {{ t.completed_at.strftime('%H:%M') }}</span>{% endif %}
+        {% if t.completed and t.employee %}<span class="badge info" style="font-size:.6rem;padding:1px 5px;margin-left:4px">{{ t.employee.initials }}</span>{% endif %}
       </label>
       {% endfor %}
     </div>

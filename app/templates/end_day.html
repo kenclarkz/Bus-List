@@ -31,6 +31,24 @@
   <div class="stat"><div class="num">{{ overall }}%</div><div class="lbl">Completion</div></div>
 </div>
 
+{% if employee_stats %}
+<div class="card">
+  <h2>Employee Completion</h2>
+  <div class="table-wrap">
+  <table>
+    <tr><th>Employee</th><th>Tasks Done</th><th>% of Total</th></tr>
+    {% for emp in employee_stats %}
+    <tr>
+      <td><strong>{{ emp.name }}</strong> <span class="badge info" style="font-size:.6rem">{{ emp.initials }}</span></td>
+      <td>{{ emp.done }}</td>
+      <td>{{ emp.pct }}%</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+{% endif %}
+
 <div class="card">
   <h2>Unfinished Checklist Items</h2>
   {% if incomplete_rows %}

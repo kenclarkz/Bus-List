@@ -562,6 +562,22 @@ def register_routes(app):
                 "active": d == nd,
             })
 
+        # Per-employee stats
+        emp_done = {}
+        total_tasks = 0
+        for r in rows:
+            for t in r["entry"].tasks:
+                total_tasks += 1
+                if t.completed and t.employee:
+                    emp_done[t.employee.name] = emp_done.get(t.employee.name, 0) + 1
+        employee_stats = sorted(
+            [{"name": n,
+              "initials": Employee.query.filter_by(name=n).first().initials,
+              "done": d, "total": total_tasks,
+              "pct": round(d / total_tasks * 100) if total_tasks else 0}
+             for n, d in emp_done.items()],
+            key=lambda x: x["name"])
+
         return render_template(
             "end_day.html", rows=rows, sched=sched, notes=notes,
             replacements=replacements, d=d,
@@ -569,7 +585,7 @@ def register_routes(app):
             overall=overall, incomplete_rows=incomplete_rows,
             completed_rows=completed_rows,
             finalized=sched.finalized, employees=employees_list(),
-            nav_dates=nav_dates)
+            nav_dates=nav_dates, employee_stats=employee_stats)
 
     @app.route("/print/<path:date>")
     def print_report(date):
@@ -583,10 +599,25 @@ def register_routes(app):
         completed = sum(1 for r in rows if r["entry"].status == "completed")
         overall = round((sum(r["done"] for r in rows) /
                         (sum(r["total"] for r in rows) or 1)) * 100) if rows else 0
+        # Per-employee stats
+        emp_done = {}
+        total_tasks = 0
+        for r in rows:
+            for t in r["entry"].tasks:
+                total_tasks += 1
+                if t.completed and t.employee:
+                    emp_done[t.employee.name] = emp_done.get(t.employee.name, 0) + 1
+        employee_stats = sorted(
+            [{"name": n,
+              "initials": Employee.query.filter_by(name=n).first().initials,
+              "done": d, "total": total_tasks,
+              "pct": round(d / total_tasks * 100) if total_tasks else 0}
+             for n, d in emp_done.items()],
+            key=lambda x: x["name"])
         return render_template(
             "print_report.html", rows=rows, notes=notes, d=d, sched=sched,
             replacements=replacements, total=total, completed=completed,
-            overall=overall)
+            overall=overall, employee_stats=employee_stats)
 
     @app.route("/history")
     def history_days():

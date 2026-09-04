@@ -98,6 +98,14 @@ class Employee(db.Model):
         foreign_keys="Replacement.employee_id"
     )
 
+    @property
+    def initials(self):
+        """Return uppercase initials from the employee name (e.g. 'John Smith' -> 'JS')."""
+        parts = self.name.strip().split()
+        if len(parts) >= 2:
+            return (parts[0][0] + parts[-1][0]).upper()
+        return self.name[:2].upper() if self.name else "?"
+
 
 class DailySchedule(db.Model):
     """A day's work list. One per location per day."""
