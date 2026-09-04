@@ -78,9 +78,6 @@ def seed_defaults():
         loc = Location(name="Main Depot")
         db.session.add(loc)
         db.session.commit()
-    if Employee.query.count() == 0:
-        db.session.add(Employee(name="User", location_id=loc.id, active=True))
-        db.session.commit()
     if Vehicle.query.count() == 0:
         _seed_vehicles(loc)
 
