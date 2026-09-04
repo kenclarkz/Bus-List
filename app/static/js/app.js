@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (empSel && CURRENT_EMPLOYEE) empSel.value = CURRENT_EMPLOYEE;
 
   document.querySelectorAll('.ck input').forEach(function (chk) {
+    if (chk.type !== 'checkbox') return;
     chk.addEventListener('change', function () {
       if (chk.disabled) return;
       var entryId = chk.dataset.entry;
