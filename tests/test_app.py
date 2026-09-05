@@ -144,6 +144,112 @@ def test_echo_format_parsing():
 
 
 # ---------------------------------------------------------------------------
+# OCR fallback (scanned PDFs with no selectable text)
+# ---------------------------------------------------------------------------
+
+class _FakeTesseractNotFoundError(Exception):
+    pass
+
+
+def _fake_pytesseract_module(result=None, exc=None):
+    import types
+    mod = types.ModuleType("pytesseract")
+    mod.TesseractNotFoundError = _FakeTesseractNotFoundError
+
+    def image_to_string(img):
+        if exc is not None:
+            raise exc
+        return result or ""
+
+    mod.image_to_string = image_to_string
+    return mod
+
+
+def _fake_pil_module():
+    import types
+
+    class _Img:
+        def convert(self, *a, **k):
+            return self
+
+    class _Image:
+        @staticmethod
+        def open(fp):
+            return _Img()
+
+        @staticmethod
+        def new(*a, **k):
+            return _Img()
+
+    mod = types.ModuleType("PIL")
+    mod.Image = _Image
+    return mod
+
+
+def _blank_scanned_pdf():
+    """A PDF page with zero selectable text (simulates a scan)."""
+    import fitz
+    doc = fitz.open()
+    doc.new_page()
+    return doc.tobytes()
+
+
+def test_scanned_pdf_without_ocr_libraries_warns(monkeypatch):
+    """When OCR libraries are missing, warn with install guidance instead of
+    silently failing (the reported bug)."""
+    monkeypatch.setitem(__import__("sys").modules, "pytesseract", None)
+    monkeypatch.setitem(__import__("sys").modules, "PIL", None)
+
+    parsed, method, warnings = parse_prep_report(_blank_scanned_pdf(), "scan.pdf")
+
+    assert method == "ocr"
+    assert parsed == {}
+    assert any("tesseract" in w.lower() or "pip install" in w.lower()
+               for w in warnings)
+
+
+def test_scanned_pdf_ocr_extracts_vehicles(monkeypatch):
+    """With OCR available, a scanned PDF is read and vehicles are extracted,
+    flagged as uncertain for manual review."""
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "pytesseract",
+        _fake_pytesseract_module(
+            result="BUS  142  Coach  R12\n"
+                   "Unit 155  Van   R3\n"
+                   "Header text no vehicle\n"
+        ),
+    )
+    monkeypatch.setitem(__import__("sys").modules, "PIL", _fake_pil_module())
+
+    parsed, method, warnings = parse_prep_report(_blank_scanned_pdf(), "scan.pdf")
+
+    assert method == "ocr"
+    assert "142" in parsed
+    assert parsed["142"].type == "Coach"
+    assert parsed["142"].route == "R12"
+    assert parsed["142"].uncertain is True
+    assert "155" in parsed
+
+
+def test_scanned_pdf_without_tesseract_binary_warns(monkeypatch):
+    """If pytesseract is present but the tesseract-ocr binary is missing, call
+    out the missing system tool."""
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "pytesseract",
+        _fake_pytesseract_module(exc=_FakeTesseractNotFoundError("not found")),
+    )
+    monkeypatch.setitem(__import__("sys").modules, "PIL", _fake_pil_module())
+
+    parsed, method, warnings = parse_prep_report(_blank_scanned_pdf(), "scan.pdf")
+
+    assert method == "ocr"
+    assert parsed == {}
+    assert any("tesseract-ocr" in w for w in warnings)
+
+
+# ---------------------------------------------------------------------------
 # Import preview / apply
 # ---------------------------------------------------------------------------
 

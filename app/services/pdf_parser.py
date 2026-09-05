@@ -3,10 +3,12 @@
 Layered extraction strategy:
 1. Text extraction with PyMuPDF (handles text-based PDFs and basic tables).
 2. Table extraction using PyMuPDF's built-in table detection.
-3. OCR fallback using pdf2image + pytesseract when the PDF is a scan
-   (images instead of selectable text). OCR is best-effort: if the OCR
-   binaries are not available it degrades gracefully and the import preview
-   flags that OCR could not run so the operator can review manually.
+3. OCR fallback using PyMuPDF page rendering + pytesseract when the PDF is
+   a scan (images instead of selectable text). Every page is rendered to an
+   image with PyMuPDF and passed to Tesseract for OCR, so poppler/pdf2image
+   are not needed. OCR is best-effort: if the OCR libraries or the
+   tesseract binary are not available it degrades gracefully and the import
+   preview flags that OCR could not run so the operator can review manually.
 
 Everything that cannot be confidently resolved is returned with an
 "uncertain" flag so the preview can prompt for manual review instead of
@@ -308,56 +310,59 @@ def extract_vehicles_from_pdf(file_bytes, filename=""):
 
 
 def _ocr_document(doc):
-    """Best-effort OCR. Requires poppler-utils + tesseract installed."""
+    """Best-effort OCR. Requires Pillow + pytesseract installed and the
+    `tesseract-ocr` binary available on the system."""
     found = {}
     warnings = []
     try:
-        from pdf2image import convert_from_bytes
         import pytesseract
         from PIL import Image
-    except ImportError:
+    except ImportError as exc:
         warnings.append(
             "Scanned PDF (no selectable text), but OCR libraries are not "
-            "installed. Please review manually."
+            f"installed ({exc.name}). Install them with "
+            "`pip install -r requirements.txt` and the `tesseract-ocr` "
+            "system tool, or review manually."
         )
         return found, warnings
 
+    # Render each page to a raster image with PyMuPDF, then OCR with Tesseract.
+    # No poppler/pdf2image needed - PyMuPDF does the rendering.
+    images = []
+    for page in doc:
+        pix = page.get_pixmap(dpi=200)
+        images.append(
+            Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
+        )
+
     try:
-        import fitz
-        images = []
-        for i, page in enumerate(doc):
-            pix = page.get_pixmap(dpi=200)
-            images.append(
-                Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
-            )
-        text = pytesseract.image_to_string(
-            images[0] if len(images) == 1 else Image.new("RGB", (1, 1))
-        ) if len(images) == 1 else ""
-
-        if len(images) > 1:
-            full_text = "\n".join(
-                pytesseract.image_to_string(img) for img in images
-            )
-        else:
-            full_text = text
-
-        for line in full_text.splitlines():
-            cols = [c for c in re.split(r"\s{2,}|\t|  +", line) if c]
-            unit = None
-            for idx, col in enumerate(cols):
-                u = normalize_unit(col)
-                if u and re.search(r"\d{2,6}", col):
-                    unit = u
-                    vt = normalize_type(cols[idx + 1]) if idx + 1 < len(cols) else None
-                    rt = normalize_route(cols[idx + 2]) if idx + 2 < len(cols) else None
-                    if rt and re.fullmatch(r"(?i)route|assignment|location|status", rt):
-                        rt = None
-                    found[unit] = ParsedVehicle(unit, type=vt, route=rt, raw=line,
-                                                uncertain=True)
-                    break
-    except Exception as exc:  # pragma: no cover
+        full_lines = [pytesseract.image_to_string(img) for img in images]
+    except pytesseract.TesseractNotFoundError:
+        warnings.append(
+            "Scanned PDF (no selectable text), but the tesseract-ocr binary "
+            "is not installed. Install it (e.g. `apt-get install "
+            "tesseract-ocr`) and restart, or review manually."
+        )
+        return found, warnings
+    except Exception as exc:  # pragma: no cover - defensive
         logger.warning("OCR failed: %s", exc)
         warnings.append(f"OCR failed: {exc}")
+        return found, warnings
+
+    full_text = "\n".join(full_lines)
+
+    for line in full_text.splitlines():
+        cols = [c for c in re.split(r"\s{2,}|\t|  +", line) if c]
+        for idx, col in enumerate(cols):
+            unit = normalize_unit(col)
+            if unit and re.search(r"\d{2,6}", col):
+                vt = normalize_type(cols[idx + 1]) if idx + 1 < len(cols) else None
+                rt = normalize_route(cols[idx + 2]) if idx + 2 < len(cols) else None
+                if rt and re.fullmatch(r"(?i)route|assignment|location|status", rt):
+                    rt = None
+                found[unit] = ParsedVehicle(unit, type=vt, route=rt, raw=line,
+                                            uncertain=True)
+                break
 
     if not found:
         warnings.append("OCR produced no vehicle matches. Review manually.")
