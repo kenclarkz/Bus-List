@@ -82,24 +82,24 @@ Then go to **Import** → choose the PDF → review the preview → **Apply Upda
 
 ---
 
-## OCR / scanned PDFs (optional)
+## OCR / scanned PDFs
 
 The importer extracts selectable text and tables with **PyMuPDF** out of the
-box. For scanned (image-only) PDFs it falls back to OCR. To enable OCR,
-install the extra dependencies and the system tools:
+box. For scanned (image-only) PDFs it falls back to OCR: each page is rendered
+with PyMuPDF and read with **Tesseract**. `pytesseract` and `Pillow` are
+included in `requirements.txt`; the only extra step is the system `tesseract`
+binary:
 
 ```bash
-# Python packages
-pip install pdf2image pytesseract Pillow
-
-# System tools
+# System tool only (Python deps are already in requirements.txt)
 # Ubuntu/Debian:
-sudo apt-get install -y poppler-utils tesseract-ocr
-# macOS: brew install poppler tesseract
+sudo apt-get install -y tesseract-ocr
+# macOS: brew install tesseract
 ```
 
-If OCR is unavailable, the app degrades gracefully: it warns that a scanned
-PDF could not be read and asks for manual review rather than guessing.
+No `poppler-utils` or `pdf2image` are required. If OCR is unavailable, the app
+degrades gracefully: it warns that the scanned PDF could not be read and points
+to the missing dependency rather than guessing.
 
 ---
 
