@@ -28,7 +28,11 @@ def app(tmp_path):
 
 @pytest.fixture()
 def client(app):
-    return app.test_client()
+    # Default: signed in as the Employee account so existing route tests run
+    # against the interactive board.
+    c = app.test_client()
+    c.post("/login", data={"username": "employee", "password": "employee"})
+    return c
 
 
 def seed_vehicle(app, unit="142", vtype="Coach", route="R12"):
@@ -520,6 +524,89 @@ def test_today_board_tracks_import(client, app):
 
 
 # ---------------------------------------------------------------------------
+# Manual add vehicle to board
+# ---------------------------------------------------------------------------
+
+def test_manual_add_new_vehicle_to_board(client, app):
+    """A brand-new vehicle can be added to today's board manually (no import)."""
+    r = client.post("/schedule/add", data={
+        "unit_number": "555",
+        "vehicle_type": "Coach",
+        "route": "Downtown",
+        "prep_time": "04:30",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        v = Vehicle.query.filter_by(unit_number="555").first()
+        assert v is not None
+        assert v.vehicle_type.name == "Coach"
+        assert v.route == "Downtown"
+        sched = DailySchedule.query.filter_by(work_date=date.today()).first()
+        entry = ScheduleEntry.query.filter_by(vehicle_id=v.id).first()
+        assert entry is not None
+        assert entry.prep_time == "04:30"
+        assert entry.status == "pending"
+        assert len(entry.tasks) == 8
+
+
+def test_manual_add_existing_vehicle_to_board(client, app):
+    """Adding a vehicle that already exists reuses it instead of duplicating."""
+    with app.app_context():
+        v, _ = find_or_create_vehicle("640", vehicle_type="Van", route="R3",
+                                      location_id=vehicles_loc(app).id)
+        vid = v.id
+    r = client.post("/schedule/add", data={"unit_number": "640"})
+    assert r.status_code == 302
+    with app.app_context():
+        # Same vehicle, not a duplicate.
+        assert Vehicle.query.filter_by(unit_number="640").count() == 1
+        assert Vehicle.query.get(vid) is not None
+        sched = DailySchedule.query.filter_by(work_date=date.today()).first()
+        assert ScheduleEntry.query.filter_by(
+            schedule_id=sched.id, vehicle_id=vid).first() is not None
+
+
+def test_manual_add_requires_unit(client, app):
+    """Adding without a unit number redirects and creates nothing."""
+    r = client.post("/schedule/add", data={})
+    assert r.status_code == 302
+    with app.app_context():
+        assert ScheduleEntry.query.count() == 0
+
+
+def test_manual_add_vehicle_shows_on_dashboard_without_import(client, app):
+    """A manually added vehicle is visible on the Today board even when no
+    prep report has been imported (previously the board stayed empty)."""
+    # No import -> board empty
+    html = client.get("/").data.decode()
+    assert 'class="num">0</div><div class="lbl">Total Vehicles' in html
+
+    client.post("/schedule/add", data={"unit_number": "566"})
+
+    html = client.get("/").data.decode()
+    assert 'class="num">1</div><div class="lbl">Total Vehicles' in html
+    assert "566" in html
+
+
+def test_manual_add_vehicle_to_specific_date(client, app):
+    """A vehicle can be added to tomorrow's board explicitly."""
+    from datetime import timedelta
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    r = client.post("/schedule/add", data={
+        "date": tomorrow,
+        "unit_number": "577",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        sched = DailySchedule.query.filter_by(
+            work_date=(date.today() + timedelta(days=1))).first()
+        assert sched is not None
+        v = Vehicle.query.filter_by(unit_number="577").first()
+        assert ScheduleEntry.query.filter_by(
+            schedule_id=sched.id, vehicle_id=v.id).first() is not None
+
+
+# ---------------------------------------------------------------------------
 # Checklist + progress
 # ---------------------------------------------------------------------------
 
@@ -848,107 +935,99 @@ def test_skip_does_not_record_cleaning_and_stores_reason(client, app):
 
 
 # ---------------------------------------------------------------------------
-# Start work (dashboard "Start" flow)
+# Login / roles
 # ---------------------------------------------------------------------------
 
-def test_start_work_sets_current_vehicle(client, app):
-    """POST /start-work assigns the employee to the vehicle as 'currently
-    working', flips the entry to in_progress, and returns JSON for the
-    'Now Working' card.""" 
-    from app.models import Employee
-
-    with app.app_context():
-        emp = Employee(name="Alice Green")
-        db.session.add(emp)
-        db.session.commit()
-        emp_id = emp.id
-
-        from app.services import schedule as ss
-        from app.services.vehicles import find_or_create_vehicle
-        v, _ = find_or_create_vehicle("760", location_id=vehicles_loc(app).id)
-        sched = ss.get_or_create_schedule(location=vehicles_loc(app))
-        entry = ss.ensure_entry(sched, v)
-        ea = entry.id
-        vid = v.id
-        assert entry.status == "pending"
-
-    r = client.post("/start-work", data={"employee_id": str(emp_id),
-                                         "entry_id": str(ea)})
-    assert r.status_code == 200
-    body = r.get_json()
-    assert body["ok"] is True
-    assert body["vehicle"] == "760"
-    assert body["initials"] == "AG"
-    assert body["employee"] == "Alice Green"
-
-    with app.app_context():
-        emp = Employee.query.get(emp_id)
-        assert emp.current_vehicle_id == vid
-        e = ScheduleEntry.query.get(ea)
-        assert e.status == "in_progress"
+def test_login_required_redirects_to_login(app):
+    c = app.test_client()
+    r = c.get("/")
+    assert r.status_code == 302
+    assert "/login" in r.headers["Location"]
+    assert c.get("/vehicles").status_code == 302
 
 
-def test_start_work_requires_employee_and_entry(client, app):
-    """Missing employee or entry ids are rejected instead of crashing."""
-    assert client.post("/start-work", data={}).status_code == 400
-    assert client.post("/start-work", data={"entry_id": "1"}).status_code == 400
-    assert client.post("/start-work", data={
-        "employee_id": "1", "entry_id": "999999"}).status_code == 404
+def test_login_accepts_case_insensitive_username_routes_by_role(app):
+    e = app.test_client()
+    r = e.post("/login", data={"username": "Employee", "password": "employee"})
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/")
+    assert e.get("/").status_code == 200
+
+    m = app.test_client()
+    r = m.post("/login", data={"username": "manager", "password": "manager"})
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/")
+
+    d = app.test_client()
+    r = d.post("/login", data={"username": "driver", "password": "driver"})
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/driver")
 
 
-def test_start_work_manager_role_read_only(client, app):
-    """Managers cannot start work via the Start button (read-only)."""
-    from app.models import Employee
+def test_login_rejects_unknown_user_and_wrong_password(app):
+    c = app.test_client()
+    r = c.post("/login", data={"username": "admin", "password": "admin"})
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/login")
+    assert b"Invalid username or password" in c.get("/login").data
 
-    with app.app_context():
-        emp = Employee(name="Mgr Pat")
-        db.session.add(emp)
-        db.session.commit()
-        emp_id = emp.id
-        from app.services import schedule as ss
-        from app.services.vehicles import find_or_create_vehicle
-        v, _ = find_or_create_vehicle("761", location_id=vehicles_loc(app).id)
-        sched = ss.get_or_create_schedule(location=vehicles_loc(app))
-        entry = ss.ensure_entry(sched, v)
-        ea = entry.id
-
-    client.post("/set-role", data={"role": "manager"})
-    r = client.post("/start-work", data={"employee_id": str(emp_id),
-                                         "entry_id": str(ea)})
-    assert r.status_code == 403
+    c2 = app.test_client()
+    r = c2.post("/login", data={"username": "employee", "password": "wrong"})
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/login")
 
 
-def test_dashboard_hides_tasks_behind_start(client, app):
-    """Task checklists are hidden on the dashboard for vehicles that haven't
-    been started; a Start button is shown instead. Completed vehicles keep
-    their checklist visible for review."""
-    from datetime import date
-    from app.models import PrepReportImport
+def test_logout_clears_session(app):
+    c = app.test_client()
+    c.post("/login", data={"username": "employee", "password": "employee"})
+    assert c.get("/").status_code == 200
+    r = c.post("/logout")
+    assert r.status_code == 302
+    assert "/login" in r.headers["Location"]
+    assert c.get("/").status_code == 302
 
+
+def test_driver_restricted_to_finished_screen(app):
+    d = app.test_client()
+    d.post("/login", data={"username": "driver", "password": "driver"})
+    assert d.get("/driver").status_code == 200
+    # Drivers may not browse the rest of the app.
+    assert d.get("/").status_code == 302
+    assert d.get("/settings").status_code == 302
+
+
+def test_driver_screen_shows_only_finished_vehicles(app):
     with app.app_context():
         from app.services import schedule as ss
         from app.services.vehicles import find_or_create_vehicle
         loc = vehicles_loc(app)
         sched = ss.get_or_create_schedule(location=loc)
-        v1, _ = find_or_create_vehicle("770", location_id=loc.id)
-        v2, _ = find_or_create_vehicle("780", location_id=loc.id)
+        v1, _ = find_or_create_vehicle("101", location_id=loc.id)
+        v2, _ = find_or_create_vehicle("102", location_id=loc.id)
         e1 = ss.ensure_entry(sched, v1)
-        e2 = ss.ensure_entry(sched, v2)
-        assert e1.status == "pending"
-        # fully complete the second vehicle so its checklist is reviewable
-        for tname in [t.task_name for t in e2.tasks]:
-            ss.toggle_task(e2.id, tname, True)
-        assert e2.status == "completed"
-        # mark today's board as imported so the dashboard renders rows
-        imp = PrepReportImport(applied=True,
-                               schedule_date=sched.work_date or date.today())
-        db.session.add(imp)
-        db.session.commit()
+        ss.ensure_entry(sched, v2)
+        for t in list(e1.tasks):
+            ss.toggle_task(e1.id, t.task_name, True)
 
-    html = client.get("/").data.decode()
-    # pending vehicle hides its tasks and shows a Start button
-    assert 'data-tasks-hidden="true"' in html
-    assert "start-btn" in html
-    assert "Click" in html and "Start" in html
-    # completed vehicle keeps its (reviewable) checklist visible
-    assert 'data-tasks-hidden="false"' in html
+    d = app.test_client()
+    d.post("/login", data={"username": "driver", "password": "driver"})
+    html = d.get("/driver").data.decode()
+    assert "101" in html
+    assert "102" not in html
+    assert "Completed" in html
+
+
+def test_manager_cannot_toggle_tasks(client, app):
+    with app.app_context():
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        v, _ = find_or_create_vehicle("103", location_id=loc.id)
+        entry = ss.ensure_entry(sched, v)
+        eid = entry.id
+
+    m = app.test_client()
+    m.post("/login", data={"username": "manager", "password": "manager"})
+    r = m.post(f"/task/{eid}/Sweep", data={"checked": "true"})
+    assert r.status_code == 403

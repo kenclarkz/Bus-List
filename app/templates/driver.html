@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Finished Vehicles — {{ app_name }}{% endblock %}
+
+{% block content %}
+<h1>Finished Vehicles <span class="muted small">{{ today().strftime('%A, %B %d %Y') }}</span></h1>
+
+{% if rows %}
+<div class="board">
+  {% for r in rows %}
+  {% set v = r.vehicle %}
+  <div class="vrow">
+    <div class="vrow-header">
+      <span class="vnum">{{ v.unit_number }}</span>
+      <div class="vmeta">
+        {{ v.vehicle_type.name if v.vehicle_type else '—' }}
+        {% if v.route %} · Route {{ v.route }}{% endif %}
+        {% if r.entry.prep_time %} · Prep {{ r.entry.prep_time }}{% endif %}
+      </div>
+      <span class="badge success">Completed</span>
+      {% if r.workers %}
+      <span class="badge info" style="font-size:.6rem">by {{ r.workers|join(', ') }}</span>
+      {% endif %}
+      <span class="spacer"></span>
+      {% if r.finished_at %}
+      <span class="muted small">Finished {{ r.finished_at.strftime('%H:%M') }}</span>
+      {% endif %}
+    </div>
+    <div class="progress" style="margin-top:10px">
+      <div class="progress-bar"><div class="progress-fill" style="width: {{ r.pct }}%"></div></div>
+      <span class="pct">{{ r.done }}/{{ r.total }} — {{ r.pct }}%</span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card">
+  <h2>No finished vehicles yet</h2>
+  <p class="muted">Finished vehicles will appear here as they are completed today.</p>
+</div>
+{% endif %}
+{% endblock %}
