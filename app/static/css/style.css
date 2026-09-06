@@ -185,6 +185,13 @@ tr.row-inactive td { color: var(--muted); }
 .vmeta { color: var(--muted); font-size: .85rem; }
 .spacer { flex: 1; }
 .checklist { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; }
+.checklist[data-tasks-hidden="true"] { display: none; }
+.row-start {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 12px 0 4px;
+}
+.row-start[data-tasks-hidden="false"] { display: none; }
+.row-start .start-btn { padding: 10px 22px; }
 .ck {
   display: inline-flex; align-items: center; gap: 6px;
   border: 1px solid var(--border); border-radius: 999px;

@@ -845,3 +845,110 @@ def test_skip_does_not_record_cleaning_and_stores_reason(client, app):
     assert client.get("/end").data.decode().find("not in service today") != -1
     assert client.get(f"/print/{date.today().isoformat()}").data.decode().find(
         "not in service today") != -1
+
+
+# ---------------------------------------------------------------------------
+# Start work (dashboard "Start" flow)
+# ---------------------------------------------------------------------------
+
+def test_start_work_sets_current_vehicle(client, app):
+    """POST /start-work assigns the employee to the vehicle as 'currently
+    working', flips the entry to in_progress, and returns JSON for the
+    'Now Working' card.""" 
+    from app.models import Employee
+
+    with app.app_context():
+        emp = Employee(name="Alice Green")
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        v, _ = find_or_create_vehicle("760", location_id=vehicles_loc(app).id)
+        sched = ss.get_or_create_schedule(location=vehicles_loc(app))
+        entry = ss.ensure_entry(sched, v)
+        ea = entry.id
+        vid = v.id
+        assert entry.status == "pending"
+
+    r = client.post("/start-work", data={"employee_id": str(emp_id),
+                                         "entry_id": str(ea)})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["ok"] is True
+    assert body["vehicle"] == "760"
+    assert body["initials"] == "AG"
+    assert body["employee"] == "Alice Green"
+
+    with app.app_context():
+        emp = Employee.query.get(emp_id)
+        assert emp.current_vehicle_id == vid
+        e = ScheduleEntry.query.get(ea)
+        assert e.status == "in_progress"
+
+
+def test_start_work_requires_employee_and_entry(client, app):
+    """Missing employee or entry ids are rejected instead of crashing."""
+    assert client.post("/start-work", data={}).status_code == 400
+    assert client.post("/start-work", data={"entry_id": "1"}).status_code == 400
+    assert client.post("/start-work", data={
+        "employee_id": "1", "entry_id": "999999"}).status_code == 404
+
+
+def test_start_work_manager_role_read_only(client, app):
+    """Managers cannot start work via the Start button (read-only)."""
+    from app.models import Employee
+
+    with app.app_context():
+        emp = Employee(name="Mgr Pat")
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        v, _ = find_or_create_vehicle("761", location_id=vehicles_loc(app).id)
+        sched = ss.get_or_create_schedule(location=vehicles_loc(app))
+        entry = ss.ensure_entry(sched, v)
+        ea = entry.id
+
+    client.post("/set-role", data={"role": "manager"})
+    r = client.post("/start-work", data={"employee_id": str(emp_id),
+                                         "entry_id": str(ea)})
+    assert r.status_code == 403
+
+
+def test_dashboard_hides_tasks_behind_start(client, app):
+    """Task checklists are hidden on the dashboard for vehicles that haven't
+    been started; a Start button is shown instead. Completed vehicles keep
+    their checklist visible for review."""
+    from datetime import date
+    from app.models import PrepReportImport
+
+    with app.app_context():
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        v1, _ = find_or_create_vehicle("770", location_id=loc.id)
+        v2, _ = find_or_create_vehicle("780", location_id=loc.id)
+        e1 = ss.ensure_entry(sched, v1)
+        e2 = ss.ensure_entry(sched, v2)
+        assert e1.status == "pending"
+        # fully complete the second vehicle so its checklist is reviewable
+        for tname in [t.task_name for t in e2.tasks]:
+            ss.toggle_task(e2.id, tname, True)
+        assert e2.status == "completed"
+        # mark today's board as imported so the dashboard renders rows
+        imp = PrepReportImport(applied=True,
+                               schedule_date=sched.work_date or date.today())
+        db.session.add(imp)
+        db.session.commit()
+
+    html = client.get("/").data.decode()
+    # pending vehicle hides its tasks and shows a Start button
+    assert 'data-tasks-hidden="true"' in html
+    assert "start-btn" in html
+    assert "Click" in html and "Start" in html
+    # completed vehicle keeps its (reviewable) checklist visible
+    assert 'data-tasks-hidden="false"' in html
