@@ -520,6 +520,89 @@ def test_today_board_tracks_import(client, app):
 
 
 # ---------------------------------------------------------------------------
+# Manual add vehicle to board
+# ---------------------------------------------------------------------------
+
+def test_manual_add_new_vehicle_to_board(client, app):
+    """A brand-new vehicle can be added to today's board manually (no import)."""
+    r = client.post("/schedule/add", data={
+        "unit_number": "555",
+        "vehicle_type": "Coach",
+        "route": "Downtown",
+        "prep_time": "04:30",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        v = Vehicle.query.filter_by(unit_number="555").first()
+        assert v is not None
+        assert v.vehicle_type.name == "Coach"
+        assert v.route == "Downtown"
+        sched = DailySchedule.query.filter_by(work_date=date.today()).first()
+        entry = ScheduleEntry.query.filter_by(vehicle_id=v.id).first()
+        assert entry is not None
+        assert entry.prep_time == "04:30"
+        assert entry.status == "pending"
+        assert len(entry.tasks) == 8
+
+
+def test_manual_add_existing_vehicle_to_board(client, app):
+    """Adding a vehicle that already exists reuses it instead of duplicating."""
+    with app.app_context():
+        v, _ = find_or_create_vehicle("640", vehicle_type="Van", route="R3",
+                                      location_id=vehicles_loc(app).id)
+        vid = v.id
+    r = client.post("/schedule/add", data={"unit_number": "640"})
+    assert r.status_code == 302
+    with app.app_context():
+        # Same vehicle, not a duplicate.
+        assert Vehicle.query.filter_by(unit_number="640").count() == 1
+        assert Vehicle.query.get(vid) is not None
+        sched = DailySchedule.query.filter_by(work_date=date.today()).first()
+        assert ScheduleEntry.query.filter_by(
+            schedule_id=sched.id, vehicle_id=vid).first() is not None
+
+
+def test_manual_add_requires_unit(client, app):
+    """Adding without a unit number redirects and creates nothing."""
+    r = client.post("/schedule/add", data={})
+    assert r.status_code == 302
+    with app.app_context():
+        assert ScheduleEntry.query.count() == 0
+
+
+def test_manual_add_vehicle_shows_on_dashboard_without_import(client, app):
+    """A manually added vehicle is visible on the Today board even when no
+    prep report has been imported (previously the board stayed empty)."""
+    # No import -> board empty
+    html = client.get("/").data.decode()
+    assert 'class="num">0</div><div class="lbl">Total Vehicles' in html
+
+    client.post("/schedule/add", data={"unit_number": "566"})
+
+    html = client.get("/").data.decode()
+    assert 'class="num">1</div><div class="lbl">Total Vehicles' in html
+    assert "566" in html
+
+
+def test_manual_add_vehicle_to_specific_date(client, app):
+    """A vehicle can be added to tomorrow's board explicitly."""
+    from datetime import timedelta
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    r = client.post("/schedule/add", data={
+        "date": tomorrow,
+        "unit_number": "577",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        sched = DailySchedule.query.filter_by(
+            work_date=(date.today() + timedelta(days=1))).first()
+        assert sched is not None
+        v = Vehicle.query.filter_by(unit_number="577").first()
+        assert ScheduleEntry.query.filter_by(
+            schedule_id=sched.id, vehicle_id=v.id).first() is not None
+
+
+# ---------------------------------------------------------------------------
 # Checklist + progress
 # ---------------------------------------------------------------------------
 

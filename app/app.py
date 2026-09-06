@@ -301,7 +301,9 @@ def register_routes(app):
         sched = sched_svc.get_or_create_schedule(d=view_date, location=loc)
         has_import = PrepReportImport.query.filter_by(
             applied=True, schedule_date=sched.work_date).first() is not None
-        rows = build_schedule_view(sched) if has_import else []
+        # Show the board if a prep report was imported OR vehicles were added
+        # manually, so operators can always see (and work) the day's list.
+        rows = build_schedule_view(sched) if (has_import or sched.entries) else []
 
         total = len(rows)
         completed = sum(1 for r in rows if r["entry"].status in ("completed", "skipped"))
@@ -553,6 +555,39 @@ def register_routes(app):
         flash(f"Vehicle {entry.vehicle.unit_number} replaced by "
               f"{vehicle.unit_number}", "success")
         return redirect(url_for("dashboard"))
+
+    @app.route("/schedule/add", methods=["POST"])
+    def schedule_add():
+        sched_date = request.form.get("date", "").strip()
+        try:
+            sched_dt = date.fromisoformat(sched_date) if sched_date else date.today()
+        except ValueError:
+            sched_dt = date.today()
+        unit = request.form.get("unit_number", "").strip()
+        if not unit:
+            flash("Unit number is required", "error")
+            return redirect(url_for("dashboard", date=sched_dt.isoformat()))
+        loc = vehicles.default_location()
+        vehicle, _ = vehicles.find_or_create_vehicle(
+            unit,
+            vehicle_type=request.form.get("vehicle_type") or None,
+            route=request.form.get("route") or None,
+            location_id=loc.id,
+        )
+        # If the vehicle already exists, surface any changes the operator entered.
+        if request.form.get("route"):
+            vehicle.route = request.form["route"]
+        vehicle.status = request.form.get("status") or vehicle.status or "Active"
+        vehicle.active = True
+        prep_time = request.form.get("prep_time") or None
+        sched = sched_svc.get_or_create_schedule(d=sched_dt, location=loc)
+        order = (max((e.order_index for e in sched.entries), default=-1) + 1)
+        entry = sched_svc.ensure_entry(
+            sched, vehicle, order_index=order, prep_time=prep_time)
+        db.session.commit()
+        flash(f"Vehicle {vehicle.unit_number} added to {sched_dt.strftime('%b %d')}'s board",
+              "success")
+        return redirect(url_for("dashboard", date=sched_dt.isoformat()))
 
     @app.route("/notes/<path:date>", methods=["POST"])
     def add_note(date):
