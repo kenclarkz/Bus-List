@@ -84,6 +84,9 @@ def add_service_record(vehicle, service_type="prep", employee_id=None, notes=Non
         vehicle.last_washed = at or datetime.utcnow()
     if service_type == "prep":
         vehicle.last_detailed = at or datetime.utcnow()
+    if service_type == "dump":
+        vehicle.last_dumped = at or datetime.utcnow()
+        vehicle.cleanings_since_dump = 0
     rec = ServiceRecord(
         vehicle_id=vehicle.id,
         service_type=service_type,

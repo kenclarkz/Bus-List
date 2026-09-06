@@ -21,6 +21,9 @@
       <span class="badge info" style="font-size:.6rem">by {{ r.workers|join(', ') }}</span>
       {% endif %}
       <span class="spacer"></span>
+      {% if r.vehicle.has_dump_task and r.vehicle.needs_dump %}
+      <span class="badge danger">Needs Dump ({{ r.vehicle.cleanings_since_dump or 0 }})</span>
+      {% endif %}
       {% if r.finished_at %}
       <span class="muted small">Finished {{ r.finished_at.strftime('%H:%M') }}</span>
       {% endif %}
