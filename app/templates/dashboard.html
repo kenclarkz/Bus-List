@@ -11,6 +11,29 @@
     {{ d.label }} <span class="small">({{ d.date.strftime('%b %d') }})</span>
   </a>
   {% endfor %}
+  <span class="spacer"></span>
+  <button type="button" class="btn small" data-modal-target="modal-add-vehicle">+ Add Vehicle</button>
+</div>
+
+<div class="modal-bg" id="modal-add-vehicle">
+  <div class="modal">
+    <h3>Add Vehicle to {{ view_date.strftime('%b %d') }}'s Board</h3>
+    <form method="post" action="{{ url_for('schedule_add') }}">
+      <input type="hidden" name="date" value="{{ view_date.isoformat() }}">
+      <label>Unit # (required)</label>
+      <input type="text" name="unit_number" required autocomplete="off" placeholder="e.g. 155">
+      <label>Vehicle Type <span class="small muted">(optional)</span></label>
+      <input type="text" name="vehicle_type" autocomplete="off" placeholder="e.g. Motorcoach">
+      <label>Route <span class="small muted">(optional)</span></label>
+      <input type="text" name="route" autocomplete="off" placeholder="e.g. Downtown">
+      <label>Prep Time <span class="small muted">(optional)</span></label>
+      <input type="text" name="prep_time" autocomplete="off" placeholder="e.g. 04:30">
+      <div class="flex" style="margin-top:16px">
+        <button type="submit" class="btn">Add to Board</button>
+        <button type="button" class="btn secondary" data-modal-close="modal-add-vehicle">Cancel</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 {% if current_role == 'manager' %}
@@ -103,8 +126,11 @@
 {% if not rows %}
   <div class="card">
     <h2>No vehicles on {{ view_date.strftime('%B %d') }}'s board</h2>
-    <p class="muted">Import a prep report to build the work list, or no vehicles match the current filters.</p>
-    <a class="btn" href="{{ url_for('import_report') }}">Import Prep Report</a>
+    <p class="muted">Import a prep report to build the work list, add a vehicle manually, or no vehicles match the current filters.</p>
+    <div class="flex">
+      <a class="btn" href="{{ url_for('import_report') }}">Import Prep Report</a>
+      <button type="button" class="btn secondary" data-modal-target="modal-add-vehicle">+ Add Vehicle</button>
+    </div>
   </div>
 {% endif %}
 
