@@ -1146,6 +1146,45 @@ def test_driver_screen_shows_only_finished_vehicles(app):
     assert "Completed" in html
 
 
+def test_driver_screen_shows_next_two_days(app):
+    with app.app_context():
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        from datetime import timedelta
+        loc = vehicles_loc(app)
+
+        # Complete a vehicle on tomorrow's schedule
+        tomorrow = date.today() + timedelta(days=1)
+        sched_tom = ss.get_or_create_schedule(d=tomorrow, location=loc)
+        v1, _ = find_or_create_vehicle("201", location_id=loc.id)
+        e1 = ss.ensure_entry(sched_tom, v1)
+        for t in list(e1.tasks):
+            ss.toggle_task(e1.id, t.task_name, True)
+
+        # Complete a vehicle on +2 days schedule
+        day_after = date.today() + timedelta(days=2)
+        sched_da = ss.get_or_create_schedule(d=day_after, location=loc)
+        v2, _ = find_or_create_vehicle("202", location_id=loc.id)
+        e2 = ss.ensure_entry(sched_da, v2)
+        for t in list(e2.tasks):
+            ss.toggle_task(e2.id, t.task_name, True)
+
+        # Vehicle more than 2 days out should NOT appear
+        three_days = date.today() + timedelta(days=3)
+        sched_3 = ss.get_or_create_schedule(d=three_days, location=loc)
+        v3, _ = find_or_create_vehicle("300", location_id=loc.id)
+        e3 = ss.ensure_entry(sched_3, v3)
+        for t in list(e3.tasks):
+            ss.toggle_task(e3.id, t.task_name, True)
+
+    d = app.test_client()
+    d.post("/login", data={"username": "driver", "password": "driver"})
+    html = d.get("/driver").data.decode()
+    assert "201" in html
+    assert "202" in html
+    assert "300" not in html
+
+
 def test_manager_cannot_toggle_tasks(client, app):
     with app.app_context():
         from app.services import schedule as ss
