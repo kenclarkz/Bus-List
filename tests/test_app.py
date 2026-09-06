@@ -28,7 +28,11 @@ def app(tmp_path):
 
 @pytest.fixture()
 def client(app):
-    return app.test_client()
+    # Default: signed in as the Employee account so existing route tests run
+    # against the interactive board.
+    c = app.test_client()
+    c.post("/login", data={"username": "employee", "password": "employee"})
+    return c
 
 
 def seed_vehicle(app, unit="142", vtype="Coach", route="R12"):
@@ -928,3 +932,102 @@ def test_skip_does_not_record_cleaning_and_stores_reason(client, app):
     assert client.get("/end").data.decode().find("not in service today") != -1
     assert client.get(f"/print/{date.today().isoformat()}").data.decode().find(
         "not in service today") != -1
+
+
+# ---------------------------------------------------------------------------
+# Login / roles
+# ---------------------------------------------------------------------------
+
+def test_login_required_redirects_to_login(app):
+    c = app.test_client()
+    r = c.get("/")
+    assert r.status_code == 302
+    assert "/login" in r.headers["Location"]
+    assert c.get("/vehicles").status_code == 302
+
+
+def test_login_accepts_case_insensitive_username_routes_by_role(app):
+    e = app.test_client()
+    r = e.post("/login", data={"username": "Employee", "password": "employee"})
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/")
+    assert e.get("/").status_code == 200
+
+    m = app.test_client()
+    r = m.post("/login", data={"username": "manager", "password": "manager"})
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/")
+
+    d = app.test_client()
+    r = d.post("/login", data={"username": "driver", "password": "driver"})
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/driver")
+
+
+def test_login_rejects_unknown_user_and_wrong_password(app):
+    c = app.test_client()
+    r = c.post("/login", data={"username": "admin", "password": "admin"})
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/login")
+    assert b"Invalid username or password" in c.get("/login").data
+
+    c2 = app.test_client()
+    r = c2.post("/login", data={"username": "employee", "password": "wrong"})
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/login")
+
+
+def test_logout_clears_session(app):
+    c = app.test_client()
+    c.post("/login", data={"username": "employee", "password": "employee"})
+    assert c.get("/").status_code == 200
+    r = c.post("/logout")
+    assert r.status_code == 302
+    assert "/login" in r.headers["Location"]
+    assert c.get("/").status_code == 302
+
+
+def test_driver_restricted_to_finished_screen(app):
+    d = app.test_client()
+    d.post("/login", data={"username": "driver", "password": "driver"})
+    assert d.get("/driver").status_code == 200
+    # Drivers may not browse the rest of the app.
+    assert d.get("/").status_code == 302
+    assert d.get("/settings").status_code == 302
+
+
+def test_driver_screen_shows_only_finished_vehicles(app):
+    with app.app_context():
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        v1, _ = find_or_create_vehicle("101", location_id=loc.id)
+        v2, _ = find_or_create_vehicle("102", location_id=loc.id)
+        e1 = ss.ensure_entry(sched, v1)
+        ss.ensure_entry(sched, v2)
+        for t in list(e1.tasks):
+            ss.toggle_task(e1.id, t.task_name, True)
+
+    d = app.test_client()
+    d.post("/login", data={"username": "driver", "password": "driver"})
+    html = d.get("/driver").data.decode()
+    assert "101" in html
+    assert "102" not in html
+    assert "Completed" in html
+
+
+def test_manager_cannot_toggle_tasks(client, app):
+    with app.app_context():
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        v, _ = find_or_create_vehicle("103", location_id=loc.id)
+        entry = ss.ensure_entry(sched, v)
+        eid = entry.id
+
+    m = app.test_client()
+    m.post("/login", data={"username": "manager", "password": "manager"})
+    r = m.post(f"/task/{eid}/Sweep", data={"checked": "true"})
+    assert r.status_code == 403

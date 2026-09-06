@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — {{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="login-body">
+  <div class="login-card">
+    <h1 style="margin-top:0">Detailing Operations Dashboard</h1>
+    <p class="muted" style="margin-top:0">Sign in with your assigned account. Only three accounts exist; no new accounts can be created.</p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="post" action="{{ url_for('login') }}">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" placeholder="e.g. employee"
+             required autocomplete="username" autofocus>
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" placeholder="••••••••"
+             required autocomplete="current-password">
+      <button type="submit" class="btn big" style="margin-top:16px">Sign In</button>
+    </form>
+
+    <p class="muted small" style="margin-top:16px;margin-bottom:0">
+      Accounts: <strong>Employee</strong> · <strong>Driver</strong> · <strong>Manager</strong>
+    </p>
+  </div>
+</body>
+</html>
