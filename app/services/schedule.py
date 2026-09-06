@@ -256,6 +256,43 @@ def destroy_and_recreate_tasks(entry):
     db.session.commit()
 
 
+def clear_employee_assignments(vehicle_ids):
+    """Clear current_vehicle_id for any employee pointed at the given vehicles."""
+    if not vehicle_ids:
+        return
+    from ..models import Employee
+    Employee.query.filter(Employee.current_vehicle_id.in_(vehicle_ids)).update(
+        {"current_vehicle_id": None}, synchronize_session=False)
+
+
+def delete_schedule(sched):
+    """Delete a day's work: its entries, tasks, notes and replacements.
+
+    Vehicle records and service history are kept; only the day's work is
+    removed. Employees currently assigned to a vehicle in that day are freed
+    so the board doesn't show stale 'now working' state.
+    """
+    if sched is None:
+        return 0
+    vehicle_ids = [e.vehicle_id for e in sched.entries if e.vehicle_id]
+    clear_employee_assignments(vehicle_ids)
+
+    replacements = Replacement.query.filter(
+        Replacement.replaced_at >= datetime.combine(sched.work_date, datetime.min.time()),
+        Replacement.replaced_at <= datetime.combine(sched.work_date, datetime.max.time()),
+    ).all()
+    for rep in replacements:
+        db.session.delete(rep)
+
+    Note.query.filter_by(work_date=sched.work_date).delete(
+        synchronize_session=False)
+
+    count = len(sched.entries)
+    db.session.delete(sched)
+    db.session.commit()
+    return count
+
+
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
