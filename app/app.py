@@ -18,6 +18,17 @@ ROLE_ACCOUNTS = {
     "manager": {"display": "Manager", "password": "manager"},
 }
 
+# Pages only the Manager account may visit.
+MANAGER_ONLY_ENDPOINTS = {
+    "vehicle_list",
+    "vehicle_new",
+    "vehicle_detail",
+    "vehicle_edit",
+    "vehicle_toggle_active",
+    "employees_page",
+    "settings_page",
+}
+
 
 def role_home(role):
     """Default landing page for a signed-in role."""
@@ -341,6 +352,9 @@ def register_routes(app):
         # Drivers only see the finished-vehicles screen.
         if user == "driver" and request.endpoint != "driver_dashboard":
             return redirect(url_for("driver_dashboard"))
+        # Vehicles, Staff (employees) and Settings pages are manager-only.
+        if user != "manager" and request.endpoint in MANAGER_ONLY_ENDPOINTS:
+            return redirect(url_for("dashboard"))
         return None
 
     @app.route("/login", methods=["GET", "POST"])

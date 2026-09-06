@@ -82,6 +82,7 @@
   {% else %}<p class="muted">No replacements recorded.</p>{% endif %}
 </div>
 
+{% if current_role == 'manager' %}
 <div class="card">
   <h2>Vehicle Cleaning History</h2>
   <p class="muted">Open any vehicle from the <a href="{{ url_for('vehicle_list') }}">Vehicles</a> page to view its full service history, or browse by unit via search below.</p>
@@ -90,4 +91,5 @@
     <button class="btn small" type="submit">Go</button>
   </form>
 </div>
+{% endif %}
 {% endblock %}

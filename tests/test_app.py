@@ -35,6 +35,13 @@ def client(app):
     return c
 
 
+@pytest.fixture()
+def manager_client(app):
+    c = app.test_client()
+    c.post("/login", data={"username": "manager", "password": "manager"})
+    return c
+
+
 def seed_vehicle(app, unit="142", vtype="Coach", route="R12"):
     with app.app_context():
         from app.services.vehicles import find_or_create_vehicle
@@ -801,8 +808,8 @@ def test_print_report(client, app):
 # Settings
 # ---------------------------------------------------------------------------
 
-def test_settings_lifecycle(client, app):
-    r = client.post("/settings", data={
+def test_settings_lifecycle(manager_client, app):
+    r = manager_client.post("/settings", data={
         "recent_days": "3",
         "due_soon_days": "10",
         "location": "Main Depot",
@@ -819,8 +826,8 @@ def test_settings_lifecycle(client, app):
 # Entities
 # ---------------------------------------------------------------------------
 
-def test_vehicle_crud(client, app):
-    r = client.post("/vehicles/new", data={
+def test_vehicle_crud(manager_client, app):
+    r = manager_client.post("/vehicles/new", data={
         "unit_number": "999",
         "vehicle_type": "Bus",
         "route": "D1",
@@ -832,28 +839,28 @@ def test_vehicle_crud(client, app):
         v = Vehicle.query.filter_by(unit_number="999").first()
         assert v is not None
         vid = v.id
-    r = client.get(f"/vehicles/{vid}")
+    r = manager_client.get(f"/vehicles/{vid}")
     assert r.status_code == 200
     assert b"999" in r.data
-    r = client.get("/vehicles")
+    r = manager_client.get("/vehicles")
     assert b"999" in r.data
 
 
-def test_vehicle_list_shows_inactive_vehicles(client, app):
+def test_vehicle_list_shows_inactive_vehicles(manager_client, app):
     with app.app_context():
         v, _ = find_or_create_vehicle("888", vehicle_type="Van", route="R8")
         v.active = False
         db.session.commit()
-    r = client.get("/vehicles")
+    r = manager_client.get("/vehicles")
     assert r.status_code == 200
     assert b"888" in r.data
     assert b"Inactive" in r.data
 
 
-def test_employees_and_history_pages(client):
-    assert client.get("/employees").status_code == 200
-    assert client.get("/history").status_code == 200
-    assert client.get("/settings").status_code == 200
+def test_employees_and_history_pages(manager_client):
+    assert manager_client.get("/employees").status_code == 200
+    assert manager_client.get("/history").status_code == 200
+    assert manager_client.get("/settings").status_code == 200
 
 
 def test_trash_page_lists_lots_before_any_pickup(client, app):
@@ -1100,7 +1107,7 @@ def test_dump_tracking_on_all_checklist_vehicles(client, app):
         assert v.needs_dump is False
 
 
-def test_dump_status_shown_on_dashboard_and_detail(client, app):
+def test_dump_status_shown_on_dashboard_and_detail(client, manager_client, app):
     """Needs Dump indicator appears for a vehicle cleaned twice without dump."""
     with app.app_context():
         from app.services.vehicles import find_or_create_vehicle
@@ -1121,7 +1128,7 @@ def test_dump_status_shown_on_dashboard_and_detail(client, app):
     assert "Needs Dump" in html
 
     # Vehicle detail shows Needs Dump and Last Dumped field
-    detail = client.get(f"/vehicles/{vid}").data.decode()
+    detail = manager_client.get(f"/vehicles/{vid}").data.decode()
     assert "Needs Dump" in detail
     assert "Cleanings Since Dump" in detail
 
@@ -1283,3 +1290,40 @@ def test_manager_cannot_toggle_tasks(client, app):
     m.post("/login", data={"username": "manager", "password": "manager"})
     r = m.post(f"/task/{eid}/Sweep", data={"checked": "true"})
     assert r.status_code == 403
+
+
+def test_employee_cannot_access_manager_only_pages(client, app):
+    """Employees may not visit Vehicles, Staff or Settings pages."""
+    for path in ["/vehicles", "/vehicles/new", "/employees", "/settings"]:
+        r = client.get(path)
+        assert r.status_code == 302
+        assert "/" == r.headers["Location"]
+    with app.app_context():
+        from app.services.vehicles import find_or_create_vehicle
+        v, _ = find_or_create_vehicle("104", location_id=vehicles_loc(app).id)
+        assert client.get(f"/vehicles/{v.id}").status_code == 302
+
+
+def test_manager_can_access_all_pages(manager_client):
+    """The Manager account can visit every page including manager-only ones."""
+    for path in ["/vehicles", "/vehicles/new", "/employees", "/settings"]:
+        assert manager_client.get(path).status_code == 200
+
+
+def test_employee_header_hides_manager_only_tabs(client):
+    """Employees see Today, Import, End Day, History and Trash but not the
+    Vehicles, Staff or Settings tabs."""
+    html = client.get("/").data.decode()
+    for href in ['href="/vehicles"', 'href="/employees"', 'href="/settings"']:
+        assert href not in html
+    for href in ['href="/import"', 'href="/end"', 'href="/history"',
+                 'href="/trash"']:
+        assert href in html
+
+
+def test_manager_header_shows_all_tabs(manager_client):
+    html = manager_client.get("/").data.decode()
+    for href in ['href="/vehicles"', 'href="/employees"', 'href="/settings"',
+                 'href="/import"', 'href="/end"', 'href="/history"',
+                 'href="/trash"']:
+        assert href in html
