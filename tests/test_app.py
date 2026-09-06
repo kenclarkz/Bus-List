@@ -772,6 +772,45 @@ def test_employees_and_history_pages(client):
     assert client.get("/settings").status_code == 200
 
 
+def test_trash_page_lists_lots_before_any_pickup(client, app):
+    page = client.get("/trash")
+    assert page.status_code == 200
+    assert "Last Pickup by Lot" in page.get_data(as_text=True)
+    assert "Never" in page.get_data(as_text=True)
+
+
+def test_trash_record_pickup(client, app):
+    from app.models import TrashPickup
+    page = client.post("/trash", data={"location_id": "", "notes": "Dumpster full"})
+    assert page.status_code == 302
+    with app.app_context():
+        pickup = TrashPickup.query.first()
+        assert pickup is not None
+        assert pickup.notes == "Dumpster full"
+    body = client.get("/trash").get_data(as_text=True)
+    assert "Recent" in body
+    assert "Dumpster full" in body
+
+
+def test_trash_shows_latest_pickup_for_lot(client, app):
+    from datetime import datetime, timedelta
+    from app.models import TrashPickup
+    from app.services.vehicles import default_location
+    with app.app_context():
+        loc = default_location()
+        old = TrashPickup(location_id=loc.id,
+                          picked_up_at=datetime.utcnow() - timedelta(days=5),
+                          notes="old pickup")
+        fresh = TrashPickup(location_id=loc.id,
+                            picked_up_at=datetime.utcnow(),
+                            notes="fresh pickup")
+        db.session.add_all([old, fresh])
+        db.session.commit()
+    body = client.get("/trash").get_data(as_text=True)
+    assert "fresh pickup" in body
+    assert "old pickup" not in body
+
+
 def test_schedule_view_orders_by_prep_time(app):
     """Entries on the board are ordered by prep time (earliest first), falling
     back to import order for entries without a prep time."""

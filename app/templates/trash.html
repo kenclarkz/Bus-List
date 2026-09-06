@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Trash{% endblock %}
+{% block content %}
+<h1>Trash</h1>
+<div class="card">
+  <h2>Record Trash Pickup</h2>
+  <form method="post" action="{{ url_for('trash_page') }}">
+    <div class="form-row">
+      <div>
+        <label for="picked_at">Pickup time</label>
+        <input type="datetime-local" id="picked_at" name="picked_at" value="{{ now_iso }}">
+      </div>
+      <div>
+        <label for="location_id">Lot</label>
+        <select id="location_id" name="location_id">
+          {% for loc in locations %}
+          <option value="{{ loc.id }}" {{ 'selected' if loc.id == default_location.id }}>{{ loc.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="employee_id">Employee</label>
+        <select id="employee_id" name="employee_id">
+          <option value="">—</option>
+          {% for e in employees %}
+          <option value="{{ e.id }}">{{ e.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="notes">Notes</label>
+        <input type="text" id="notes" name="notes" placeholder="Optional">
+      </div>
+    </div>
+    <button class="btn" type="submit">Log Pickup</button>
+  </form>
+</div>
+<div class="card">
+  <h2>Last Pickup by Lot</h2>
+  <div class="table-wrap">
+  <table>
+    <tr>
+      <th>Lot</th>
+      <th>Last Pickup</th>
+      <th>Time Since</th>
+      <th>Notes</th>
+      <th>Recorded By</th>
+    </tr>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.location.name }}</td>
+      <td>
+        {% if r.never %}
+        <span class="badge muted">Never</span>
+        {% else %}
+        {{ r.last_pickup.picked_up_at.strftime('%b %d, %Y %I:%M %p') }}
+        {% endif %}
+      </td>
+      <td>
+        {% if not r.never %}
+        <span class="badge {{ r.freshness[1] }}">{{ r.freshness[0] }} · {{ r.days_since }}</span>
+        {% endif %}
+      </td>
+      <td>{{ r.last_pickup.notes or '—' if r.last_pickup else '—' }}</td>
+      <td>{{ r.last_pickup.employee.name if r.last_pickup and r.last_pickup.employee else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+{% endblock %}
