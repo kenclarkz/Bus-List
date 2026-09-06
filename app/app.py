@@ -469,28 +469,32 @@ def register_routes(app):
 
     @app.route("/driver")
     def driver_dashboard():
-        """Driver screen: a read-only list of today's finished vehicles."""
+        """Driver screen: read-only list of finished vehicles for today and next two days."""
         loc = vehicles.default_location()
-        sched = sched_svc.get_or_create_schedule(d=date.today(), location=loc)
-        rows = []
-        for entry in sorted(sched.entries, key=_prep_time_sort_key):
-            if entry.status != "completed":
-                continue
-            done, total, pct = sched_svc.entry_progress(entry)
-            workers = sorted({t.employee.initials for t in entry.tasks
-                              if t.completed and t.employee})
-            finished_at = max((t.completed_at for t in entry.tasks
-                               if t.completed_at), default=None)
-            rows.append({
-                "entry": entry,
-                "vehicle": entry.vehicle,
-                "done": done,
-                "total": total,
-                "pct": pct,
-                "workers": workers,
-                "finished_at": finished_at,
-            })
-        return render_template("driver.html", rows=rows, total=len(rows))
+        days = []
+        for offset in range(3):
+            d = date.today() + timedelta(days=offset)
+            sched = sched_svc.get_or_create_schedule(d=d, location=loc)
+            rows = []
+            for entry in sorted(sched.entries, key=_prep_time_sort_key):
+                if entry.status != "completed":
+                    continue
+                done, total, pct = sched_svc.entry_progress(entry)
+                workers = sorted({t.employee.initials for t in entry.tasks
+                                  if t.completed and t.employee})
+                finished_at = max((t.completed_at for t in entry.tasks
+                                   if t.completed_at), default=None)
+                rows.append({
+                    "entry": entry,
+                    "vehicle": entry.vehicle,
+                    "done": done,
+                    "total": total,
+                    "pct": pct,
+                    "workers": workers,
+                    "finished_at": finished_at,
+                })
+            days.append({"date": d, "rows": rows})
+        return render_template("driver.html", days=days)
 
     @app.route("/vehicles")
     def vehicle_list():
