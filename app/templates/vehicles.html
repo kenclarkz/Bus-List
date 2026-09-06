@@ -9,7 +9,7 @@
 <div class="card">
   <div class="table-wrap">
   <table>
-    <tr><th>Unit</th><th>Type</th><th>Make</th><th>Model</th><th>Capacity</th><th>Status</th><th>Description</th></tr>
+    <tr><th>Unit</th><th>Type</th><th>Make</th><th>Model</th><th>Capacity</th><th>Status</th><th>Last Dumped</th><th>Description</th></tr>
     {% for v in vehicles %}
     <tr class="{{ 'row-inactive' if not v.active }}">
       <td><a href="{{ url_for('vehicle_detail', vehicle_id=v.id) }}"><strong>{{ v.unit_number }}</strong></a>{% if not v.active %} <span class="badge muted">Inactive</span>{% endif %}</td>
@@ -18,6 +18,13 @@
       <td>{{ v.model or '—' }}</td>
       <td>{{ v.capacity or '—' }}</td>
       <td>{{ v.status or '—' }}</td>
+      <td>
+        {% if v.has_dump_task %}
+          {% if v.needs_dump %}<span class="badge danger">Needs Dump ({{ v.cleanings_since_dump or 0 }})</span>
+          {% elif v.last_dumped %}{{ v.last_dumped.strftime('%b %d %Y') }}
+          {% else %}<span class="muted">Never</span>{% endif %}
+        {% else %}<span class="muted">—</span>{% endif %}
+      </td>
       <td>{{ v.description or '—' }}</td>
     </tr>
     {% endfor %}

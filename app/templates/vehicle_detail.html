@@ -25,6 +25,12 @@
   <p><strong>Route:</strong> {{ vehicle.route or '—' }}</p>
   <p><strong>Last Washed:</strong> {{ vehicle.last_washed.strftime('%b %d %Y %H:%M') if vehicle.last_washed else 'Never' }}</p>
   <p><strong>Last Detailed:</strong> {{ vehicle.last_detailed.strftime('%b %d %Y %H:%M') if vehicle.last_detailed else 'Never' }}</p>
+  {% if vehicle.has_dump_task %}
+  <p><strong>Last Dumped:</strong> {{ vehicle.last_dumped.strftime('%b %d %Y %H:%M') if vehicle.last_dumped else 'Never' }}</p>
+  <p><strong>Cleanings Since Dump:</strong> {{ vehicle.cleanings_since_dump or 0 }}
+    {% if vehicle.needs_dump %}<span class="badge danger">Needs Dump</span>{% endif %}
+  </p>
+  {% endif %}
   <p><strong>Active:</strong> {{ 'Yes' if vehicle.active else 'No' }}</p>
   {% if vehicle.notes %}<p><strong>Notes:</strong> {{ vehicle.notes }}</p>{% endif %}
   <form method="post" action="{{ url_for('vehicle_toggle_active', vehicle_id=vehicle.id) }}">

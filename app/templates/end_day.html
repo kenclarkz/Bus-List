@@ -78,7 +78,7 @@
   {% if completed_rows %}
   <div class="table-wrap">
   <table>
-    <tr><th>Unit</th><th>Route</th><th>Completed By</th></tr>
+    <tr><th>Unit</th><th>Route</th><th>Completed By</th><th>Dump</th></tr>
     {% for r in completed_rows %}
     <tr>
       <td><strong>{{ r.vehicle.unit_number }}</strong>{% if r.entry.status == 'skipped' %} <span class="badge warn">Skipped</span>{% endif %}</td>
@@ -94,6 +94,13 @@
           <span class="muted">No employee recorded</span>
         {% endif %}
         {% endif %}
+      </td>
+      <td>
+        {% if r.vehicle.has_dump_task %}
+          {% if r.vehicle.needs_dump %}<span class="badge danger">Needs Dump</span>
+          {% elif r.vehicle.last_dumped %}{{ r.vehicle.last_dumped.strftime('%b %d %H:%M') }}
+          {% else %}<span class="muted">Never</span>{% endif %}
+        {% else %}<span class="muted">—</span>{% endif %}
       </td>
     </tr>
     {% endfor %}

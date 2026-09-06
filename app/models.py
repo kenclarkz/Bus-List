@@ -56,6 +56,8 @@ class Vehicle(db.Model):
     capacity = db.Column(db.Integer, default=0)
     last_washed = db.Column(db.DateTime)
     last_detailed = db.Column(db.DateTime)
+    last_dumped = db.Column(db.DateTime)
+    cleanings_since_dump = db.Column(db.Integer, default=0)
     cleaning_frequency = db.Column(db.Integer, default=7)
     notes = db.Column(db.Text)
     active = db.Column(db.Boolean, default=True)
@@ -66,6 +68,22 @@ class Vehicle(db.Model):
     vehicle_type = db.relationship("VehicleType", back_populates="vehicles")
     location = db.relationship("Location", back_populates="vehicles",
                                foreign_keys=[location_id])
+
+    @property
+    def has_dump_task(self):
+        vtype = self.vehicle_type
+        if vtype is not None and vtype.checklist:
+            tasks = [x.strip() for x in vtype.checklist.split(",") if x.strip()]
+        else:
+            from app.services.settings import get_checklist
+            tasks = get_checklist()
+        return "Dump" in tasks
+
+    @property
+    def needs_dump(self):
+        if not self.has_dump_task:
+            return False
+        return (self.cleanings_since_dump or 0) >= 2
 
     service_history = db.relationship(
         "ServiceRecord", back_populates="vehicle",

@@ -89,6 +89,13 @@ def _migrate():
         if "skip_reason" not in scols:
             con.execute("ALTER TABLE schedule_entries ADD COLUMN skip_reason VARCHAR(255)")
             con.commit()
+        vcols = {r[1] for r in con.execute("PRAGMA table_info(vehicles)")}
+        if "last_dumped" not in vcols:
+            con.execute("ALTER TABLE vehicles ADD COLUMN last_dumped DATETIME")
+            con.commit()
+        if "cleanings_since_dump" not in vcols:
+            con.execute("ALTER TABLE vehicles ADD COLUMN cleanings_since_dump INTEGER DEFAULT 0")
+            con.commit()
         con.close()
     except Exception:
         pass

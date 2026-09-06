@@ -147,11 +147,25 @@ def toggle_task(entry_id, task_name, checked, employee_id=None):
                 entry.vehicle, service_type="wash",
                 employee_id=employee_id, source="checklist",
                 at=datetime.utcnow())
+            vehicle = entry.vehicle
+            vehicle.cleanings_since_dump = (vehicle.cleanings_since_dump or 0) + 1
+            db.session.commit()
+        if task_name.lower() == "dump":
+            vehicles.add_service_record(
+                entry.vehicle, service_type="dump",
+                employee_id=employee_id, source="checklist",
+                at=datetime.utcnow())
         if task_name.lower() == "final inspection":
             vehicles.add_service_record(
                 entry.vehicle, service_type="prep",
                 employee_id=employee_id, source="checklist",
                 at=datetime.utcnow())
+    else:
+        # Un-checking a task should un-do its effect on the vehicle.
+        if task_name.lower() == "sweep":
+            v = entry.vehicle
+            v.cleanings_since_dump = max(0, (v.cleanings_since_dump or 0) - 1)
+            db.session.commit()
     update_entry_status(entry)
     # A completed vehicle is no longer "currently working" — clear it so the
     # employee(s) move on to the next vehicle.

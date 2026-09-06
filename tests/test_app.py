@@ -935,6 +935,96 @@ def test_skip_does_not_record_cleaning_and_stores_reason(client, app):
 
 
 # ---------------------------------------------------------------------------
+# Dump tracking
+# ---------------------------------------------------------------------------
+
+def test_dump_tracking_on_all_checklist_vehicles(client, app):
+    """Checking the Sweep (wash) task increments cleanings_since_dump and
+    checking the Dump task resets it and records last_dumped."""
+    with app.app_context():
+        from app.services.vehicles import find_or_create_vehicle
+        from app.services import schedule as ss
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        v, _ = find_or_create_vehicle("310", location_id=loc.id)
+        entry = ss.ensure_entry(sched, v)
+        entry_id = entry.id
+
+    # First cleaning
+    r = client.post(f"/task/{entry_id}/Sweep", data={"checked": "true"})
+    assert r.status_code == 200
+    with app.app_context():
+        e = ScheduleEntry.query.get(entry_id)
+        assert e.vehicle.cleanings_since_dump == 1
+
+    # Second cleaning -> vehicle needs dump (twice cleaned, not dumped)
+    r = client.post(f"/task/{entry_id}/Sweep", data={"checked": "true"})
+    assert r.status_code == 200
+    with app.app_context():
+        e = ScheduleEntry.query.get(entry_id)
+        v = e.vehicle
+        assert v.cleanings_since_dump == 2
+        assert v.needs_dump is True
+
+    # Dump the vehicle -> resets counter and sets last_dumped
+    r = client.post(f"/task/{entry_id}/Dump", data={"checked": "true"})
+    assert r.status_code == 200
+    with app.app_context():
+        e = ScheduleEntry.query.get(entry_id)
+        v = e.vehicle
+        assert v.cleanings_since_dump == 0
+        assert v.last_dumped is not None
+        assert v.needs_dump is False
+
+
+def test_dump_status_shown_on_dashboard_and_detail(client, app):
+    """Needs Dump indicator appears for a vehicle cleaned twice without dump."""
+    with app.app_context():
+        from app.services.vehicles import find_or_create_vehicle
+        from app.services import schedule as ss
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        v, _ = find_or_create_vehicle("320", location_id=loc.id)
+        entry = ss.ensure_entry(sched, v)
+        entry_id = entry.id
+        vid = v.id
+
+    # Clean twice
+    client.post(f"/task/{entry_id}/Sweep", data={"checked": "true"})
+    client.post(f"/task/{entry_id}/Sweep", data={"checked": "true"})
+
+    # Dashboard shows Needs Dump
+    html = client.get("/").data.decode()
+    assert "Needs Dump" in html
+
+    # Vehicle detail shows Needs Dump and Last Dumped field
+    detail = client.get(f"/vehicles/{vid}").data.decode()
+    assert "Needs Dump" in detail
+    assert "Cleanings Since Dump" in detail
+
+
+def test_unchecking_sweep_decrements_cleanings(client, app):
+    """Un-checking the Sweep task decrements cleanings_since_dump."""
+    with app.app_context():
+        from app.services.vehicles import find_or_create_vehicle
+        from app.services import schedule as ss
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        v, _ = find_or_create_vehicle("330", location_id=loc.id)
+        entry = ss.ensure_entry(sched, v)
+        entry_id = entry.id
+
+    client.post(f"/task/{entry_id}/Sweep", data={"checked": "true"})
+    client.post(f"/task/{entry_id}/Sweep", data={"checked": "true"})
+    with app.app_context():
+        assert ScheduleEntry.query.get(entry_id).vehicle.cleanings_since_dump == 2
+
+    client.post(f"/task/{entry_id}/Sweep", data={"checked": "false"})
+    with app.app_context():
+        assert ScheduleEntry.query.get(entry_id).vehicle.cleanings_since_dump == 1
+
+
+# ---------------------------------------------------------------------------
 # Login / roles
 # ---------------------------------------------------------------------------
 

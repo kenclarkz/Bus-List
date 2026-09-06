@@ -158,6 +158,15 @@
       {% else %}
         <span class="muted small">Never washed</span>
       {% endif %}
+      {% if v.has_dump_task %}
+        {% if v.needs_dump %}
+          <span class="badge danger">Needs Dump ({{ v.cleanings_since_dump or 0 }})</span>
+        {% elif v.last_dumped %}
+          <span class="muted small">Dumped {{ v.last_dumped.strftime('%b %d') }}</span>
+        {% else %}
+          <span class="muted small">Never dumped</span>
+        {% endif %}
+      {% endif %}
     </div>
 
     {% if entry.status != 'skipped' %}

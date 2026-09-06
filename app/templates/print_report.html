@@ -40,8 +40,11 @@
         <td>{{ r.entry.status }}{% if r.entry.status == 'skipped' and r.entry.skip_reason %} — {{ r.entry.skip_reason }}{% endif %}</td>
         <td>
           {% for t in r.entry.tasks|sort(attribute='task_name') %}
-            {{ '☑' if t.completed else '☐' }} {{ t.task_name }}{% if t.completed and t.employee %} <span style="font-size:10px;background:#e0f2fe;padding:1px 4px;border-radius:3px">{{ t.employee.initials }}</span>{% endif %}&nbsp;
+            {{ '☑' if t.completed else '☐' }} {{ t.task_name }}{% if t.completed and t.employee %} <span style="font-size:10px;background:#e0f2fe;padding:1px 4px;border-radius:3px">{{ t.employee.initials }}</span>{% endif %}{% if t.task_name == 'Dump' and t.completed %} <span style="font-size:10px;background:#fef3c7;padding:1px 4px;border-radius:3px">dumped</span>{% endif %}&nbsp;
           {% endfor %}
+          {% if r.vehicle.has_dump_task and r.vehicle.needs_dump %}
+          <span style="color:#dc2626;font-size:10px;font-weight:700">NEEDS DUMP ({{ r.vehicle.cleanings_since_dump or 0 }} cleanings)</span>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}
