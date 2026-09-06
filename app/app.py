@@ -110,6 +110,30 @@ def seed_defaults():
         db.session.commit()
     if Vehicle.query.count() == 0:
         _seed_vehicles(loc)
+    else:
+        _restore_seed_vehicles(loc)
+
+
+def _restore_seed_vehicles(loc):
+    """Re-activate seeded fleet vehicles that were deactivated by an import.
+
+    Importing a prep report used to set active=False on every vehicle missing
+    from the report. Bring those base-fleet units back so the board isn't
+    stuck at zero. Vehicles the operator truly retired remain togglable offline;
+    the Maintenance unit stays inactive by design.
+    """
+    changes = False
+    for entity, unit, vtype, status, desc, make, model, cap in VEHICLE_SEED_DATA:
+        if status == "Maintenance":
+            continue
+        vehicle = Vehicle.query.filter(
+            db.func.lower(Vehicle.unit_number) == str(unit).lower()
+        ).filter_by(location_id=loc.id).first()
+        if vehicle and not vehicle.active:
+            vehicle.active = True
+            changes = True
+    if changes:
+        db.session.commit()
 
 
 VEHICLE_SEED_DATA = [

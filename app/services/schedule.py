@@ -351,11 +351,11 @@ def apply_import(preview, location=None, employee_id=None, source="import",
         position += 1
         db.session.commit()
 
-    # Deactivate removed vehicles (never delete data)
-    for rem in preview["removed"]:
-        vehicle = vehicles.find_vehicle_by_unit(rem["unit"])
-        if vehicle:
-            vehicle.active = False
+    # NOTE: removed vehicles used to be deactivated here. That made seeded
+    # fleet vehicles vanish after every import because seed_defaults() only
+    # seeds on an empty table. Vehicles not on today's report are simply left
+    # off the schedule; they stay active so they appear on future days and can
+    # be toggled manually if truly retired.
 
     # Substitutions detected in free text are intentionally NOT auto-applied:
     # the direction is ambiguous (e.g. "190 Van Replace 155" may mean 190
