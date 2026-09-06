@@ -213,7 +213,9 @@
       <button class="btn small warn" data-modal-target="modal-skip-{{ entry.id }}"
               {{ 'disabled' if current_role == 'manager' }}>Skip</button>
       {% endif %}
+      {% if current_role == 'manager' %}
       <a class="btn small" href="{{ url_for('vehicle_detail', vehicle_id=v.id) }}">History</a>
+      {% endif %}
     </div>
   </div>
 
