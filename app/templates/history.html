@@ -8,7 +8,7 @@
   {% if days %}
   <div class="table-wrap">
   <table>
-    <tr><th>Date</th><th>Status</th><th>Total</th><th>Completed</th><th>%</th><th>Report</th></tr>
+    <tr><th>Date</th><th>Status</th><th>Total</th><th>Completed</th><th>%</th><th>Report</th><th>Action</th></tr>
     {% for day in days %}
     {% set s = day.summary and day.summary|fromjson or {} %}
     <tr>
@@ -18,6 +18,16 @@
       <td>{{ s.get('completed', '—') }}</td>
       <td>{{ s.get('overall', '—') }}%</td>
       <td><a target="_blank" href="{{ url_for('print_report', date=day.work_date.isoformat()) }}">View</a></td>
+      <td>
+        {% if day.work_date != today() %}
+        <form method="post" action="{{ url_for('schedule_delete', schedule_id=day.id) }}" style="display:inline"
+              onsubmit="return confirm('Delete all work for {{ day.work_date.strftime('%b %d %Y') }}? This cannot be undone.')">
+          <button type="submit" class="btn small danger">Delete</button>
+        </form>
+        {% else %}
+        <span class="muted">—</span>
+        {% endif %}
+      </td>
     </tr>
     {% endfor %}
   </table>

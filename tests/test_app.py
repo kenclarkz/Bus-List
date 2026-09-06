@@ -524,6 +524,90 @@ def test_today_board_tracks_import(client, app):
 
 
 # ---------------------------------------------------------------------------
+# Delete previous day's work
+# ---------------------------------------------------------------------------
+
+def test_delete_previous_day_removes_schedule_entries_and_tasks(client, app):
+    """Deleting a previous day removes its schedule, entries and tasks but
+    keeps the vehicle records and service history."""
+    from datetime import timedelta
+    past_day = date.today() - timedelta(days=1)
+    with app.app_context():
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(d=past_day, location=loc)
+        v, _ = find_or_create_vehicle("301", location_id=loc.id)
+        entry = ss.ensure_entry(sched, v)
+        ss.toggle_task(entry.id, "Sweep", True)
+        sched.finalized = True
+        sched.summary = json.dumps(
+            dict(total=1, completed=1, incomplete=0, overall=100))
+        db.session.commit()
+        sched_id = sched.id
+        entry_id = entry.id
+        v_id = v.id
+        assert DailySchedule.query.get(sched_id) is not None
+        assert ScheduleEntry.query.get(entry_id) is not None
+        assert TaskCompletion.query.filter_by(entry_id=entry_id).count() > 0
+
+    r = client.post(f"/schedule/{sched_id}/delete")
+    assert r.status_code == 302
+
+    with app.app_context():
+        assert DailySchedule.query.get(sched_id) is None
+        assert ScheduleEntry.query.get(entry_id) is None
+        assert TaskCompletion.query.filter_by(entry_id=entry_id).count() == 0
+        # The vehicle itself survives deletion of the day's work.
+        assert Vehicle.query.get(v_id) is not None
+
+
+def test_delete_schedule_clears_employee_current_vehicle(client, app):
+    """Deleting a previous day frees employees who were working its vehicles."""
+    from datetime import timedelta
+    past_day = date.today() - timedelta(days=2)
+    with app.app_context():
+        from app.models import Employee
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        loc = vehicles_loc(app)
+        emp = Employee(name="Jane Smith")
+        db.session.add(emp)
+        db.session.commit()
+        sched = ss.get_or_create_schedule(d=past_day, location=loc)
+        v, _ = find_or_create_vehicle("302", location_id=loc.id)
+        entry = ss.ensure_entry(sched, v)
+        ss.toggle_task(entry.id, "Sweep", True, employee_id=emp.id)
+        # Simulate the employee still being assigned to this vehicle.
+        emp.current_vehicle_id = v.id
+        db.session.commit()
+        sched_id = sched.id
+        assert emp.current_vehicle_id == v.id
+
+    r = client.post(f"/schedule/{sched_id}/delete")
+    assert r.status_code == 302
+
+    with app.app_context():
+        from app.models import Employee
+        assert Employee.query.get(emp.id).current_vehicle_id is None
+
+
+def test_cannot_delete_todays_schedule(client, app):
+    """Today's board cannot be deleted so operators don't wipe live work."""
+    from app.services import schedule as ss
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        sched_id = sched.id
+
+    r = client.post(f"/schedule/{sched_id}/delete")
+    assert r.status_code == 302
+
+    with app.app_context():
+        assert DailySchedule.query.get(sched_id) is not None
+
+
+# ---------------------------------------------------------------------------
 # Manual add vehicle to board
 # ---------------------------------------------------------------------------
 

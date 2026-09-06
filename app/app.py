@@ -869,6 +869,17 @@ def register_routes(app):
         flash(f"Prep report import deleted along with {count} vehicle(s)", "success")
         return redirect(url_for("history_days"))
 
+    @app.route("/schedule/<int:schedule_id>/delete", methods=["POST"])
+    def schedule_delete(schedule_id):
+        sched = DailySchedule.query.get_or_404(schedule_id)
+        if sched.work_date == date.today():
+            flash("Today's board cannot be deleted", "error")
+            return redirect(url_for("history_days"))
+        count = sched_svc.delete_schedule(sched)
+        flash(f"Deleted previous day {sched.work_date.strftime('%b %d %Y')} "
+              f"with {count} vehicle(s)", "success")
+        return redirect(url_for("history_days"))
+
     @app.route("/history/vehicle/<int:vehicle_id>")
     def vehicle_history(vehicle_id):
         vehicle = Vehicle.query.get_or_404(vehicle_id)
