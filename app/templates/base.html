@@ -12,17 +12,15 @@
     <div class="brand">
       <span class="logo">🛠️</span>
       <span class="brand-name">{{ app_name }}</span>
-      <div class="role-group">
-        <form method="post" action="{{ url_for('set_role') }}">
-          <input type="hidden" name="role" value="employee">
-          <button type="submit" class="role-btn {{ 'active' if current_role == 'employee' }}">Employee</button>
-        </form>
-        <form method="post" action="{{ url_for('set_role') }}">
-          <input type="hidden" name="role" value="manager">
-          <button type="submit" class="role-btn {{ 'active' if current_role == 'manager' }}">Manager</button>
-        </form>
-      </div>
+      {% if current_user %}
+      <span class="role-btn active no-click">{{ current_user }}</span>
+      {% endif %}
     </div>
+    {% if current_role == 'driver' %}
+    <nav class="nav">
+      <a href="{{ url_for('driver_dashboard') }}" class="{{ 'active' if request.endpoint == 'driver_dashboard' }}">Finished</a>
+    </nav>
+    {% else %}
     <nav class="nav">
       <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Today</a>
       <a href="{{ url_for('vehicle_list') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('vehicle') }}">Vehicles</a>
@@ -32,6 +30,12 @@
       <a href="{{ url_for('employees_page') }}" class="{{ 'active' if request.endpoint == 'employees_page' }}">Staff</a>
       <a href="{{ url_for('settings_page') }}" class="{{ 'active' if request.endpoint == 'settings_page' }}">Settings</a>
     </nav>
+    {% endif %}
+    {% if current_user %}
+    <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+      <button type="submit" class="btn small secondary">Logout</button>
+    </form>
+    {% endif %}
   </header>
 
   <main class="container">

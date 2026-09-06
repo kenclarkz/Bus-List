@@ -10,6 +10,21 @@ from .models import db, Vehicle, Employee, ScheduleEntry, Replacement, Note, \
     DailySchedule, PrepReportImport
 from .services import settings, vehicles, schedule as sched_svc
 
+# The only three accounts. Passwords are the lowercase role name. No accounts
+# can be created through the app.
+ROLE_ACCOUNTS = {
+    "employee": {"display": "Employee", "password": "employee"},
+    "driver": {"display": "Driver", "password": "driver"},
+    "manager": {"display": "Manager", "password": "manager"},
+}
+
+
+def role_home(role):
+    """Default landing page for a signed-in role."""
+    if role == "driver":
+        return url_for("driver_dashboard")
+    return url_for("dashboard")
+
 
 def create_app(test_config=None):
     app = Flask(__name__)
@@ -262,19 +277,53 @@ def register_routes(app):
 
     @app.context_processor
     def inject_globals():
+        user = session.get("user")
         return {
             "today": date.today,
             "checklist": settings.get_checklist(),
             "app_name": "Detailing Operations Dashboard",
-            "current_role": session.get("role", "employee"),
+            "current_role": user if user in ROLE_ACCOUNTS else "employee",
+            "current_user": ROLE_ACCOUNTS.get(user, {}).get(
+                "display") if user else None,
         }
 
-    @app.route("/set-role", methods=["POST"])
-    def set_role():
-        role = request.form.get("role")
-        if role in ("manager", "employee"):
-            session["role"] = role
-        return redirect(request.referrer or url_for("dashboard"))
+    @app.before_request
+    def require_login():
+        """Every page except login/logout requires a signed-in account."""
+        if request.endpoint in ("static", "login", "logout"):
+            return None
+        user = session.get("user")
+        if not user or user not in ROLE_ACCOUNTS:
+            session.clear()
+            return redirect(url_for("login"))
+        # Drivers only see the finished-vehicles screen.
+        if user == "driver" and request.endpoint != "driver_dashboard":
+            return redirect(url_for("driver_dashboard"))
+        return None
+
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        if session.get("user") in ROLE_ACCOUNTS:
+            return redirect(role_home(session.get("user")))
+        if request.method == "POST":
+            username = (request.form.get("username") or "").strip().lower()
+            password = request.form.get("password") or ""
+            account = ROLE_ACCOUNTS.get(username)
+            if account and password == account["password"]:
+                session.clear()
+                session["user"] = username
+                session["username"] = account["display"]
+                flash(f"Welcome, {account['display']}", "success")
+                return redirect(role_home(username))
+            flash("Invalid username or password", "error")
+            return redirect(url_for("login"))
+        return render_template("login.html")
+
+    @app.route("/logout", methods=["POST"])
+    def logout():
+        session.clear()
+        flash("You have been logged out", "success")
+        return redirect(url_for("login"))
 
     @app.route("/set-current-vehicle", methods=["POST"])
     def set_current_vehicle():
@@ -378,6 +427,31 @@ def register_routes(app):
             imported_dates=imported_dates,
             active_employees=active_employees,
         )
+
+    @app.route("/driver")
+    def driver_dashboard():
+        """Driver screen: a read-only list of today's finished vehicles."""
+        loc = vehicles.default_location()
+        sched = sched_svc.get_or_create_schedule(d=date.today(), location=loc)
+        rows = []
+        for entry in sorted(sched.entries, key=_prep_time_sort_key):
+            if entry.status != "completed":
+                continue
+            done, total, pct = sched_svc.entry_progress(entry)
+            workers = sorted({t.employee.initials for t in entry.tasks
+                              if t.completed and t.employee})
+            finished_at = max((t.completed_at for t in entry.tasks
+                               if t.completed_at), default=None)
+            rows.append({
+                "entry": entry,
+                "vehicle": entry.vehicle,
+                "done": done,
+                "total": total,
+                "pct": pct,
+                "workers": workers,
+                "finished_at": finished_at,
+            })
+        return render_template("driver.html", rows=rows, total=len(rows))
 
     @app.route("/vehicles")
     def vehicle_list():
@@ -504,7 +578,7 @@ def register_routes(app):
 
     @app.route("/task/<int:entry_id>/<path:task_name>", methods=["POST"])
     def task_toggle(entry_id, task_name):
-        if session.get("role", "employee") != "employee":
+        if session.get("user") != "employee":
             return jsonify(ok=False, error="Manager view is read-only"), 403
         checked = request.form.get("checked") == "true"
         emp = request.form.get("employee_id") or None
@@ -516,7 +590,7 @@ def register_routes(app):
 
     @app.route("/entry/<int:entry_id>/skip", methods=["POST"])
     def entry_skip(entry_id):
-        if session.get("role", "employee") != "employee":
+        if session.get("user") != "employee":
             flash("Manager view is read-only", "error")
             return redirect(url_for("dashboard"))
         entry = ScheduleEntry.query.get_or_404(entry_id)
@@ -529,7 +603,7 @@ def register_routes(app):
 
     @app.route("/entry/<int:entry_id>/unskip", methods=["POST"])
     def entry_unskip(entry_id):
-        if session.get("role", "employee") != "employee":
+        if session.get("user") != "employee":
             flash("Manager view is read-only", "error")
             return redirect(url_for("dashboard"))
         entry = ScheduleEntry.query.get_or_404(entry_id)
