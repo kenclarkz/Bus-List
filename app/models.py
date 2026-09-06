@@ -241,6 +241,21 @@ class Note(db.Model):
     employee = db.relationship("Employee")
 
 
+class TrashPickup(db.Model):
+    """A record of when trash was picked up from a location's lot."""
+    __tablename__ = "trash_pickups"
+
+    id = db.Column(db.Integer, primary_key=True)
+    location_id = db.Column(db.Integer, db.ForeignKey("locations.id"))
+    picked_up_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    notes = db.Column(db.String(255))
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    location = db.relationship("Location")
+    employee = db.relationship("Employee")
+
+
 class Setting(db.Model):
     """Key/value application settings (thresholds, defaults)."""
     __tablename__ = "settings"

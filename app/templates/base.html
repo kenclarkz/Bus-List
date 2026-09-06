@@ -27,6 +27,7 @@
       <a href="{{ url_for('import_report') }}" class="{{ 'active' if request.endpoint == 'import_report' }}">Import</a>
       <a href="{{ url_for('end_day') }}" class="{{ 'active' if request.endpoint == 'end_day' }}">End Day</a>
       <a href="{{ url_for('history_days') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('history') }}">History</a>
+      <a href="{{ url_for('trash_page') }}" class="{{ 'active' if request.endpoint == 'trash_page' }}">Trash</a>
       <a href="{{ url_for('employees_page') }}" class="{{ 'active' if request.endpoint == 'employees_page' }}">Staff</a>
       <a href="{{ url_for('settings_page') }}" class="{{ 'active' if request.endpoint == 'settings_page' }}">Settings</a>
     </nav>

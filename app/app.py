@@ -7,7 +7,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash, \
     jsonify, session
 
 from .models import db, Vehicle, Employee, ScheduleEntry, Replacement, Note, \
-    DailySchedule, PrepReportImport
+    DailySchedule, PrepReportImport, TrashPickup, Location
 from .services import settings, vehicles, schedule as sched_svc
 
 # The only three accounts. Passwords are the lowercase role name. No accounts
@@ -195,6 +195,17 @@ def current_date(form=None):
         except ValueError:
             pass
     return date.today()
+
+
+def fmt_days_since(days):
+    """Human-friendly 'time since' label (e.g. 'today', '3 days ago')."""
+    if days is None:
+        return "never"
+    if days < 1:
+        hours = int(days * 24)
+        return "today" if hours <= 12 else f"{hours} hours ago"
+    d = round(days)
+    return "1 day ago" if d == 1 else f"{d} days ago"
 
 
 def status_indicator(last_washed):
@@ -874,6 +885,64 @@ def register_routes(app):
             "location": settings.get_setting("location") or "Main Depot",
             "checklist": ", ".join(settings.get_checklist()),
         }, vehicle_types=vtypes)
+
+    @app.route("/trash", methods=["GET", "POST"])
+    def trash_page():
+        """Trash tab: shows the last time trash was picked up from each lot
+        and lets staff record a new pickup."""
+        if request.method == "POST":
+            picked = request.form.get("picked_at", "").strip()
+            when = datetime.utcnow()
+            if picked:
+                try:
+                    when = datetime.fromisoformat(picked)
+                except ValueError:
+                    pass
+            pickup = TrashPickup(
+                location_id=request.form.get("location_id")
+                or vehicles.default_location().id,
+                picked_up_at=when,
+                notes=request.form.get("notes", "").strip() or None,
+                employee_id=request.form.get("employee_id") or None,
+            )
+            db.session.add(pickup)
+            db.session.commit()
+            flash("Trash pickup recorded", "success")
+            return redirect(url_for("trash_page"))
+
+        default_loc = vehicles.default_location()
+        locations = Location.query.order_by(Location.name).all()
+        if not locations:
+            locations = [default_loc]
+        rows = []
+        for loc in locations:
+            last = TrashPickup.query.filter_by(
+                location_id=loc.id).order_by(
+                    TrashPickup.picked_up_at.desc()).first()
+            never = last is None
+            days_since = None
+            freshness = ("Never", "muted")
+            if last:
+                diff = datetime.utcnow() - last.picked_up_at
+                days_since = diff.days + diff.seconds / 86400.0
+                if days_since <= 1:
+                    freshness = ("Recent", "success")
+                elif days_since <= 7:
+                    freshness = ("Due", "warn")
+                else:
+                    freshness = ("Overdue", "danger")
+            rows.append({
+                "location": loc,
+                "last_pickup": last,
+                "never": never,
+                "days_since": fmt_days_since(days_since),
+                "freshness": freshness,
+            })
+        return render_template("trash.html", rows=rows,
+                               employees=employees_list(),
+                               locations=locations,
+                               default_location=default_loc,
+                               now_iso=datetime.utcnow().strftime("%Y-%m-%dT%H:%M"))
 
     def _import_date_options():
         """Build date options for import: today, tomorrow, +2 days."""
