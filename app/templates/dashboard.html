@@ -56,15 +56,14 @@
 </div>
 
 {% set working = active_employees|selectattr('current_vehicle')|list %}
-{% if working %}
 <div class="card now-working" style="border-color:var(--success);background:var(--success-bg)">
   <div class="flex between" style="margin-bottom:10px">
     <h1 style="margin:0">Now Working</h1>
-    <span class="badge success" style="font-size:1rem;padding:6px 14px">{{ working|length }} on the floor</span>
+    <span class="badge success" id="now-working-count" style="font-size:1rem;padding:6px 14px">{{ working|length }} on the floor</span>
   </div>
-  <div class="now-working-grid">
+  <div class="now-working-grid" id="now-working-grid">
     {% for emp in working %}
-    <div class="now-worker">
+    <div class="now-worker" data-employee="{{ emp.id }}">
       <div class="now-worker-avatar">{{ emp.initials }}</div>
       <div class="now-worker-info">
         <div class="now-worker-name">{{ emp.name }}</div>
@@ -72,16 +71,11 @@
       </div>
     </div>
     {% endfor %}
+    {% if not working %}
+    <p class="muted" id="now-working-empty" style="margin:0">No vehicles in progress right now. Click <strong>Start</strong> on a vehicle to begin.</p>
+    {% endif %}
   </div>
 </div>
-{% else %}
-<div class="card now-working" style="border-color:var(--success);background:var(--success-bg)">
-  <div class="flex between" style="margin-bottom:10px">
-    <h1 style="margin:0">Now Working</h1>
-  </div>
-  <p class="muted" style="margin:0">No vehicles in progress right now. Check a task to start.</p>
-</div>
-{% endif %}
 
 <div class="stat-grid">
   <div class="flex between" style="margin-bottom:8px">
@@ -148,7 +142,7 @@
         {% if v.route %} · Route {{ v.route }}{% endif %}
         {% if entry.prep_time %} · Prep {{ entry.prep_time }}{% endif %}
       </div>
-      <span class="badge {{ 'warn' if entry.status == 'skipped' else ('success' if entry.status == 'completed' else ('info' if entry.status == 'in_progress' else 'muted')) }}">
+      <span class="badge entry-status {{ 'warn' if entry.status == 'skipped' else ('success' if entry.status == 'completed' else ('info' if entry.status == 'in_progress' else 'muted')) }}">
         {{ {'pending': 'Pending', 'in_progress': 'In Progress', 'completed': 'Completed', 'skipped': 'Skipped'}[entry.status] }}
       </span>
       {% set workers = active_employees|selectattr('current_vehicle', 'equalto', v.unit_number)|list %}
@@ -167,7 +161,7 @@
     </div>
 
     {% if entry.status != 'skipped' %}
-    <div class="checklist">
+    <div class="checklist" data-tasks-hidden="{{ 'true' if entry.status in ('pending', 'in_progress') else 'false' }}">
       {% for t in entry.tasks|sort(attribute='task_name') %}
       <label class="ck {{ 'done' if t.completed }}">
         <input type="checkbox" data-entry="{{ entry.id }}" data-task="{{ t.task_name }}"
@@ -177,23 +171,18 @@
         {% if t.completed_at %}<span class="small muted">· {{ t.completed_at.strftime('%H:%M') }}</span>{% endif %}
         {% if t.completed and t.employee %}<span class="badge info" style="font-size:.6rem;padding:1px 5px;margin-left:4px">{{ t.employee.initials }}</span>{% endif %}
       </label>
-<div class="modal-bg" id="modal-skip-{{ entry.id }}">
-    <div class="modal">
-      <h3>Skip Vehicle {{ v.unit_number }}</h3>
-      <p class="muted small">Skipping counts this vehicle toward completion without
-        cleaning it. It will still need to be cleaned.</p>
-      <form method="post" action="{{ url_for('entry_skip', entry_id=entry.id) }}">
-        <label>Reason for skipping {% if entry.skip_reason %} (leave blank to keep "{{ entry.skip_reason }}"){% endif %}</label>
-        <input type="text" name="reason" placeholder="e.g. not in service, already cleaned, parts needed…" autocomplete="off">
-        <div class="flex" style="margin-top:16px">
-          <button type="submit" class="btn warn">Skip Vehicle</button>
-          <button type="button" class="btn secondary" data-modal-close="modal-skip-{{ entry.id }}">Cancel</button>
-        </div>
-      </form>
+      {% endfor %}
     </div>
-  </div>
-  {% endfor %}
+
+    {% if entry.status in ('pending', 'in_progress') %}
+    <div class="row-start" data-tasks-hidden="true">
+      <button type="button" class="btn success start-btn" data-entry="{{ entry.id }}"
+              data-vehicle="{{ v.unit_number }}"
+              {{ 'disabled' if current_role == 'manager' }}>Start</button>
+      <span class="muted small">Click <strong>Start</strong> to begin working this vehicle. That marks it as
+        &quot;Currently Working&quot; and opens up the task list.</span>
     </div>
+    {% endif %}
     {% else %}
     <p class="muted small" style="margin:12px 0 4px">Skipped — counts toward completion.{% if entry.skip_reason %} <strong>Reason:</strong> {{ entry.skip_reason }}{% endif %} Un-skip to work this vehicle.</p>
     {% endif %}
@@ -216,6 +205,22 @@
               {{ 'disabled' if current_role == 'manager' }}>Skip</button>
       {% endif %}
       <a class="btn small" href="{{ url_for('vehicle_detail', vehicle_id=v.id) }}">History</a>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="modal-skip-{{ entry.id }}">
+    <div class="modal">
+      <h3>Skip Vehicle {{ v.unit_number }}</h3>
+      <p class="muted small">Skipping counts this vehicle toward completion without
+        cleaning it. It will still need to be cleaned.</p>
+      <form method="post" action="{{ url_for('entry_skip', entry_id=entry.id) }}">
+        <label>Reason for skipping {% if entry.skip_reason %} (leave blank to keep "{{ entry.skip_reason }}"){% endif %}</label>
+        <input type="text" name="reason" placeholder="e.g. not in service, already cleaned, parts needed…" autocomplete="off">
+        <div class="flex" style="margin-top:16px">
+          <button type="submit" class="btn warn">Skip Vehicle</button>
+          <button type="button" class="btn secondary" data-modal-close="modal-skip-{{ entry.id }}">Cancel</button>
+        </div>
+      </form>
     </div>
   </div>
 

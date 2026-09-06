@@ -336,6 +336,25 @@ def register_routes(app):
                 db.session.commit()
         return redirect(request.referrer or url_for("dashboard"))
 
+    @app.route("/start-work", methods=["POST"])
+    def start_work():
+        if session.get("role", "employee") != "employee":
+            return jsonify(ok=False, error="Manager view is read-only"), 403
+        emp_id = request.json.get("employee_id") if request.is_json else request.form.get("employee_id")
+        entry_id = request.json.get("entry_id") if request.is_json else request.form.get("entry_id")
+        if not emp_id or not entry_id:
+            return jsonify(ok=False, error="Missing employee_id or entry_id"), 400
+        emp = Employee.query.get(int(emp_id))
+        entry = ScheduleEntry.query.get(int(entry_id))
+        if not emp or not entry:
+            return jsonify(ok=False, error="Invalid employee or entry"), 404
+        emp.current_vehicle_id = entry.vehicle_id
+        if entry.status == "pending":
+            entry.status = "in_progress"
+        db.session.commit()
+        return jsonify(ok=True, employee=emp.name, initials=emp.initials,
+                       vehicle=entry.vehicle.unit_number)
+
     @app.route("/")
     def dashboard():
         from datetime import timedelta
