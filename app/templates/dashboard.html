@@ -202,6 +202,10 @@
     </div>
 
     <div class="row-actions">
+      {% if entry.status == 'in_progress' %}
+      <button class="btn success done-btn" data-entry="{{ entry.id }}"
+              {{ 'disabled' if current_role == 'manager' }}>Done</button>
+      {% endif %}
       {% if entry.status not in ('completed', 'skipped') %}
       <button class="btn small secondary" data-modal-target="modal-replace-{{ entry.id }}">Replace Vehicle</button>
       {% endif %}
@@ -217,6 +221,15 @@
       <a class="btn small" href="{{ url_for('vehicle_detail', vehicle_id=v.id) }}">History</a>
       {% endif %}
     </div>
+    {% if current_role == 'manager' and entry.status in ('completed', 'in_progress') %}
+    {% set incomplete_tasks = entry.tasks|selectattr('completed', 'false')|list %}
+    {% if incomplete_tasks %}
+    <div class="flash flash-warn" style="margin-top:8px;padding:8px 12px;font-size:.8rem">
+      <strong>Not completed:</strong>
+      {% for t in incomplete_tasks|sort(attribute='task_name') %}{{ t.task_name }}{% if not loop.last %}, {% endif %}{% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
   </div>
 
   <div class="modal-bg" id="modal-skip-{{ entry.id }}">

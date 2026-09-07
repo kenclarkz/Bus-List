@@ -737,6 +737,11 @@ def v_last_washed(app, unit):
     return v.last_washed
 
 
+def sched_svc_entry_tasks(app, entry_id):
+    from app.models import ScheduleEntry
+    return ScheduleEntry.query.get(entry_id).tasks
+
+
 # ---------------------------------------------------------------------------
 # Replacement
 # ---------------------------------------------------------------------------
@@ -1327,3 +1332,122 @@ def test_manager_header_shows_all_tabs(manager_client):
                  'href="/import"', 'href="/end"', 'href="/history"',
                  'href="/trash"']:
         assert href in html
+
+
+# ---------------------------------------------------------------------------
+# Force-complete ("Done") button
+# ---------------------------------------------------------------------------
+
+def test_complete_entry_marks_completed_even_with_open_tasks(client, app):
+    """A vehicle can be completed before all tasks are done; incomplete
+    tasks stay unchecked so the manager can see what wasn't finished."""
+    from app.models import Employee
+
+    with app.app_context():
+        emp = Employee(name="Pat Smith")
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+
+        from app.services.vehicles import find_or_create_vehicle
+        from app.services import schedule as ss
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        v, _ = find_or_create_vehicle("880", location_id=loc.id)
+        entry = ss.ensure_entry(sched, v)
+        entry_id = entry.id
+        # Complete only one task, then mark the vehicle done.
+        client.post(f"/task/{entry_id}/Sweep",
+                    data={"checked": "true", "employee_id": str(emp_id)})
+        emp.current_vehicle_id = v.id
+        db.session.commit()
+
+    r = client.post(f"/entry/{entry_id}/complete")
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+
+    with app.app_context():
+        e = ScheduleEntry.query.get(entry_id)
+        assert e.status == "completed"
+        done, total, pct = sched_svc.entry_progress(e)
+        assert 0 < done < total
+        incomplete = sorted(t.task_name for t in e.tasks if not t.completed)
+        assert incomplete  # some tasks left undone
+        assert employee_is_free(app, emp_id)
+
+
+def employee_is_free(app, emp_id):
+    from app.models import Employee
+    return Employee.query.get(emp_id).current_vehicle_id is None
+
+
+def test_manager_cannot_complete_entry(manager_client, app):
+    """Managers are read-only; the Done endpoint rejects them."""
+    from app.models import Employee
+
+    with app.app_context():
+        emp = Employee(name="Ron Manager")
+        db.session.add(emp)
+        db.session.commit()
+
+        from app.services.vehicles import find_or_create_vehicle
+        from app.services import schedule as ss
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        v, _ = find_or_create_vehicle("881", location_id=loc.id)
+        entry = ss.ensure_entry(sched, v)
+        entry_id = entry.id
+        entry.status = "in_progress"
+        emp.current_vehicle_id = v.id
+        db.session.commit()
+
+    r = manager_client.post(f"/entry/{entry_id}/complete")
+    assert r.status_code == 403
+    with app.app_context():
+        assert ScheduleEntry.query.get(entry_id).status == "in_progress"
+
+
+def test_done_button_and_not_completed_shown_to_manager(client, app):
+    """The Done button appears on started vehicles for employees, and the
+    manager dashboard lists which tasks were not completed."""
+    from app.models import Employee
+
+    with app.app_context():
+        emp = Employee(name="Cal Rider")
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+
+        from app.services.vehicles import find_or_create_vehicle
+        from app.services import schedule as ss
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        v, _ = find_or_create_vehicle("882", location_id=loc.id)
+        entry = ss.ensure_entry(sched, v)
+        entry_id = entry.id
+
+    # Employee view: Done button present once the vehicle is started.
+    html = client.get("/").data.decode()
+    assert html.find(">Done</button>") == -1
+    r = client.post("/start-work", data={"employee_id": str(emp_id),
+                                         "entry_id": str(entry_id)})
+    assert r.get_json()["ok"] is True
+    html = client.get("/").data.decode()
+    assert 'class="btn success done-btn"' in html
+
+    # Check off a single task, then press Done.
+    client.post(f"/task/{entry_id}/Sweep",
+                data={"checked": "true", "employee_id": str(emp_id)})
+    client.post(f"/entry/{entry_id}/complete")
+
+    # Manager sees exactly which tasks were left undone.
+    m = app.test_client()
+    m.post("/login", data={"username": "manager", "password": "manager"})
+    html = m.get("/").data.decode()
+    incomplete = sorted(
+        t.task_name for t in sched_svc_entry_tasks(app, entry_id)
+        if not t.completed)
+    assert incomplete
+    assert "Not completed" in html
+    for t in incomplete:
+        assert t in html

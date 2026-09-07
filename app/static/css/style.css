@@ -164,6 +164,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); b
 .flash-success { background: var(--success-bg); color: var(--success); }
 .flash-error { background: var(--danger-bg); color: var(--danger); }
 .flash-info { background: #e0f2fe; color: #0369a1; }
+.flash-warn { background: var(--warn-bg); color: var(--warn); }
 
 /* filters */
 .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }

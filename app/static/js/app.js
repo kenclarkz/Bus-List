@@ -88,6 +88,43 @@ function startWork(btn) {
   });
 }
 
+function completeWork(btn) {
+  var entryId = btn.getAttribute('data-entry');
+  btn.disabled = true;
+  fetch('/entry/' + entryId + '/complete', {
+    method: 'POST'
+  }).then(function (r) { return r.json(); }).then(function (data) {
+    if (!data.ok) {
+      btn.disabled = false;
+      alert(data.error || 'Could not complete this vehicle.');
+      return;
+    }
+    var row = btn.closest('.vrow');
+    if (row) {
+      var badge = row.querySelector('.entry-status');
+      if (badge) {
+        badge.textContent = 'Completed';
+        badge.className = 'badge entry-status success';
+      }
+      var bar = row.querySelector('.progress-fill');
+      var label = row.querySelector('.pct');
+      if (bar) bar.style.width = (data.pct || 100) + '%';
+      if (label) label.textContent = data.done + '/' + data.total + ' — ' + data.pct + '%';
+      var startRow = row.querySelector('.row-start');
+      if (startRow) startRow.remove();
+      btn.remove();
+      var replaceBtn = row.querySelector('[data-modal-target^="modal-replace-"]');
+      if (replaceBtn) replaceBtn.remove();
+      var skipBtn = row.querySelector('[data-modal-target^="modal-skip-"]');
+      if (skipBtn) skipBtn.remove();
+      row.querySelectorAll('.ck input').forEach(function (chk) { chk.disabled = true; });
+    }
+  }).catch(function () {
+    btn.disabled = false;
+    alert('Could not complete this vehicle. Try again.');
+  });
+}
+
 document.addEventListener('DOMContentLoaded', function () {
   var empSel = document.getElementById('current-employee');
   if (empSel && CURRENT_EMPLOYEE) empSel.value = CURRENT_EMPLOYEE;
@@ -127,6 +164,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
   document.querySelectorAll('.start-btn').forEach(function (btn) {
     btn.addEventListener('click', function () { startWork(btn); });
+  });
+
+  document.querySelectorAll('.done-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () { completeWork(btn); });
   });
 
   // modal openers
