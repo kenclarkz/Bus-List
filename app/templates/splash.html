@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ dark_mode }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Splash — {{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <style>
+    .splash-body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0b0f1a;
+      overflow: hidden;
+    }
+    .splash-video {
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      background: #0b0f1a;
+    }
+    .splash-skip {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      z-index: 10;
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      padding: 8px 16px;
+      border-radius: 999px;
+      font-size: 14px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .splash-skip:hover { background: rgba(255, 255, 255, 0.25); }
+  </style>
+</head>
+<body class="splash-body">
+
+  {% set dest = url_for('driver_dashboard') if current_role == 'driver' else url_for('dashboard') %}
+
+  <video id="splash-video" class="splash-video" autoplay muted playsinline
+         src="{{ url_for('static', filename='videos/intro.mp4') }}"></video>
+  <button type="button" class="splash-skip" id="splash-skip">Skip →</button>
+
+  <script>
+    (function () {
+      var dest = {{ dest|tojson }};
+      var video = document.getElementById('splash-video');
+      var skipped = false;
+
+      function go() {
+        if (skipped) return;
+        skipped = true;
+        window.location.href = dest;
+      }
+
+      video.addEventListener('ended', go);
+      video.addEventListener('error', go);
+
+      // Fallback: never let the splash hang if the video is missing or the
+      // duration is unknown. Redirect after the video's duration (or 6s).
+      video.addEventListener('loadedmetadata', function () {
+        clearTimeout(timer);
+        timer = setTimeout(go, (video.duration || 0) * 1000);
+      });
+      var timer = setTimeout(go, 6000);
+
+      document.getElementById('splash-skip').addEventListener('click', go);
+    })();
+  </script>
+</body>
+</html>
