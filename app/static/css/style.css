@@ -18,6 +18,8 @@
   --shadow: 0 1px 3px rgba(0, 0, 0, .08), 0 1px 2px rgba(0, 0, 0, .04);
 }
 
+html { color-scheme: light; }
+
 * { box-sizing: border-box; }
 
 body {
@@ -320,4 +322,77 @@ code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
   h1 { font-size: 1.2rem; margin: .3rem 0 .6rem; }
   h2 { font-size: 1rem; }
   .flash { padding: 8px 12px; font-size: .8rem; }
+}
+
+/* ---------------------------------- */
+/* Dark mode                           */
+/* ---------------------------------- */
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --primary: #3b82f6;
+  --primary-dark: #2563eb;
+  --bg: #0f172a;
+  --card: #1e293b;
+  --border: #334155;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --success: #22c55e;
+  --success-bg: #14532d;
+  --warn: #f59e0b;
+  --warn-bg: #78350f;
+  --danger: #ef4444;
+  --danger-bg: #7f1d1d;
+  --info: #22d3ee;
+  --info-bg: #155e75;
+  --shadow: 0 1px 3px rgba(0, 0, 0, .4), 0 1px 2px rgba(0, 0, 0, .3);
+}
+
+html[data-theme="dark"] .topbar { background: #020617; border-bottom: 1px solid var(--border); }
+html[data-theme="dark"] .role-btn { background: #020617; }
+html[data-theme="dark"] .logout-form .btn { background: #020617; color: #cbd5e1; }
+
+html[data-theme="dark"] input[type=text],
+html[data-theme="dark"] input[type=number],
+html[data-theme="dark"] input[type=date],
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea { background: #0f172a; color: var(--text); }
+
+html[data-theme="dark"] .btn.secondary { background: #334155; color: #e2e8f0; }
+html[data-theme="dark"] .btn.secondary:hover { background: #475569; }
+
+html[data-theme="dark"] table { background: var(--card); color: var(--text); }
+html[data-theme="dark"] tr:hover td { background: rgba(148, 163, 184, .07); }
+
+html[data-theme="dark"] .ck { background: #0f172a; color: var(--text); }
+html[data-theme="dark"] .ck:has(input:checked),
+html[data-theme="dark"] .ck.done { color: #86efac; }
+
+html[data-theme="dark"] .badge.muted { background: #334155; color: #cbd5e1; }
+
+html[data-theme="dark"] .flash-info { background: #164e63; color: #a5f3fc; }
+
+html[data-theme="dark"] .now-worker { background: var(--card); }
+
+html[data-theme="dark"] code { background: #334155; color: var(--text); }
+
+html[data-theme="dark"] .modal { background: var(--card); color: var(--text); }
+
+html[data-theme="dark"] .hlist li { background: var(--card); }
+
+html[data-theme="dark"] .login-card { background: var(--card); color: var(--text); }
+
+/* Print always renders light so dark mode doesn't ink out reports. */
+@media print {
+  html[data-theme="dark"] {
+    color-scheme: light;
+    --bg: #fff;
+    --card: #fff;
+    --border: #ccc;
+    --text: #111;
+    --muted: #555;
+  }
+  html[data-theme="dark"] body { background: #fff !important; }
+  html[data-theme="dark"] table { background: #fff !important; }
+  html[data-theme="dark"] .vrow { background: #fff !important; }
 }

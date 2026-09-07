@@ -338,6 +338,7 @@ def register_routes(app):
             "current_role": user if user in ROLE_ACCOUNTS else "employee",
             "current_user": ROLE_ACCOUNTS.get(user, {}).get(
                 "display") if user else None,
+            "dark_mode": settings.get_setting("dark_mode", "off"),
         }
 
     @app.before_request
@@ -936,6 +937,9 @@ def register_routes(app):
             checklist = request.form.get("checklist", "")
             if checklist:
                 settings.set_setting("checklist", checklist)
+            dark_mode = request.form.get("dark_mode", "off")
+            if dark_mode in ("off", "on", "system"):
+                settings.set_setting("dark_mode", dark_mode)
             # Per-vehicle-type checklists. A type uses the global default
             # unless its own checklist field is submitted and non-empty.
             for vt in VehicleType.query.all():
@@ -955,6 +959,7 @@ def register_routes(app):
             "due_soon_days": settings.get_setting("due_soon_days", 7),
             "location": settings.get_setting("location") or "Main Depot",
             "checklist": ", ".join(settings.get_checklist()),
+            "dark_mode": settings.get_setting("dark_mode", "off"),
         }, vehicle_types=vtypes)
 
     @app.route("/trash", methods=["GET", "POST"])

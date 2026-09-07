@@ -7,6 +7,7 @@ DEFAULTS = {
     "due_soon_days": "7",     # due soon if last_washed older than recent but under this
     "location": None,         # default location name for schedules/vehicles
     "checklist": "Sweep,Mop,Windows,Seats,Bathroom,Dump,Bay Checked,Final Inspection",
+    "dark_mode": "off",       # off | on | system
 }
 
 
