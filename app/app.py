@@ -361,7 +361,7 @@ def register_routes(app):
     @app.route("/login", methods=["GET", "POST"])
     def login():
         if session.get("user") in ROLE_ACCOUNTS:
-            return redirect(role_home(session.get("user")))
+            return redirect(url_for("splash"))
         if request.method == "POST":
             username = (request.form.get("username") or "").strip().lower()
             password = request.form.get("password") or ""
@@ -371,10 +371,15 @@ def register_routes(app):
                 session["user"] = username
                 session["username"] = account["display"]
                 flash(f"Welcome, {account['display']}", "success")
-                return redirect(role_home(username))
+                return redirect(url_for("splash"))
             flash("Invalid username or password", "error")
             return redirect(url_for("login"))
         return render_template("login.html")
+
+    @app.route("/splash")
+    def splash():
+        """Fullscreen intro animation played after login before the dashboard."""
+        return render_template("splash.html")
 
     @app.route("/logout", methods=["POST"])
     def logout():

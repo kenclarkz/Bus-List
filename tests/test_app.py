@@ -1204,18 +1204,20 @@ def test_login_accepts_case_insensitive_username_routes_by_role(app):
     e = app.test_client()
     r = e.post("/login", data={"username": "Employee", "password": "employee"})
     assert r.status_code == 302
-    assert r.headers["Location"].endswith("/")
+    assert r.headers["Location"].endswith("/splash")
+    # The splash animation loads first, then the dashboard.
+    assert e.get("/splash").status_code == 200
     assert e.get("/").status_code == 200
 
     m = app.test_client()
     r = m.post("/login", data={"username": "manager", "password": "manager"})
     assert r.status_code == 302
-    assert r.headers["Location"].endswith("/")
+    assert r.headers["Location"].endswith("/splash")
 
     d = app.test_client()
     r = d.post("/login", data={"username": "driver", "password": "driver"})
     assert r.status_code == 302
-    assert r.headers["Location"].endswith("/driver")
+    assert r.headers["Location"].endswith("/splash")
 
 
 def test_login_rejects_unknown_user_and_wrong_password(app):
