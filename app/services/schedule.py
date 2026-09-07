@@ -104,6 +104,24 @@ def update_entry_status(entry):
     return entry.status
 
 
+def complete_entry(entry, employee_id=None):
+    """Force-complete an entry even if not all tasks are done.
+
+    Incomplete tasks are left as-is (not checked) so the manager can see
+    exactly what was and wasn't completed. The entry is marked completed
+    and the employee is freed from the vehicle.
+    """
+    if entry.status not in ("in_progress", "pending"):
+        return entry.status
+    entry.status = "completed"
+    if entry.vehicle_id:
+        from ..models import Employee
+        Employee.query.filter_by(current_vehicle_id=entry.vehicle_id).update(
+            {"current_vehicle_id": None}, synchronize_session=False)
+    db.session.commit()
+    return entry.status
+
+
 def set_entry_skipped(entry, skipped=True, reason=""):
     """Mark a vehicle as skipped (counts toward completion) or un-skip it."""
     if skipped:

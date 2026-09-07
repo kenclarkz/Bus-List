@@ -692,6 +692,17 @@ def register_routes(app):
         flash(f"Vehicle {entry.vehicle.unit_number} un-skipped", "success")
         return redirect(request.referrer or url_for("dashboard"))
 
+    @app.route("/entry/<int:entry_id>/complete", methods=["POST"])
+    def entry_complete(entry_id):
+        if session.get("user") != "employee":
+            return jsonify(ok=False, error="Manager view is read-only"), 403
+        entry = ScheduleEntry.query.get_or_404(entry_id)
+        sched_svc.complete_entry(entry)
+        done, total, pct = sched_svc.entry_progress(entry)
+        incomplete = [t.task_name for t in entry.tasks if not t.completed]
+        return jsonify(ok=True, done=done, total=total, pct=pct,
+                       incomplete=incomplete)
+
     @app.route("/schedule/<int:entry_id>/replace", methods=["POST"])
     def entry_replace(entry_id):
         entry = ScheduleEntry.query.get_or_404(entry_id)
