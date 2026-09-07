@@ -27,8 +27,9 @@ report. It is not a static mockup.
    historical data is never deleted.
 3. **Daily Detailing Board** — after import, today's work list is created
    automatically. Each vehicle shows number, type, route, status, last washed,
-   and progress. Large tap-friendly checklist: Sweep, Mop, Windows, Seats,
-   Bathroom, Dump, Bay Checked, Final Inspection. Every checkbox saves a
+   and progress. The task list is broken into two categories — **Inside**
+   (Sweep, Mop, Windows, Seats, Bathroom) and **Outside** (Dump, Bay Checked,
+   Final Inspection) — both configurable in Settings. Every checkbox saves a
    completion timestamp and the employee. Progress shows `6/8 — 75%`.
 4. **Vehicle Replacements** — "Replace Vehicle" moves remaining applicable
    daily prep requirements to the replacement while preserving completed work
@@ -114,8 +115,9 @@ Database and secret are configured via environment variables (see
 | `DATABASE_URL` | `sqlite:///data/detail.db` |
 | `PORT` | `5000` |
 
-Thresholds (Recently Washed / Due Soon) and the checklist are configurable in
-the **Settings** page at runtime.
+Thresholds (Recently Washed / Due Soon) and the task list — split into
+**Inside** and **Outside** categories — are configurable in the **Settings**
+page at runtime. Per-vehicle-type checklists can override the global default.
 
 ---
 

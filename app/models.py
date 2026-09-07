@@ -71,12 +71,8 @@ class Vehicle(db.Model):
 
     @property
     def has_dump_task(self):
-        vtype = self.vehicle_type
-        if vtype is not None and vtype.checklist:
-            tasks = [x.strip() for x in vtype.checklist.split(",") if x.strip()]
-        else:
-            from app.services.settings import get_checklist
-            tasks = get_checklist()
+        from app.services.settings import get_type_checklist
+        tasks = get_type_checklist(self.vehicle_type)
         return "Dump" in tasks
 
     @property

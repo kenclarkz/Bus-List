@@ -63,7 +63,7 @@
       <td>{{ r.done }}/{{ r.total }}</td>
       <td>
         {% for t in r.entry.tasks if not t.completed %}
-          <span class="badge danger">{{ t.task_name }}</span>
+          <span class="badge danger">{{ t.task_name }} <span class="muted small">({{ t.task_name|task_category }})</span></span>
         {% endfor %}
       </td>
     </tr>

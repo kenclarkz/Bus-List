@@ -171,16 +171,36 @@
 
     {% if entry.status != 'skipped' %}
     <div class="checklist" data-tasks-hidden="{{ 'true' if entry.status in ('pending', 'in_progress') else 'false' }}">
-      {% for t in entry.tasks|sort(attribute='task_name') %}
-      <label class="ck {{ 'done' if t.completed }}">
-        <input type="checkbox" data-entry="{{ entry.id }}" data-task="{{ t.task_name }}"
-               {{ 'checked' if t.completed }}
-               {{ 'disabled' if current_role == 'manager' }}>
-        {{ t.task_name }}
-        {% if t.completed_at %}<span class="small muted">· {{ t.completed_at.strftime('%H:%M') }}</span>{% endif %}
-        {% if t.completed and t.employee %}<span class="badge info" style="font-size:.6rem;padding:1px 5px;margin-left:4px">{{ t.employee.initials }}</span>{% endif %}
-      </label>
-      {% endfor %}
+      <div class="checklist-group">
+        <span class="checklist-group-label">Inside</span>
+        <div class="checklist-group-items">
+        {% for t in entry.tasks if t.task_name|task_category == 'inside' %}
+        <label class="ck {{ 'done' if t.completed }}">
+          <input type="checkbox" data-entry="{{ entry.id }}" data-task="{{ t.task_name }}"
+                 {{ 'checked' if t.completed }}
+                 {{ 'disabled' if current_role == 'manager' }}>
+          {{ t.task_name }}
+          {% if t.completed_at %}<span class="small muted">· {{ t.completed_at.strftime('%H:%M') }}</span>{% endif %}
+          {% if t.completed and t.employee %}<span class="badge info" style="font-size:.6rem;padding:1px 5px;margin-left:4px">{{ t.employee.initials }}</span>{% endif %}
+        </label>
+        {% endfor %}
+        </div>
+      </div>
+      <div class="checklist-group">
+        <span class="checklist-group-label">Outside</span>
+        <div class="checklist-group-items">
+        {% for t in entry.tasks if t.task_name|task_category == 'outside' %}
+        <label class="ck {{ 'done' if t.completed }}">
+          <input type="checkbox" data-entry="{{ entry.id }}" data-task="{{ t.task_name }}"
+                 {{ 'checked' if t.completed }}
+                 {{ 'disabled' if current_role == 'manager' }}>
+          {{ t.task_name }}
+          {% if t.completed_at %}<span class="small muted">· {{ t.completed_at.strftime('%H:%M') }}</span>{% endif %}
+          {% if t.completed and t.employee %}<span class="badge info" style="font-size:.6rem;padding:1px 5px;margin-left:4px">{{ t.employee.initials }}</span>{% endif %}
+        </label>
+        {% endfor %}
+        </div>
+      </div>
     </div>
 
     {% if entry.status in ('pending', 'in_progress') %}
@@ -226,7 +246,7 @@
     {% if incomplete_tasks %}
     <div class="flash flash-warn" style="margin-top:8px;padding:8px 12px;font-size:.8rem">
       <strong>Not completed:</strong>
-      {% for t in incomplete_tasks|sort(attribute='task_name') %}{{ t.task_name }}{% if not loop.last %}, {% endif %}{% endfor %}
+      {% for t in incomplete_tasks %}{{ t.task_name }} ({{ t.task_name|task_category }}){% if not loop.last %}, {% endif %}{% endfor %}
     </div>
     {% endif %}
     {% endif %}
