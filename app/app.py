@@ -497,7 +497,7 @@ def register_routes(app):
             "dashboard.html",
             rows=frows, all_rows=rows, sched=sched,
             total=total, completed=completed, in_progress=in_progress,
-            remaining=remaining, overall=overall, overdue=overdue,
+            skipped=skipped, remaining=remaining, overall=overall, overdue=overdue,
             replacements=replacements, types=types, filters=filters,
             employees=employees_list(),
             nav_dates=nav_dates, view_date=view_date,
