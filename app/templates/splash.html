@@ -42,7 +42,7 @@
 
   {% set dest = url_for('driver_dashboard') if current_role == 'driver' else url_for('dashboard') %}
 
-  <video id="splash-video" class="splash-video" autoplay muted playsinline
+  <video id="splash-video" class="splash-video" autoplay muted playsinline preload="auto"
          src="{{ url_for('static', filename='videos/intro.mp4') }}"></video>
   <button type="button" class="splash-skip" id="splash-skip">Skip →</button>
 
@@ -58,10 +58,18 @@
         window.location.href = dest;
       }
 
-      video.play().catch(function () {});
-
       video.addEventListener('ended', go);
       video.addEventListener('error', go);
+
+      function tryPlay() {
+        if (video.paused && !video.ended) {
+          video.play().catch(function () {});
+        }
+      }
+
+      tryPlay();
+      video.addEventListener('canplay', tryPlay);
+      video.addEventListener('canplaythrough', tryPlay);
 
       // Fallback: never let the splash hang if the video is missing or the
       // duration is unknown. Redirect after the video's duration (or 6s).
