@@ -26,8 +26,13 @@
     </div>
     <label>Default Location</label>
     <input type="text" name="location" value="{{ settings.location }}">
-    <label>Checklist tasks (comma-separated)</label>
-    <input type="text" name="checklist" value="{{ settings.checklist }}">
+    <label>Inside tasks (comma-separated)</label>
+    <input type="text" name="checklist_inside" value="{{ settings.checklist_inside }}">
+    <label>Outside tasks (comma-separated)</label>
+    <input type="text" name="checklist_outside" value="{{ settings.checklist_outside }}">
+    <p class="muted small">Break the task list into two categories — <strong>Inside</strong>
+      (interior cleaning, e.g. Sweep, Mop, Windows, Seats, Bathroom) and
+      <strong>Outside</strong> (exterior/service, e.g. Dump, Bay Checked, Final Inspection).</p>
     <div style="margin-top:16px" class="flex">
       <button type="submit" class="btn success">Save Settings</button>
     </div>
@@ -35,14 +40,23 @@
 </div>
 <div class="card">
   <h2>Vehicle Type Checklists</h2>
-  <p class="muted">Each vehicle type can have its own detailing checklist. Leave a type blank to use the default checklist above. Existing scheduled vehicles are updated to match automatically.</p>
+  <p class="muted">Each vehicle type can have its own detailing checklist, split into
+    Inside and Outside categories. Leave both blank to use the default checklist above.
+    Existing scheduled vehicles are updated to match automatically.</p>
   {% if vehicle_types %}
   <form method="post" action="{{ url_for('settings_page') }}">
     {% for vt in vehicle_types %}
-    <label>{{ vt.name }}</label>
-    <input type="text" name="type_checklist_{{ vt.id }}"
-           value="{{ vt.checklist or '' }}"
-           placeholder="Use default checklist">
+    <fieldset class="type-checklist-card">
+      <legend><strong>{{ vt.name }}</strong></legend>
+      <label>Inside tasks</label>
+      <input type="text" name="type_checklist_inside_{{ vt.id }}"
+             value="{{ vt._inside }}"
+             placeholder="Use default inside tasks">
+      <label>Outside tasks</label>
+      <input type="text" name="type_checklist_outside_{{ vt.id }}"
+             value="{{ vt._outside }}"
+             placeholder="Use default outside tasks">
+    </fieldset>
     {% endfor %}
     <div style="margin-top:16px" class="flex">
       <button type="submit" class="btn success">Save Checklists</button>

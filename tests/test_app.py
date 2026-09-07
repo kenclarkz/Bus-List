@@ -818,13 +818,16 @@ def test_settings_lifecycle(manager_client, app):
         "recent_days": "3",
         "due_soon_days": "10",
         "location": "Main Depot",
-        "checklist": "Sweep,Mop,Windows",
+        "checklist_inside": "Sweep,Mop,Windows",
+        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
         from app.services import settings as s
         assert s.get_setting("recent_days") == "3"
-        assert s.get_checklist() == ["Sweep", "Mop", "Windows"]
+        assert s.get_checklist_inside() == ["Sweep", "Mop", "Windows"]
+        assert s.get_checklist_outside() == ["Dump"]
+        assert s.get_checklist() == ["Sweep", "Mop", "Windows", "Dump"]
 
 
 def test_dark_mode_defaults_off_and_renders_theme(manager_client):
@@ -840,7 +843,8 @@ def test_dark_mode_can_be_turned_on(manager_client, app):
         "recent_days": "2",
         "due_soon_days": "7",
         "location": "Main Depot",
-        "checklist": "Sweep,Mop",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
@@ -854,6 +858,56 @@ def test_dark_mode_rejects_unknown_values(manager_client, app):
     with app.app_context():
         from app.services import settings as s
         assert s.get_setting("dark_mode", "off") == "off"
+
+
+def test_categorized_checklist_setting_and_defaults(app):
+    """Verify the default Inside/Outside split and that custom values stick."""
+    from app.services import settings as s
+    with app.app_context():
+        assert s.get_checklist_inside() == [
+            "Sweep", "Mop", "Windows", "Seats", "Bathroom"]
+        assert s.get_checklist_outside() == [
+            "Dump", "Bay Checked", "Final Inspection"]
+        # Combined flat list preserves order inside then outside
+        assert s.get_checklist() == [
+            "Sweep", "Mop", "Windows", "Seats", "Bathroom",
+            "Dump", "Bay Checked", "Final Inspection"]
+
+        # Custom categorized values
+        s.set_setting("checklist_inside", "Vacuum,Wipe Seats")
+        s.set_setting("checklist_outside", "Wash Body,Windows")
+        assert s.get_checklist_inside() == ["Vacuum", "Wipe Seats"]
+        assert s.get_checklist_outside() == ["Wash Body", "Windows"]
+        assert s.get_checklist() == ["Vacuum", "Wipe Seats", "Wash Body", "Windows"]
+
+
+def test_categorized_type_checklist_parsing(app):
+    """VehicleType.checklist stored with Inside/Outside prefixes parses and
+    formats correctly."""
+    from app.services.vehicles import get_or_create_vehicle_type
+    from app.services import settings as s
+    with app.app_context():
+        vt = get_or_create_vehicle_type("PARSEBUS")
+        vt.checklist = "Inside: Vacuum, Glass | Outside: Bay Checked"
+        db.session.commit()
+        cat = s.get_type_categorized_checklist(vt)
+        assert cat["inside"] == ["Vacuum", "Glass"]
+        assert cat["outside"] == ["Bay Checked"]
+        assert s.get_type_checklist(vt) == ["Vacuum", "Glass", "Bay Checked"]
+
+        # Flat legacy string -> all inside
+        vt.checklist = "Sweep,Windows"
+        db.session.commit()
+        cat = s.get_type_categorized_checklist(vt)
+        assert cat["inside"] == ["Sweep", "Windows"]
+        assert cat["outside"] == []
+
+
+def test_settings_page_renders_inside_outside(manager_client, app):
+    r = manager_client.get("/settings")
+    assert r.status_code == 200
+    assert b"Inside tasks" in r.data
+    assert b"Outside tasks" in r.data
 
 
 # ---------------------------------------------------------------------------
@@ -971,7 +1025,7 @@ def test_per_vehicle_type_checklist(app):
 
     with app.app_context():
         custom = get_or_create_vehicle_type("TRANSITB")
-        custom.checklist = "Sweep,Windows,Bay Checked"
+        custom.checklist = "Inside: Sweep, Windows | Outside: Bay Checked"
         db.session.commit()
 
         plain = get_or_create_vehicle_type("VAN")  # no checklist

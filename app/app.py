@@ -328,12 +328,24 @@ def register_routes(app):
         except (ValueError, TypeError):
             return {}
 
+    @app.template_filter("task_category")
+    def task_category_filter(task_name):
+        """Return 'inside' or 'outside' based on the configured categories."""
+        if task_name in settings.get_checklist_inside():
+            return "inside"
+        if task_name in settings.get_checklist_outside():
+            return "outside"
+        # Unknown tasks default to inside.
+        return "inside"
+
     @app.context_processor
     def inject_globals():
         user = session.get("user")
         return {
             "today": date.today,
             "checklist": settings.get_checklist(),
+            "checklist_inside": settings.get_checklist_inside(),
+            "checklist_outside": settings.get_checklist_outside(),
             "app_name": "Detailing Operations Dashboard",
             "current_role": user if user in ROLE_ACCOUNTS else "employee",
             "current_user": ROLE_ACCOUNTS.get(user, {}).get(
@@ -939,31 +951,45 @@ def register_routes(app):
                 val = request.form.get(key)
                 if val is not None:
                     settings.set_setting(key, val)
-            checklist = request.form.get("checklist", "")
-            if checklist:
-                settings.set_setting("checklist", checklist)
+            # Categorized checklist: Inside and Outside task lists.
+            inside = request.form.get("checklist_inside")
+            if inside is not None:
+                settings.set_setting("checklist_inside", inside)
+            outside = request.form.get("checklist_outside")
+            if outside is not None:
+                settings.set_setting("checklist_outside", outside)
             dark_mode = request.form.get("dark_mode", "off")
             if dark_mode in ("off", "on", "system"):
                 settings.set_setting("dark_mode", dark_mode)
-            # Per-vehicle-type checklists. A type uses the global default
-            # unless its own checklist field is submitted and non-empty.
+            # Per-vehicle-type checklists (Inside + Outside). A type uses the
+            # global default unless its own fields are submitted and non-empty.
             for vt in VehicleType.query.all():
-                val = request.form.get(f"type_checklist_{vt.id}")
-                if val is not None:
-                    val = val.strip()
-                    if vt.checklist != (val or None):
-                        vt.checklist = val or None
-                        db.session.commit()
-                        refresh_type_entries(vt)
+                in_val = request.form.get(f"type_checklist_inside_{vt.id}")
+                out_val = request.form.get(f"type_checklist_outside_{vt.id}")
+                if in_val is None and out_val is None:
+                    continue
+                in_tasks = [x.strip() for x in (in_val or "").split(",") if x.strip()]
+                out_tasks = [x.strip() for x in (out_val or "").split(",") if x.strip()]
+                combined = settings.format_type_checklist_for_storage(in_tasks, out_tasks)
+                new_val = combined or None
+                if vt.checklist != new_val:
+                    vt.checklist = new_val
+                    db.session.commit()
+                    refresh_type_entries(vt)
             db.session.commit()
             flash("Settings saved", "success")
             return redirect(url_for("settings_page"))
         vtypes = VehicleType.query.order_by(VehicleType.name).all()
+        for vt in vtypes:
+            cat = settings.get_type_categorized_checklist(vt)
+            vt._inside = ", ".join(cat["inside"])
+            vt._outside = ", ".join(cat["outside"])
         return render_template("settings.html", settings={
             "recent_days": settings.get_setting("recent_days", 2),
             "due_soon_days": settings.get_setting("due_soon_days", 7),
             "location": settings.get_setting("location") or "Main Depot",
-            "checklist": ", ".join(settings.get_checklist()),
+            "checklist_inside": ", ".join(settings.get_checklist_inside()),
+            "checklist_outside": ", ".join(settings.get_checklist_outside()),
             "dark_mode": settings.get_setting("dark_mode", "off"),
         }, vehicle_types=vtypes)
 
