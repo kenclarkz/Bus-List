@@ -58,6 +58,8 @@
         window.location.href = dest;
       }
 
+      video.play().catch(function () {});
+
       video.addEventListener('ended', go);
       video.addEventListener('error', go);
 
