@@ -3,6 +3,20 @@
 {% block content %}
 <h1>Settings</h1>
 <div class="card">
+  <h2>Appearance</h2>
+  <form method="post" action="{{ url_for('settings_page') }}">
+    <label for="dark_mode">Theme</label>
+    <select id="dark_mode" name="dark_mode">
+      <option value="off" {{ 'selected' if settings.dark_mode == 'off' }}>Light</option>
+      <option value="on" {{ 'selected' if settings.dark_mode == 'on' }}>Dark</option>
+      <option value="system" {{ 'selected' if settings.dark_mode == 'system' }}>System</option>
+    </select>
+    <div style="margin-top:16px" class="flex">
+      <button type="submit" class="btn success">Save Theme</button>
+    </div>
+  </form>
+</div>
+<div class="card">
   <form method="post" action="{{ url_for('settings_page') }}">
     <div class="form-row">
       <div><label>Recently Washed threshold (days)</label>

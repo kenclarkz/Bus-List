@@ -827,6 +827,35 @@ def test_settings_lifecycle(manager_client, app):
         assert s.get_checklist() == ["Sweep", "Mop", "Windows"]
 
 
+def test_dark_mode_defaults_off_and_renders_theme(manager_client):
+    r = manager_client.get("/")
+    assert b'data-theme="off"' in r.data
+    r = manager_client.get("/settings")
+    assert b"dark_mode" in r.data
+
+
+def test_dark_mode_can_be_turned_on(manager_client, app):
+    r = manager_client.post("/settings", data={
+        "dark_mode": "on",
+        "recent_days": "2",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist": "Sweep,Mop",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_setting("dark_mode") == "on"
+    assert b'data-theme="on"' in manager_client.get("/").data
+
+
+def test_dark_mode_rejects_unknown_values(manager_client, app):
+    manager_client.post("/settings", data={"dark_mode": "hotdog-pink"})
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_setting("dark_mode", "off") == "off"
+
+
 # ---------------------------------------------------------------------------
 # Entities
 # ---------------------------------------------------------------------------

@@ -1,9 +1,20 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="{{ dark_mode }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login — {{ app_name }}</title>
+  <script>
+    (function () {
+      var el = document.documentElement;
+      if (el.getAttribute('data-theme') === 'system') {
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+        function apply() { el.setAttribute('data-theme', mq.matches ? 'dark' : 'off'); }
+        apply();
+        if (mq.addEventListener) mq.addEventListener('change', apply);
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body class="login-body">
