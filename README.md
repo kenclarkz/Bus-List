@@ -156,6 +156,123 @@ data/                    # SQLite database (created at runtime)
 
 ---
 
+## Prep Report Import System
+
+The import system lets operators upload a daily prep report PDF and have the
+application automatically extract vehicle assignments, compare them against
+the existing database, and build the day's work list. Nothing touches the
+database until the operator explicitly confirms.
+
+### End-to-end flow
+
+```
+Upload PDF ──► Parse & Extract ──► Preview Diff ──► Apply Updates ──► Dashboard
+   /import        pdf_parser.py     build_preview()  apply_import()   /today
+```
+
+**1. Upload (`/import`)**
+The operator picks a PDF file and a target schedule date (today, tomorrow,
+or +2 days). The file is validated (must be a PDF, max 20 MB).
+
+**2. Parse & Extract (`pdf_parser.py`)**
+The PDF is processed by a three-layer extraction engine:
+
+| Layer | Trigger | How it works |
+|-------|---------|-------------|
+| Text + table extraction | Default | PyMuPDF extracts selectable text and detects tables. ECHO-format rows
+(Prep Time / Vehicle / Vehicle Type / Type) are parsed by column index.
+Generic tables are parsed by scanning tokens for unit numbers. |
+| Word-based scan | Non-ECHO pages | Words on the same baseline are grouped into pseudo-rows and scanned for
+unit numbers, vehicle types, and routes. |
+| OCR fallback | No selectable text (`total_text_chars == 0`) | Each page is rendered to a 200 DPI image via PyMuPDF and read by
+Tesseract. All OCR results are flagged `uncertain=True`. |
+
+The output is a dict of `ParsedVehicle` records keyed by normalized unit
+number, plus the extraction method (`text`, `table`, or `ocr`) and any
+warnings.
+
+**3. Unit number normalization**
+`normalize_unit()` strips prefixes like `BUS`, `Unit`, `veh`, `vehicle`,
+`no`, `#` and trailing dashes, then extracts the numeric portion. This means
+`BUS 142`, `Unit 142`, and `142` all resolve to vehicle 142.
+
+**4. Preview diff (`schedule.py:build_preview()`)**
+The parsed vehicles are compared against the database to produce a preview
+with six categories:
+
+| Category | Meaning |
+|----------|---------|
+| **new** | Vehicles in the PDF but not in the database |
+| **updated** | Vehicles whose type or route has changed |
+| **unchanged** | Vehicles that already match the database |
+| **removed** | Vehicles in the database but absent from the PDF (will be deactivated) |
+| **replacements** | Parsed substitution entries (e.g. "Replace 155") — surfaced for manual confirmation |
+| **uncertain** | Low-confidence OCR entries flagged for manual review |
+
+A `PrepReportImport` record is created with `applied=False`, storing the full
+preview as JSON.
+
+**5. Apply (`/import/<id>/apply`)**
+When the operator clicks "Apply Updates":
+
+- New vehicles are created via `find_or_create_vehicle()`.
+- A `DailySchedule` is created for the target date + location if one doesn't
+  exist.
+- `ScheduleEntry` rows are created for each vehicle with prep time and display
+  order.
+- `TaskCompletion` checklist rows are generated per entry using the current
+  task configuration (Inside + Outside categories).
+- Vehicles missing from the report are deactivated (not deleted).
+- The `PrepReportImport` is marked `applied=True`.
+
+**6. Dashboard (`/today`)**
+The dashboard now shows today's work list ordered by prep time (earliest
+first, untimed entries last).
+
+### Import history
+
+All past imports are visible at `/history`. Each shows filename, date,
+extraction method, and whether it was applied. Imports can be deleted — this
+removes any vehicles that were created by that specific import and
+re-activates any vehicles that were deactivated by it.
+
+### Key design decisions
+
+- **Two-step confirmation**: Nothing is written to the database until the
+  operator reviews the preview and clicks Apply. This prevents bad data from
+  silently entering the system.
+- **Historical data is never deleted**: Service records, past checklists,
+  replacements, and finalized days survive across imports.
+- **Multiple imports per day are allowed**: The system merges data from
+  successive imports rather than replacing the day's schedule.
+- **Seeded fleet vehicles are restored on startup**: `_restore_seed_vehicles()`
+  re-activates base fleet vehicles so imports can't permanently hide them.
+- **Max upload size**: 20 MB (`MAX_CONTENT_LENGTH` in `app.py`).
+
+### Sample prep report
+
+A sample PDF can be generated for testing:
+
+```bash
+python scripts/make_sample_report.py sample_prep_report.pdf
+```
+
+Then upload it at Import → review the preview → Apply Updates.
+
+### Source files
+
+| File | Purpose |
+|------|---------|
+| `app/services/pdf_parser.py` | PDF parsing engine (text, table, OCR) |
+| `app/services/schedule.py:build_preview()` | Compares parsed data against the database |
+| `app/services/schedule.py:apply_import()` | Creates vehicles, schedule entries, and tasks |
+| `app/services/vehicles.py` | Vehicle CRUD, import record management |
+| `app/app.py` (routes `/import`, `/import/<id>/apply`, `/import/<id>/delete`) | Upload, preview, apply, and delete endpoints |
+| `app/templates/import.html` | Upload form UI |
+| `app/templates/import_preview.html` | Preview diff UI |
+
+---
+
 ## How replacements & history integrity work
 
 - **The PDF controls the daily schedule; the database controls permanent
