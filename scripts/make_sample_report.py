@@ -15,28 +15,29 @@ except ImportError:
     sys.exit("PyMuPDF required: pip install -r requirements.txt")
 
 
-# ECHO-format data: (prep_time, unit, location_code, vehicle_type, service_type, trips)
+# ECHO-format data: (prep_time, unit, location_code, vehicle_type, service_type,
+# trips, option_note)
 ROWS = [
-    ("01:45", "9205", "JAXSUV", "SUVSUB", "Departure", "4"),
-    ("02:00", "9203", "JAXSUV", "SUVSUB", "As Directed", "1"),
-    ("04:00", "4301", "JAXUNF", "TRANSITB", "Shuttle", "2"),
-    ("04:00", "4303", "JAXUNF", "TRANSITB", "Shuttle", "2"),
-    ("04:00", "4304", "JAXUNF", "TRANSITB", "Shuttle", "2"),
-    ("04:15", "7101", "JAXMINIC", "MINIC34", "Transfer", "2"),
-    ("04:30", "5100", "JAXUNF", "ADAMINIVAN", "Shuttle", "2"),
-    ("06:00", "4302", "JAXUNF", "TRANSITB", "Shuttle", "2"),
-    ("07:00", "8406", "JAXMC", "MOTORC", "Hourly", "1"),
-    ("09:30", "9421", "JAXMB", "MINIBUS", "Hourly", "1"),
-    ("09:30", "9440", "JAXMB", "MINIC40", "Hourly", "2"),
-    ("09:45", "9331", "JAXVAN", "Van", "Hourly", "1"),
-    ("10:00", "8437", "JAXADAMC", "ADAMOTORC", "Hourly", "1"),
-    ("12:14", "9205", "JAXSUV", "SUVSUB", "Airport Arrival", "4"),
-    ("13:52", "9233", "JAXSUV", "SUVYUKON", "Airport Arrival", "2"),
-    ("15:00", "4302", "JAXUNF", "TRANSITB", "Shuttle", "2"),
+    ("01:45", "9205", "JAXSUV", "SUVSUB", "Departure", "4", "Check AC before dispatch"),
+    ("02:00", "9203", "JAXSUV", "SUVSUB", "As Directed", "1", ""),
+    ("04:00", "4301", "JAXUNF", "TRANSITB", "Shuttle", "2", "Wipe windshield"),
+    ("04:00", "4303", "JAXUNF", "TRANSITB", "Shuttle", "2", ""),
+    ("04:00", "4304", "JAXUNF", "TRANSITB", "Shuttle", "2", ""),
+    ("04:15", "7101", "JAXMINIC", "MINIC34", "Transfer", "2", "Low tire - air up"),
+    ("04:30", "5100", "JAXUNF", "ADAMINIVAN", "Shuttle", "2", ""),
+    ("06:00", "4302", "JAXUNF", "TRANSITB", "Shuttle", "2", ""),
+    ("07:00", "8406", "JAXMC", "MOTORC", "Hourly", "1", ""),
+    ("09:30", "9421", "JAXMB", "MINIBUS", "Hourly", "1", ""),
+    ("09:30", "9440", "JAXMB", "MINIC40", "Hourly", "2", ""),
+    ("09:45", "9331", "JAXVAN", "Van", "Hourly", "1", "Refill hand sanitizer"),
+    ("10:00", "8437", "JAXADAMC", "ADAMOTORC", "Hourly", "1", ""),
+    ("12:14", "9205", "JAXSUV", "SUVSUB", "Airport Arrival", "4", ""),
+    ("13:52", "9233", "JAXSUV", "SUVYUKON", "Airport Arrival", "2", ""),
+    ("15:00", "4302", "JAXUNF", "TRANSITB", "Shuttle", "2", ""),
 ]
 
-HEADERS = ["Prep Time", "Vehicle", "Vehicle Type", "Type", "Trips #"]
-COL_WIDTHS = [60, 90, 80, 90, 45]
+HEADERS = ["Prep Time", "Vehicle", "Vehicle Type", "Type", "Trips #", "Option"]
+COL_WIDTHS = [60, 90, 80, 90, 45, 120]
 ROW_H = 30  # tall enough for 2-line Vehicle cells
 
 
@@ -93,8 +94,9 @@ def build(path):
 
     # Build table rows: Vehicle col has "unit-\nlocation" format
     table_rows = []
-    for (prep_time, unit, loc, vtype, stype, trips) in ROWS:
-        table_rows.append([prep_time, f"{unit}-\n{loc}", vtype, stype, trips])
+    for (prep_time, unit, loc, vtype, stype, trips, option) in ROWS:
+        table_rows.append([prep_time, f"{unit}-\n{loc}", vtype, stype, trips,
+                           option])
 
     _draw_table(page, 40, y, HEADERS, table_rows, COL_WIDTHS, ROW_H)
     doc.save(path)
