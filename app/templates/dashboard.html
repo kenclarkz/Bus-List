@@ -168,6 +168,10 @@
       {% endif %}
     </div>
 
+    {% if v.notes %}
+    <div class="vnote">{{ v.notes }}</div>
+    {% endif %}
+
     {% if entry.status != 'skipped' %}
     <div class="checklist" data-tasks-hidden="{{ 'true' if entry.status in ('pending', 'in_progress') else 'false' }}">
       <div class="checklist-group">

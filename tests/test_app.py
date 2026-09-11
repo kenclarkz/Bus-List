@@ -103,17 +103,18 @@ def test_echo_format_parsing():
     page = doc.new_page(width=612, height=792)
 
     # Draw bordered table in ECHO format
-    headers = ["Prep Time", "Vehicle", "Vehicle Type", "Type", "Trips #"]
-    col_widths = [60, 90, 80, 90, 45]
+    headers = ["Prep Time", "Vehicle", "Vehicle Type", "Type", "Trips #",
+               "Option"]
+    col_widths = [60, 90, 80, 90, 45, 120]
     row_h = 30
     x0, y0 = 40, 60
 
     data_rows = [
-        ["01:45", "9205-\nJAXSUV", "SUVSUB", "Departure", "4"],
-        ["02:00", "9203-\nJAXSUV", "SUVSUB", "As Directed", "1"],
-        ["04:00", "4301-\nJAXUNF", "TRANSITB", "Shuttle", "2"],
-        ["04:15", "7101-\nJAXMINIC", "MINIC34", "Transfer", "2"],
-        ["09:45", "9331-\nJAXVAN", "Van", "Hourly", "1"],
+        ["01:45", "9205-\nJAXSUV", "SUVSUB", "Departure", "4", "Check AC before dispatch"],
+        ["02:00", "9203-\nJAXSUV", "SUVSUB", "As Directed", "1", ""],
+        ["04:00", "4301-\nJAXUNF", "TRANSITB", "Shuttle", "2", "Wipe windshield"],
+        ["04:15", "7101-\nJAXMINIC", "MINIC34", "Transfer", "2", ""],
+        ["09:45", "9331-\nJAXVAN", "Van", "Hourly", "1", "Refill hand sanitizer"],
     ]
 
     # Draw header row
@@ -156,6 +157,13 @@ def test_echo_format_parsing():
 
     assert parsed["9205"].prep_time == "01:45"
     assert parsed["4301"].prep_time == "04:00"
+
+    # Option column becomes the vehicle note
+    assert parsed["9205"].notes == "Check AC before dispatch"
+    assert parsed["4301"].notes == "Wipe windshield"
+    assert parsed["9331"].notes == "Refill hand sanitizer"
+    assert parsed["9203"].notes is None
+    assert parsed["7101"].notes is None
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +401,70 @@ def test_import_echo_format_end_to_end(client, app):
             prep_times[v.unit_number] = e.prep_time
         assert prep_times.get("100") == "01:45"
         assert prep_times.get("200") == "02:00"
+
+
+def test_import_echo_format_notes_on_dashboard(client, app):
+    """The ECHO report's Option column is stored as a note on the vehicle and
+    shown on the dashboard."""
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+
+    headers = ["Prep Time", "Vehicle", "Vehicle Type", "Type", "Trips #",
+               "Option"]
+    col_widths = [60, 90, 80, 90, 45, 120]
+    row_h = 30
+    x0, y0 = 40, 60
+
+    data_rows = [
+        ["01:45", "100-\nJAXUNF", "TRANSITB", "Shuttle", "2", "Check AC before dispatch"],
+        ["02:00", "200-\nJAXSUV", "SUVSUB", "Hourly", "1", ""],
+    ]
+
+    all_rows = [headers] + data_rows
+    for ri, row in enumerate(all_rows):
+        ry = y0 + ri * row_h
+        cx = x0
+        for ci, (cell, w) in enumerate(zip(row, col_widths)):
+            shape = page.new_shape()
+            shape.draw_rect(fitz.Rect(cx, ry, cx + w, ry + row_h))
+            shape.finish(color=(0, 0, 0))
+            shape.commit()
+            if ci == 1 and "\n" in cell:
+                lines = cell.split("\n", 1)
+                page.insert_text((cx + 3, ry + 14), lines[0], fontsize=8)
+                page.insert_text((cx + 3, ry + 24), lines[1], fontsize=7)
+            else:
+                page.insert_text((cx + 3, ry + 14), cell, fontsize=8)
+            cx += w
+
+    data = doc.tobytes()
+
+    r = client.post("/import", data={
+        "pdf": (io.BytesIO(data), "echo_notes.pdf"),
+    }, content_type="multipart/form-data")
+    assert r.status_code == 200
+    assert b"Import Preview" in r.data
+    assert b"Check AC before dispatch" in r.data
+
+    with app.app_context():
+        from app.models import PrepReportImport
+        imp = PrepReportImport.query.first()
+        iid = imp.id
+
+    r = client.post(f"/import/{iid}/apply")
+    assert r.status_code == 302
+
+    with app.app_context():
+        v = Vehicle.query.filter_by(unit_number="100").first()
+        assert v is not None
+        assert v.notes == "Check AC before dispatch"
+        v2 = Vehicle.query.filter_by(unit_number="200").first()
+        assert v2.notes is None
+
+    # Dashboard shows the note for the vehicle that had one
+    html = client.get("/").data.decode()
+    assert "Check AC before dispatch" in html
 
 
 def test_import_delete_removes_imported_vehicles(client, app):

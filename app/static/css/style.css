@@ -193,6 +193,12 @@ tr.row-inactive td { color: var(--muted); }
 .vrow-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .vnum { font-size: 1.25rem; font-weight: 800; }
 .vmeta { color: var(--muted); font-size: .85rem; }
+.vnote {
+  margin-top: 8px; padding: 6px 10px;
+  background: var(--info-bg, #eef6ff);
+  border-left: 3px solid var(--info, #0b62c4);
+  border-radius: 4px; font-size: .85rem; color: var(--text);
+}
 .spacer { flex: 1; }
 .checklist {
   display: flex; gap: 18px; flex-wrap: wrap; margin: 12px 0 4px;

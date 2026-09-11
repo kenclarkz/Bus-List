@@ -62,22 +62,35 @@ def normalize_type(raw):
     return text.title()
 
 
+def normalize_notes(raw):
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    # Avoid treating generic "Option"/no content inside the cell as a note
+    if re.fullmatch(r"(?i)option|none|n/?a|—|-", text):
+        return None
+    return text
+
+
 # ---------------------------------------------------------------------------
 # Parsed record dataclass
 # ---------------------------------------------------------------------------
 
 
 class ParsedVehicle:
-    __slots__ = ("unit", "type", "route", "raw", "uncertain", "prep_time")
+    __slots__ = ("unit", "type", "route", "raw", "uncertain", "prep_time", "notes")
 
     def __init__(self, unit, type=None, route=None, raw=None, uncertain=False,
-                 prep_time=None):
+                 prep_time=None, notes=None):
         self.unit = unit
         self.type = type
         self.route = route
         self.raw = raw
         self.uncertain = uncertain
         self.prep_time = prep_time
+        self.notes = notes
 
     def to_dict(self):
         return {
@@ -87,6 +100,7 @@ class ParsedVehicle:
             "raw": self.raw,
             "uncertain": self.uncertain,
             "prep_time": self.prep_time,
+            "notes": self.notes,
         }
 
 
@@ -207,7 +221,8 @@ def _cells_to_vehicle(row, found, echo=False):
 def _echo_row_to_vehicle(cols, found):
     """Parse an ECHO prep report data row by column index.
 
-    Columns: 0=Prep Time, 1=Vehicle, 2=Vehicle Type, 3=Type, 4=Trips#, ...
+    Columns: 0=Prep Time, 1=Vehicle, 2=Vehicle Type, 3=Type, 4=Trips#,
+             5=Option/Notes (vehicle notes).
     Vehicle cell format: '9205-\\nJAXSUV' (unit on first line, location code below).
     """
     raw = " | ".join(c for c in cols if c)
@@ -233,10 +248,13 @@ def _echo_row_to_vehicle(cols, found):
     if route and re.fullmatch(r"(?i)route|assignment|location|status", route):
         route = None
 
+    # Column 5: Option — notes about the vehicle
+    notes = normalize_notes(cols[5]) if len(cols) > 5 else None
+
     existing = found.get(unit)
     if existing is None:
         found[unit] = ParsedVehicle(unit, type=vt, route=route, raw=raw,
-                                    prep_time=prep_time)
+                                    prep_time=prep_time, notes=notes)
     else:
         if not existing.type and vt:
             existing.type = vt
@@ -244,6 +262,8 @@ def _echo_row_to_vehicle(cols, found):
             existing.route = route
         if not existing.prep_time and prep_time:
             existing.prep_time = prep_time
+        if not existing.notes and notes:
+            existing.notes = notes
 
 
 def _words_to_vehicle(words, found):

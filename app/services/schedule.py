@@ -348,7 +348,7 @@ def build_preview(parsed, location=None):
         seen.add(key)
         existing = db_units.get(key)
         v = {"unit": p.unit, "type": p.type, "route": p.route, "raw": p.raw,
-             "prep_time": p.prep_time}
+             "prep_time": p.prep_time, "notes": p.notes}
         if p.uncertain:
             preview["uncertain"].append(v)
 
@@ -372,6 +372,8 @@ def build_preview(parsed, location=None):
             if p.route and existing.route and \
                existing.route.lower() != p.route.lower():
                 changes.append("route")
+            if p.notes and (existing.notes or "").strip() != p.notes.strip():
+                changes.append("notes")
             preview["updated" if changes else "unchanged"].append(v)
 
     # removed = in DB but not in today's report
@@ -400,6 +402,9 @@ def apply_import(preview, location=None, employee_id=None, source="import",
             location_id=loc.id)
         if item.get("route"):
             vehicle.route = item["route"]
+        if item.get("notes") and \
+                (vehicle.notes or "").strip() != item["notes"].strip():
+            vehicle.notes = item["notes"].strip()
         vehicle.active = True
         ensure_entry(sched, vehicle, order_index=position,
                      prep_time=item.get("prep_time"))
