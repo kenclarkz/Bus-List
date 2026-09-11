@@ -44,16 +44,15 @@
 </div>
 {% endif %}
 
+{% if current_role == 'employee' and current_employee %}
 <div class="card">
   <div class="flex between" style="margin-bottom:8px">
-    <span class="muted"><strong>I am:</strong></span>
-    <select id="current-employee" onchange="setEmployee(this)" {{ 'disabled' if current_role == 'manager' }}>
-      <option value="">— Select employee —</option>
-      {% for e in employees %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}
-    </select>
+    <span class="muted"><strong>Working as:</strong></span>
+    <span><strong>{{ current_employee.name }}</strong> <span class="badge info">{{ current_employee.initials }}</span></span>
     <span class="muted small">Checked tasks are attributed to you</span>
   </div>
 </div>
+{% endif %}
 
 {% set working = active_employees|selectattr('current_vehicle')|list %}
 <div class="card now-working" style="border-color:var(--success);background:var(--success-bg)">

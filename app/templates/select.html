@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ dark_mode }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Who's working? — {{ app_name }}</title>
+  <script>
+    (function () {
+      var el = document.documentElement;
+      if (el.getAttribute('data-theme') === 'system') {
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+        function apply() { el.setAttribute('data-theme', mq.matches ? 'dark' : 'off'); }
+        apply();
+        if (mq.addEventListener) mq.addEventListener('change', apply);
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <style>
+    .select-select {
+      width: 100%;
+      font-size: 1.1rem;
+      padding: 12px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border, #ccc);
+      background: var(--bg, #fff);
+      color: var(--text, #111);
+    }
+  </style>
+</head>
+<body class="login-body">
+  <div class="login-card">
+    <h1 style="margin-top:0">Who's working?</h1>
+    <p class="muted" style="margin-top:0">Pick your name to continue to the Detailing Board.</p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="post" action="{{ url_for('select_employee') }}">
+      <label for="employee_id">Employee</label>
+      <select id="employee_id" name="employee_id" class="select-select" required autofocus>
+        <option value="">— Select your name —</option>
+        {% for e in employees %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn big" style="margin-top:16px">Continue →</button>
+    </form>
+
+    <p class="muted small" style="margin-top:16px;margin-bottom:0">
+      {{ employees|length }} staff on file.{{ ' Ask the Manager to add your name under Staff if it is missing.' if employees|length == 0 }}
+    </p>
+
+    <form method="post" action="{{ url_for('logout') }}" style="margin-top:10px">
+      <button type="submit" class="btn small secondary">Logout</button>
+    </form>
+  </div>
+</body>
+</html>

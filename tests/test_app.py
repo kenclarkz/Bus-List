@@ -6,8 +6,8 @@ from datetime import date, datetime
 import pytest
 
 from app import create_app
-from app.models import db, Vehicle, ScheduleEntry, TaskCompletion, Replacement, \
-    DailySchedule
+from app.models import db, Vehicle, Employee, ScheduleEntry, TaskCompletion, \
+    Replacement, DailySchedule
 from app.services.vehicles import find_or_create_vehicle
 from app.services.pdf_parser import normalize_unit
 from app.services.pdf_parser import parse_prep_report
@@ -29,9 +29,13 @@ def app(tmp_path):
 @pytest.fixture()
 def client(app):
     # Default: signed in as the Employee account so existing route tests run
-    # against the interactive board.
+    # against the interactive board. Employees pick their name after login.
     c = app.test_client()
     c.post("/login", data={"username": "employee", "password": "employee"})
+    with app.app_context():
+        emp = Employee.query.filter_by(active=True).first()
+        emp_id = str(emp.id) if emp else ""
+    c.post("/select", data={"employee_id": emp_id})
     return c
 
 
@@ -1259,8 +1263,13 @@ def test_login_accepts_case_insensitive_username_routes_by_role(app):
     r = e.post("/login", data={"username": "Employee", "password": "employee"})
     assert r.status_code == 302
     assert r.headers["Location"].endswith("/splash")
-    # The splash animation loads first, then the dashboard.
+    # The splash animation loads first, then the name picker.
     assert e.get("/splash").status_code == 200
+    # The board stays locked until the employee picks their name.
+    assert e.get("/").status_code == 302
+    with app.app_context():
+        emp = Employee.query.filter_by(active=True).first()
+    assert e.post("/select", data={"employee_id": str(emp.id)}).status_code == 302
     assert e.get("/").status_code == 200
 
     m = app.test_client()
@@ -1290,6 +1299,11 @@ def test_login_rejects_unknown_user_and_wrong_password(app):
 def test_logout_clears_session(app):
     c = app.test_client()
     c.post("/login", data={"username": "employee", "password": "employee"})
+    # Board is locked until the employee picks their name, then it unlocks.
+    assert c.get("/").status_code == 302
+    with app.app_context():
+        emp = Employee.query.filter_by(active=True).first()
+    c.post("/select", data={"employee_id": str(emp.id)})
     assert c.get("/").status_code == 200
     r = c.post("/logout")
     assert r.status_code == 302

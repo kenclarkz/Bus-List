@@ -40,7 +40,13 @@
 </head>
 <body class="splash-body">
 
-  {% set dest = url_for('driver_dashboard') if current_role == 'driver' else url_for('dashboard') %}
+  {% if current_role == 'employee' %}
+    {% set dest = url_for('select_employee') %}
+  {% elif current_role == 'driver' %}
+    {% set dest = url_for('driver_dashboard') %}
+  {% else %}
+    {% set dest = url_for('dashboard') %}
+  {% endif %}
 
   <video id="splash-video" class="splash-video" autoplay muted playsinline preload="auto">
     <source src="{{ url_for('static', filename='videos/intro.mov') }}" type="video/quicktime">

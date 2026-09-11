@@ -119,6 +119,9 @@ def seed_defaults():
         loc = Location(name="Main Depot")
         db.session.add(loc)
         db.session.commit()
+    if Employee.query.count() == 0:
+        db.session.add(Employee(name="User", location_id=loc.id))
+        db.session.commit()
     if Vehicle.query.count() == 0:
         _seed_vehicles(loc)
     else:
@@ -341,6 +344,9 @@ def register_routes(app):
     @app.context_processor
     def inject_globals():
         user = session.get("user")
+        emp = None
+        if user == "employee" and session.get("employee_id"):
+            emp = Employee.query.get(session["employee_id"])
         return {
             "today": date.today,
             "checklist": settings.get_checklist(),
@@ -350,6 +356,7 @@ def register_routes(app):
             "current_role": user if user in ROLE_ACCOUNTS else "employee",
             "current_user": ROLE_ACCOUNTS.get(user, {}).get(
                 "display") if user else None,
+            "current_employee": emp,
             "dark_mode": settings.get_setting("dark_mode", "off"),
         }
 
@@ -368,6 +375,11 @@ def register_routes(app):
         # Vehicles, Staff (employees) and Settings pages are manager-only.
         if user != "manager" and request.endpoint in MANAGER_ONLY_ENDPOINTS:
             return redirect(url_for("dashboard"))
+        # Employees must pick their name from the dropdown before using the
+        # board. Login, the splash animation and the picker itself are exempt.
+        if user == "employee" and not session.get("employee_id") and \
+                request.endpoint not in ("splash", "select_employee"):
+            return redirect(url_for("select_employee"))
         return None
 
     @app.route("/login", methods=["GET", "POST"])
@@ -392,6 +404,28 @@ def register_routes(app):
     def splash():
         """Fullscreen intro animation played after login before the dashboard."""
         return render_template("splash.html")
+
+    @app.route("/select", methods=["GET", "POST"])
+    def select_employee():
+        """After the splash, employees pick their name before the board unlocks."""
+        role = session.get("user")
+        if role == "driver":
+            return redirect(url_for("driver_dashboard"))
+        if role != "employee":
+            return redirect(url_for("dashboard"))
+        if request.method == "POST":
+            try:
+                emp = Employee.query.get(int(request.form.get("employee_id")))
+            except (TypeError, ValueError):
+                emp = None
+            if emp and emp.active:
+                session["employee_id"] = emp.id
+                session["employee_name"] = emp.name
+                flash(f"Signed in as {emp.name}", "success")
+                return redirect(url_for("dashboard"))
+            flash("Please choose your name to continue", "error")
+            return redirect(url_for("select_employee"))
+        return render_template("select.html", employees=employees_list())
 
     @app.route("/logout", methods=["POST"])
     def logout():

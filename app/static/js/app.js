@@ -4,12 +4,14 @@ var CURRENT_EMPLOYEE = (function () {
   try { return localStorage.getItem('current_employee') || null; } catch (e) { return null; }
 })();
 
-function setEmployee(sel) {
-  CURRENT_EMPLOYEE = sel.value || null;
-  try { localStorage.setItem('current_employee', CURRENT_EMPLOYEE); } catch (e) {}
-  var empSel = document.getElementById('current-employee');
-  if (empSel) empSel.value = CURRENT_EMPLOYEE || '';
-}
+// The server knows who signed in; keep the client in sync with it.
+(function () {
+  var who = document.body.getAttribute('data-employee-id');
+  if (who) {
+    CURRENT_EMPLOYEE = who;
+    try { localStorage.setItem('current_employee', who); } catch (e) {}
+  }
+})();
 
 function addNowWorker(empId, name, initials, vehicle) {
   var grid = document.getElementById('now-working-grid');
@@ -51,9 +53,8 @@ function startWork(btn) {
   var entryId = btn.getAttribute('data-entry');
   var employeeId = CURRENT_EMPLOYEE;
   if (!employeeId) {
-    var empSel = document.getElementById('current-employee');
-    alert('Select your name from the "I am:" dropdown first.');
-    if (empSel) empSel.focus();
+    alert('Please pick your name first.');
+    window.location.href = '/select';
     return;
   }
   var body = new FormData();
@@ -126,9 +127,6 @@ function completeWork(btn) {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-  var empSel = document.getElementById('current-employee');
-  if (empSel && CURRENT_EMPLOYEE) empSel.value = CURRENT_EMPLOYEE;
-
   document.querySelectorAll('.ck input').forEach(function (chk) {
     if (chk.type !== 'checkbox') return;
     chk.addEventListener('change', function () {
