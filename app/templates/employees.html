@@ -13,9 +13,20 @@
   <h2>Current Staff</h2>
   <div class="table-wrap">
   <table>
-    <tr><th>Name</th><th>Active</th></tr>
+    <tr><th>Name</th><th>Active</th><th>Action</th></tr>
     {% for e in employees %}
-    <tr><td>{{ e.name }}</td><td>{{ 'Yes' if e.active else 'No' }}</td></tr>
+    <tr>
+      <td>{{ e.name }}</td>
+      <td>{{ 'Yes' if e.active else 'No' }}</td>
+      <td>
+        <form method="post" action="{{ url_for('employee_toggle_active', employee_id=e.id) }}" style="display:inline"
+              onsubmit="{% if e.active %}return confirm('Remove {{ e.name }} from staff? Completed work and history will be kept.'){% endif %}">
+          <button type="submit" class="btn small {{ 'danger' if e.active else 'success' }}">
+            {{ 'Remove' if e.active else 'Reactivate' }}
+          </button>
+        </form>
+      </td>
+    </tr>
     {% endfor %}
   </table>
   </div>

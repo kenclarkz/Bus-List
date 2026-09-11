@@ -955,6 +955,66 @@ def test_employees_and_history_pages(manager_client):
     assert manager_client.get("/settings").status_code == 200
 
 
+def test_manager_adds_employee(manager_client, app):
+    r = manager_client.post("/employees", data={"name": "Sally Driver"})
+    assert r.status_code == 302
+    with app.app_context():
+        emp = Employee.query.filter_by(name="Sally Driver").first()
+        assert emp is not None
+        assert emp.active is True
+    body = manager_client.get("/employees").get_data(as_text=True)
+    assert "Sally Driver" in body
+
+
+def test_manager_removes_employee(manager_client, app):
+    with app.app_context():
+        emp = Employee(name="Tom Lee", active=True)
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+    r = manager_client.post(f"/employees/{emp_id}/toggle-active")
+    assert r.status_code == 302
+    with app.app_context():
+        emp = Employee.query.get(emp_id)
+        assert emp.active is False
+        assert emp.current_vehicle_id is None
+
+
+def test_manager_removes_employee_frees_current_vehicle(manager_client, app):
+    with app.app_context():
+        v, _ = find_or_create_vehicle("777", vehicle_type="Van", route="R7")
+        emp = Employee(name="Free Me", active=True, current_vehicle_id=v.id)
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+    manager_client.post(f"/employees/{emp_id}/toggle-active")
+    with app.app_context():
+        assert Employee.query.get(emp_id).current_vehicle_id is None
+
+
+def test_manager_reactivates_employee(manager_client, app):
+    with app.app_context():
+        emp = Employee(name="Back Again", active=False)
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+    r = manager_client.post(f"/employees/{emp_id}/toggle-active")
+    assert r.status_code == 302
+    with app.app_context():
+        assert Employee.query.get(emp_id).active is True
+
+
+def test_employee_cannot_manage_staff(client, app):
+    with app.app_context():
+        emp = Employee(name="Worker Bee", active=True)
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+    assert client.post(f"/employees/{emp_id}/toggle-active").status_code == 302
+    with app.app_context():
+        assert Employee.query.get(emp_id).active is True
+
+
 def test_trash_page_lists_lots_before_any_pickup(client, app):
     page = client.get("/trash")
     assert page.status_code == 200
