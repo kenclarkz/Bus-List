@@ -26,6 +26,7 @@ MANAGER_ONLY_ENDPOINTS = {
     "vehicle_edit",
     "vehicle_toggle_active",
     "employees_page",
+    "employee_toggle_active",
     "settings_page",
 }
 
@@ -975,6 +976,16 @@ def register_routes(app):
             return redirect(url_for("employees_page"))
         employees = Employee.query.all()
         return render_template("employees.html", employees=employees)
+
+    @app.route("/employees/<int:employee_id>/toggle-active", methods=["POST"])
+    def employee_toggle_active(employee_id):
+        employee = Employee.query.get_or_404(employee_id)
+        employee.active = not employee.active
+        if not employee.active:
+            # Free the removed employee from any vehicle they were working on.
+            employee.current_vehicle_id = None
+        db.session.commit()
+        return redirect(url_for("employees_page"))
 
     @app.route("/settings", methods=["GET", "POST"])
     def settings_page():
