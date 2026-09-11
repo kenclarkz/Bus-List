@@ -21,6 +21,7 @@ def app(tmp_path):
         "TESTING": True,
         "SQLALCHEMY_DATABASE_URI": f"sqlite:///{db_path}",
         "SECRET_KEY": "test",
+        "UPLOAD_FOLDER": str(tmp_path / "uploads"),
     })
     with app.app_context():
         yield app
@@ -503,6 +504,46 @@ def test_import_delete_removes_imported_vehicles(client, app):
         assert Vehicle.query.filter_by(unit_number="610").first() is None
         assert Vehicle.query.filter_by(unit_number="620").first() is None
         assert ScheduleEntry.query.filter_by(vehicle_id=0).count() == 0
+
+
+def test_imported_pdf_saved_and_viewable(client, app):
+    """Uploaded prep report PDFs are saved to disk and viewable afterwards."""
+    import os
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Unit  Type  Route")
+    page.insert_text((72, 100), "710   Coach  R1")
+    data = doc.tobytes()
+
+    r = client.post("/import", data={
+        "pdf": (io.BytesIO(data), "viewme.pdf"),
+    }, content_type="multipart/form-data")
+    assert r.status_code == 200
+
+    with app.app_context():
+        from app.models import PrepReportImport
+        imp = PrepReportImport.query.first()
+        assert imp.file_path and os.path.isfile(imp.file_path)
+        saved_path = imp.file_path
+        saved_bytes = open(saved_path, "rb").read()
+        assert saved_bytes == data
+
+    # The original PDF is served back identically.
+    r = client.get(f"/import/{imp.id}/view")
+    assert r.status_code == 200
+    assert r.data == data
+    assert r.headers["Content-Type"] == "application/pdf"
+
+    # History page links to the original PDF.
+    r = client.get("/history")
+    assert b"View PDF" in r.data
+    assert f"/import/{imp.id}/view".encode() in r.data
+
+    # Deleting the import removes the saved file.
+    r = client.post(f"/import/{imp.id}/delete")
+    assert r.status_code == 302
+    assert not os.path.isfile(saved_path)
 
 
 def test_delete_import_clears_employee_current_vehicle(client, app):

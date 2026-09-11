@@ -4,7 +4,8 @@ import json
 from datetime import date, datetime, timedelta
 
 from flask import Flask, render_template, request, redirect, url_for, flash, \
-    jsonify, session
+    jsonify, session, send_file
+from werkzeug.utils import secure_filename
 
 from .models import db, Vehicle, Employee, ScheduleEntry, Replacement, Note, \
     DailySchedule, PrepReportImport, TrashPickup, Location
@@ -36,6 +37,21 @@ def role_home(role):
     if role == "driver":
         return url_for("driver_dashboard")
     return url_for("dashboard")
+
+
+def _save_uploaded_pdf(data, filename):
+    """Save uploaded PDF bytes to disk and return the path."""
+    import uuid
+    from flask import current_app
+    upload_dir = current_app.config.get("UPLOAD_FOLDER") or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    safe_name = secure_filename(filename) or "report.pdf"
+    unique_name = f"{uuid.uuid4().hex[:12]}_{safe_name}"
+    path = os.path.join(upload_dir, unique_name)
+    with open(path, "wb") as f:
+        f.write(data)
+    return path
 
 
 def create_app(test_config=None):
@@ -107,6 +123,10 @@ def _migrate():
             con.commit()
         if "cleanings_since_dump" not in vcols:
             con.execute("ALTER TABLE vehicles ADD COLUMN cleanings_since_dump INTEGER DEFAULT 0")
+            con.commit()
+        pcols = {r[1] for r in con.execute("PRAGMA table_info(prep_report_imports)")}
+        if "file_path" not in pcols:
+            con.execute("ALTER TABLE prep_report_imports ADD COLUMN file_path VARCHAR(512)")
             con.commit()
         con.close()
     except Exception:
@@ -678,15 +698,24 @@ def register_routes(app):
             parsed, method, warnings = parse_prep_report(data, file.filename)
             preview = ss.build_preview(parsed, location=vehicles.default_location())
             summary = build_import_summary(preview, method)
+            file_path = _save_uploaded_pdf(data, file.filename)
             imp = vehicles.record_import(
                 file.filename, applied=False, summary=summary,
-                preview=preview, method=method)
+                preview=preview, method=method, file_path=file_path)
             return render_template(
                 "import_preview.html",
                 preview=preview, warnings=warnings, method=method,
                 import_id=imp.id,
                 sched_date=sched_dt.isoformat())
         return render_template("import.html", import_dates=_import_date_options())
+
+    @app.route("/import/<int:import_id>/view")
+    def import_view(import_id):
+        imp = PrepReportImport.query.get_or_404(import_id)
+        if not imp.file_path or not os.path.isfile(imp.file_path):
+            flash("Original PDF file is no longer available", "error")
+            return redirect(url_for("history_days"))
+        return send_file(imp.file_path, mimetype="application/pdf")
 
     @app.route("/import/<int:import_id>/apply", methods=["POST"])
     def import_apply(import_id):
