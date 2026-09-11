@@ -258,7 +258,12 @@
         cleaning it. It will still need to be cleaned.</p>
       <form method="post" action="{{ url_for('entry_skip', entry_id=entry.id) }}">
         <label>Reason for skipping {% if entry.skip_reason %} (leave blank to keep "{{ entry.skip_reason }}"){% endif %}</label>
-        <input type="text" name="reason" placeholder="e.g. not in service, already cleaned, parts needed…" autocomplete="off">
+        <select name="reason">
+          <option value="">— Select —</option>
+          <option value="Maintenance">Maintenance</option>
+          <option value="Not On Lot">Not On Lot</option>
+          <option value="Other">Other</option>
+        </select>
         <div class="flex" style="margin-top:16px">
           <button type="submit" class="btn warn">Skip Vehicle</button>
           <button type="button" class="btn secondary" data-modal-close="modal-skip-{{ entry.id }}">Cancel</button>
