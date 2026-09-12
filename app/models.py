@@ -229,6 +229,7 @@ class PrepReportImport(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     filename = db.Column(db.String(255))
+    file_path = db.Column(db.String(512))
     imported_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     applied = db.Column(db.Boolean, default=False)
     applied_at = db.Column(db.DateTime)

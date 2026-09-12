@@ -1,5 +1,6 @@
 """Vehicle and entity helpers."""
 import json
+import os
 from datetime import datetime
 
 from app.models import (
@@ -101,9 +102,10 @@ def add_service_record(vehicle, service_type="prep", employee_id=None, notes=Non
 
 
 def record_import(filename, applied, summary, preview, employee_id=None,
-                  method=None):
+                  method=None, file_path=None):
     imp = PrepReportImport(
         filename=filename,
+        file_path=file_path,
         applied=applied,
         applied_at=datetime.utcnow() if applied else None,
         employee_id=employee_id,
@@ -154,6 +156,11 @@ def remove_import(imp):
             vehicle.active = True
 
     sched_date = imp.schedule_date
+    if imp.file_path and os.path.isfile(imp.file_path):
+        try:
+            os.remove(imp.file_path)
+        except OSError:
+            pass
     db.session.delete(imp)
     db.session.flush()
 
