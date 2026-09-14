@@ -260,7 +260,10 @@
       <h3>Skip Vehicle {{ v.unit_number }}</h3>
       <p class="muted small">Skipping counts this vehicle toward completion without
         cleaning it. It will still need to be cleaned.</p>
-      <form method="post" action="{{ url_for('entry_skip', entry_id=entry.id) }}">
+      <form class="skip-form" method="post"
+            data-skip-entry="{{ entry.id }}"
+            data-unskip-url="{{ url_for('entry_unskip', entry_id=entry.id) }}"
+            action="{{ url_for('entry_skip', entry_id=entry.id) }}">
         <label>Reason for skipping {% if entry.skip_reason %} (leave blank to keep "{{ entry.skip_reason }}"){% endif %}</label>
         <select name="reason">
           <option value="">— Select —</option>
