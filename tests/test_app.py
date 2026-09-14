@@ -1041,7 +1041,24 @@ def test_dark_mode_can_be_turned_on(manager_client, app):
     with app.app_context():
         from app.services import settings as s
         assert s.get_setting("dark_mode") == "on"
-    assert b'data-theme="on"' in manager_client.get("/").data
+    assert b'data-theme="dark"' in manager_client.get("/").data
+    assert b'data-theme="dark"' in manager_client.get("/settings").data
+
+
+def test_dark_mode_survives_saving_other_settings(manager_client, app):
+    manager_client.post("/settings", data={"dark_mode": "on"})
+    r = manager_client.post("/settings", data={
+        "recent_days": "3",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_setting("dark_mode") == "on"
+    assert b'data-theme="dark"' in manager_client.get("/").data
 
 
 def test_dark_mode_rejects_unknown_values(manager_client, app):
