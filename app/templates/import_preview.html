@@ -101,6 +101,18 @@
     vehicles. Historical data is preserved.</p>
   <form method="post" action="{{ url_for('import_apply', import_id=import_id) }}">
     <input type="hidden" name="sched_date" value="{{ sched_date }}">
+    <label>Imported by</label>
+    {% if current_role == 'manager' %}
+    <select name="imported_by">
+      <option value="manager" {{ 'selected' if not imported_by_employee_id }}>Manager</option>
+      {% for e in employees %}
+      <option value="employee:{{ e.id }}" {{ 'selected' if imported_by_employee_id == e.id }}>{{ e.name }}</option>
+      {% endfor %}
+    </select>
+    {% else %}
+    <input type="hidden" name="imported_by" value="employee:{{ current_employee.id if current_employee }}">
+    <p class="muted">{{ current_employee.name if current_employee else 'Employee' }}</p>
+    {% endif %}
     <div class="flex">
       <button type="submit" class="btn success">Apply Updates</button>
       <a class="btn secondary" href="{{ url_for('import_report') }}">Cancel</a>
