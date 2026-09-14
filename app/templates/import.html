@@ -18,6 +18,16 @@
       </label>
       {% endfor %}
     </div>
+    <label>Imported by</label>
+    {% if current_role == 'manager' %}
+    <select name="imported_by">
+      <option value="manager">Manager</option>
+      {% for e in employees %}<option value="employee:{{ e.id }}">{{ e.name }}</option>{% endfor %}
+    </select>
+    {% else %}
+    <input type="hidden" name="imported_by" value="employee:{{ current_employee.id if current_employee }}">
+    <p class="muted">{{ current_employee.name if current_employee else 'Employee' }}</p>
+    {% endif %}
     <div style="margin-top:16px" class="flex">
       <button type="submit" class="btn">Analyze PDF</button>
     </div>

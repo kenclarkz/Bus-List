@@ -1784,3 +1784,65 @@ def test_done_button_and_not_completed_shown_to_manager(client, app):
     assert "Not completed" in html
     for t in incomplete:
         assert t in html
+
+
+def _make_report_pdf(unit_lines):
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Unit  Type  Route")
+    y = 100
+    for line in unit_lines:
+        page.insert_text((72, y), line)
+        y += 30
+    return doc.tobytes()
+
+
+def test_import_apply_tracks_who_imported(app, client):
+    """The importer is recorded and shown: Manager or a specific employee."""
+    from app.models import PrepReportImport, Employee
+    data = _make_report_pdf(["100   Coach  R1"])
+
+    # Manager imports and applies -> recorded as the Manager account.
+    m = app.test_client()
+    m.post("/login", data={"username": "manager", "password": "manager"})
+    r = m.post("/import", data={
+        "pdf": (io.BytesIO(data), "prep.pdf"),
+        "sched_date": date.today().isoformat(),
+        "imported_by": "manager",
+    }, content_type="multipart/form-data")
+    assert r.status_code == 200
+    with app.app_context():
+        imp1 = PrepReportImport.query.order_by(PrepReportImport.id.desc()).first()
+        iid = imp1.id
+        assert imp1.employee_id is None
+    m.post(f"/import/{iid}/apply", data={"imported_by": "manager"})
+    with app.app_context():
+        assert PrepReportImport.query.get(iid).employee_id is None
+    html = m.get("/history").data.decode()
+    assert ">Manager</td>" in html
+
+    # A specific employee imports and applies -> recorded as that employee.
+    with app.app_context():
+        emp = Employee.query.filter_by(active=True).first()
+        emp_id = emp.id
+        emp_name = emp.name
+    e = app.test_client()
+    e.post("/login", data={"username": "employee", "password": "employee"})
+    e.post("/select", data={"employee_id": str(emp_id)})
+    r = e.post("/import", data={
+        "pdf": (io.BytesIO(data), "prep2.pdf"),
+        "sched_date": date.today().isoformat(),
+        "imported_by": f"employee:{emp_id}",
+    }, content_type="multipart/form-data")
+    assert r.status_code == 200
+    with app.app_context():
+        imp2 = PrepReportImport.query.order_by(PrepReportImport.id.desc()).first()
+        iid2 = imp2.id
+        assert imp2.employee_id == emp_id
+    e.post(f"/import/{iid2}/apply", data={"imported_by": f"employee:{emp_id}"})
+    with app.app_context():
+        assert PrepReportImport.query.get(iid2).employee_id == emp_id
+    html = e.get("/history").data.decode()
+    assert emp_name in html
+    assert f">{emp_name}</td>" in html

@@ -54,6 +54,21 @@ def _save_uploaded_pdf(data, filename):
     return path
 
 
+def _parse_imported_by(raw):
+    """Parse an 'imported_by' form value into an employee id (or None).
+
+    'manager'            -> (None) the Manager account imported it.
+    'employee:<id>'      -> (employee id) a specific employee imported it.
+    """
+    raw = (raw or "").strip()
+    if raw.startswith("employee:"):
+        try:
+            return int(raw.split(":", 1)[1])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
 def create_app(test_config=None):
     app = Flask(__name__)
 
@@ -715,13 +730,17 @@ def register_routes(app):
             file_path = _save_uploaded_pdf(data, file.filename)
             imp = vehicles.record_import(
                 file.filename, applied=False, summary=summary,
-                preview=preview, method=method, file_path=file_path)
+                preview=preview, method=method, file_path=file_path,
+                employee_id=_parse_imported_by(request.form.get("imported_by")))
             return render_template(
                 "import_preview.html",
                 preview=preview, warnings=warnings, method=method,
                 import_id=imp.id,
-                sched_date=sched_dt.isoformat())
-        return render_template("import.html", import_dates=_import_date_options())
+                sched_date=sched_dt.isoformat(),
+                employees=employees_list(),
+                imported_by_employee_id=imp.employee_id)
+        return render_template("import.html", import_dates=_import_date_options(),
+                               employees=employees_list())
 
     @app.route("/import/<int:import_id>/view")
     def import_view(import_id):
@@ -749,6 +768,9 @@ def register_routes(app):
         imp.applied = True
         imp.applied_at = datetime.utcnow()
         imp.schedule_date = sched.work_date
+        imported_by_raw = request.form.get("imported_by")
+        if imported_by_raw is not None:
+            imp.employee_id = _parse_imported_by(imported_by_raw)
         db.session.commit()
         flash(f"Prep report applied for {sched_dt.strftime('%b %d')}. Work list updated.", "success")
         return redirect(url_for("dashboard", date=sched_dt.isoformat()))
