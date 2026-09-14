@@ -312,12 +312,19 @@ def build_schedule_view(sched):
         original = entries_by_id.get(entry.replacement_of_entry_id) \
             if entry.is_replacement else None
         replacer = replaced_by.get(entry.id)
+        # A replaced vehicle's prep is fulfilled by its replacement, so it
+        # counts toward completion (progress treated as fully done) just like
+        # a skipped vehicle does.
+        if replacer is not None:
+            done, total, pct = total, total, 100
+        complete = entry.status in ("completed", "skipped") or replacer is not None
         rows.append({
             "entry": entry,
             "vehicle": entry.vehicle,
             "done": done,
             "total": total,
             "pct": pct,
+            "is_complete": complete,
             "indicator": status_indicator(entry.vehicle.last_washed),
             # The vehicle this row replaced (for replacement entries).
             "replacement_of": original.vehicle if original else None,
@@ -517,8 +524,9 @@ def register_routes(app):
         rows = build_schedule_view(sched) if (has_import or sched.entries) else []
 
         total = len(rows)
-        completed = sum(1 for r in rows if r["entry"].status in ("completed", "skipped"))
-        in_progress = sum(1 for r in rows if r["entry"].status == "in_progress")
+        completed = sum(1 for r in rows if r["is_complete"])
+        in_progress = sum(1 for r in rows if r["entry"].status == "in_progress"
+                          and not r["replaced_by"])
         skipped = sum(1 for r in rows if r["entry"].status == "skipped")
         remaining = total - completed - in_progress
         overall = round((sum(r["done"] for r in rows) /
@@ -882,15 +890,15 @@ def register_routes(app):
         replacements = replacement_count_for_date(d)
 
         total = len(rows)
-        completed = sum(1 for r in rows if r["entry"].status in ("completed", "skipped"))
+        completed = sum(1 for r in rows if r["is_complete"])
         skipped = sum(1 for r in rows if r["entry"].status == "skipped")
         incomplete = total - completed
         overall = round((sum(r["done"] for r in rows) /
                         (sum(r["total"] for r in rows) or 1)) * 100) if rows else 0
-        incomplete_rows = [r for r in rows if r["entry"].status not in ("completed", "skipped")]
+        incomplete_rows = [r for r in rows if not r["is_complete"]]
         completed_rows = []
         for r in rows:
-            if r["entry"].status not in ("completed", "skipped"):
+            if not r["is_complete"]:
                 continue
             emp_tasks = {}
             for t in r["entry"].tasks:
@@ -954,7 +962,7 @@ def register_routes(app):
         notes = notes_for_date(d)
         replacements = replacement_count_for_date(d)
         total = len(rows)
-        completed = sum(1 for r in rows if r["entry"].status in ("completed", "skipped"))
+        completed = sum(1 for r in rows if r["is_complete"])
         skipped = sum(1 for r in rows if r["entry"].status == "skipped")
         overall = round((sum(r["done"] for r in rows) /
                         (sum(r["total"] for r in rows) or 1)) * 100) if rows else 0
