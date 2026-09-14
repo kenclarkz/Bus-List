@@ -927,6 +927,49 @@ def test_replacement_greys_out_original_and_links_units(client, app):
     assert "Replacement for 400" in html
 
 
+def test_replaced_vehicle_counts_toward_completion(client, app):
+    """A vehicle that gets replaced counts toward the day's completion: the
+    original row contributes full progress and shows as completed even though
+    work was moved to the replacement, so the day can reach 100%."""
+    with app.app_context():
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        v1, _ = find_or_create_vehicle("860", location_id=loc.id)
+        v2, _ = find_or_create_vehicle("870", location_id=loc.id)
+        entry = ss.ensure_entry(sched, v1)
+        entry_id = entry.id
+        ss.toggle_task(entry.id, "Sweep", True)
+        _, total, _ = ss.entry_progress(entry)
+        assert total > 0
+
+    r = client.post(f"/schedule/{entry_id}/replace", data={
+        "replacement_unit": "870",
+        "reason": "down for service",
+    })
+    assert r.status_code == 302
+
+    with app.app_context():
+        # The original row is treated as fully complete...
+        from app.app import build_schedule_view
+        view = build_schedule_view(sched_svc.get_or_create_schedule(location=vehicles_loc(app)))
+        orig = next(r for r in view if r["vehicle"].unit_number == "860")
+        assert orig["replaced_by"] is not None
+        assert orig["is_complete"] is True
+        assert orig["done"] == orig["total"]
+        assert orig["pct"] == 100
+        # ...while the replacement still tracks real progress from carried tasks.
+        repl = next(r for r in view if r["vehicle"].unit_number == "870")
+        assert repl["is_complete"] is False
+        assert repl["done"] == 1
+
+    # Dashboard counts the replaced vehicle toward completion.
+    html = client.get("/").data.decode()
+    assert "Replaced by 870" in html
+    assert "Replacement for 860" in html
+
+
 # ---------------------------------------------------------------------------
 # End day / finalize
 # ---------------------------------------------------------------------------
