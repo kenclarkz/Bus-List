@@ -26,8 +26,12 @@
       <input type="text" name="vehicle_type" autocomplete="off" placeholder="e.g. Motorcoach">
       <label>Route <span class="small muted">(optional)</span></label>
       <input type="text" name="route" autocomplete="off" placeholder="e.g. Downtown">
-      <label>Prep Time <span class="small muted">(optional)</span></label>
+      <label>Report / Prep Time <span class="small muted">(optional)</span></label>
       <input type="text" name="prep_time" autocomplete="off" placeholder="e.g. 04:30">
+      <label>Pickup Time <span class="small muted">(optional)</span></label>
+      <input type="text" name="pickup_time" autocomplete="off" placeholder="e.g. 06:30">
+      <label>Driver Code <span class="small muted">(optional)</span></label>
+      <input type="text" name="driver_code" autocomplete="off" placeholder="e.g. 291486*50">
       <div class="flex" style="margin-top:16px">
         <button type="submit" class="btn">Add to Board</button>
         <button type="button" class="btn secondary" data-modal-close="modal-add-vehicle">Cancel</button>
@@ -146,7 +150,9 @@
       <div class="vmeta">
         {{ v.vehicle_type.name if v.vehicle_type else '—' }}
         {% if v.route %} · Route {{ v.route }}{% endif %}
-        {% if entry.prep_time %} · Prep {{ entry.prep_time }}{% endif %}
+        {% if entry.prep_time %} · Report {{ entry.prep_time }}{% endif %}
+        {% if entry.pickup_time %} · Pickup {{ entry.pickup_time }}{% endif %}
+        {% if entry.driver_code %} · Driver {{ entry.driver_code }}{% endif %}
       </div>
       <span class="badge entry-status {{ 'warn' if entry.status == 'skipped' else ('success' if entry.status == 'completed' else ('info' if entry.status == 'in_progress' else 'muted')) }}">
         {{ {'pending': 'Pending', 'in_progress': 'In Progress', 'completed': 'Completed', 'skipped': 'Skipped'}[entry.status] }}

@@ -21,10 +21,14 @@ report. It is not a static mockup.
    extracts unit numbers, types, routes, and substitutions. Supports text
    PDFs, tabular reports, and scanned PDFs via OCR (best-effort). Unit numbers
    are normalized so `BUS 142`, `Unit 142`, and `142` all match vehicle 142.
-   Shows an **Import Preview** (new / updated / removed / route changes /
-   replacements / uncertain) and requires clicking **Apply Updates** before
-   anything touches the database. Multiple imports per day are allowed and
-   historical data is never deleted.
+   Both the **ECHO prep report** (`sample_prep_report.pdf`) and the
+   **Vehicle Wash Report** (`sample_vehicle_wash_report.pdf`) templates are
+   supported — either one can be uploaded. Reports imported from the wash
+   template carry the report (prep) time, pickup time and driver code onto the
+   board. Shows an **Import Preview** (new / updated / removed / route
+   changes / replacements / uncertain) and requires clicking **Apply
+   Updates** before anything touches the database. Multiple imports per day
+   are allowed and historical data is never deleted.
 3. **Daily Detailing Board** — after import, today's work list is created
    automatically. Each vehicle shows number, type, route, status, last washed,
    and progress. The task list is broken into two categories — **Inside**
@@ -40,7 +44,8 @@ report. It is not a static mockup.
    Configurable visual indicators: Recently Washed / Due Soon / Overdue.
 6. **Dashboard** — today's totals: total, completed, in progress, remaining,
    overdue, replacements, worst overall completion %. Search & filter by unit
-   number, type, route, and status.
+   number, type, route, and status. Each vehicle row shows its report (prep)
+   time, pickup time, and driver code when the wash report supplied them.
 7. **End My Day** — prominent button. Requires confirmation. Finalizes the
    day, calculates completed/incomplete, shows unfinished checklist items,
    replacements, and notes, computes completion %, and generates a clean
@@ -76,10 +81,14 @@ first time the app runs.
 
 ```bash
 pip install -r requirements.txt     # needs PyMuPDF
-python scripts/make_sample_report.py sample_prep_report.pdf
+python scripts/make_sample_report.py sample_prep_report.pdf          # ECHO prep report
+python scripts/make_sample_report.py --wash sample_vehicle_wash_report.pdf  # Vehicle Wash Report
 ```
 
-Then go to **Import** → choose the PDF → review the preview → **Apply Updates**.
+The repository also ships ready-made copies of both templates
+(`sample_prep_report.pdf` and `sample_vehicle_wash_report.pdf`). Either one
+can be uploaded via **Import** → choose the PDF → review the preview →
+**Apply Updates**.
 
 ---
 

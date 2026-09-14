@@ -39,7 +39,8 @@ def refresh_type_entries(vtype):
     db.session.commit()
 
 
-def ensure_entry(sched, vehicle, order_index=0, prep_time=None):
+def ensure_entry(sched, vehicle, order_index=0, prep_time=None,
+                 pickup_time=None, driver_code=None):
     entry = ScheduleEntry.query.filter_by(schedule_id=sched.id,
                                           vehicle_id=vehicle.id).first()
     if not entry:
@@ -49,13 +50,20 @@ def ensure_entry(sched, vehicle, order_index=0, prep_time=None):
             status="pending",
             order_index=order_index,
             prep_time=prep_time,
+            pickup_time=pickup_time,
+            driver_code=driver_code,
         )
         db.session.add(entry)
         db.session.flush()
         create_task_rows(entry)
         db.session.commit()
-    elif prep_time and entry.prep_time != prep_time:
-        entry.prep_time = prep_time
+    else:
+        if prep_time is not None and entry.prep_time != prep_time:
+            entry.prep_time = prep_time
+        if pickup_time is not None and entry.pickup_time != pickup_time:
+            entry.pickup_time = pickup_time
+        if driver_code is not None and entry.driver_code != driver_code:
+            entry.driver_code = driver_code
         db.session.commit()
     return entry
 
@@ -348,7 +356,8 @@ def build_preview(parsed, location=None):
         seen.add(key)
         existing = db_units.get(key)
         v = {"unit": p.unit, "type": p.type, "route": p.route, "raw": p.raw,
-             "prep_time": p.prep_time, "notes": p.notes}
+             "prep_time": p.prep_time, "notes": p.notes,
+             "pickup_time": p.pickup_time, "driver_code": p.driver_code}
         if p.uncertain:
             preview["uncertain"].append(v)
 
@@ -407,7 +416,9 @@ def apply_import(preview, location=None, employee_id=None, source="import",
             vehicle.notes = item["notes"].strip()
         vehicle.active = True
         ensure_entry(sched, vehicle, order_index=position,
-                     prep_time=item.get("prep_time"))
+                     prep_time=item.get("prep_time"),
+                     pickup_time=item.get("pickup_time"),
+                     driver_code=item.get("driver_code"))
         position += 1
         db.session.commit()
 

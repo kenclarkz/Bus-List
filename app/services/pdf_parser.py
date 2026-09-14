@@ -80,16 +80,19 @@ def normalize_notes(raw):
 
 
 class ParsedVehicle:
-    __slots__ = ("unit", "type", "route", "raw", "uncertain", "prep_time", "notes")
+    __slots__ = ("unit", "type", "route", "raw", "uncertain", "prep_time",
+                 "pickup_time", "driver_code", "notes")
 
     def __init__(self, unit, type=None, route=None, raw=None, uncertain=False,
-                 prep_time=None, notes=None):
+                 prep_time=None, pickup_time=None, driver_code=None, notes=None):
         self.unit = unit
         self.type = type
         self.route = route
         self.raw = raw
         self.uncertain = uncertain
         self.prep_time = prep_time
+        self.pickup_time = pickup_time
+        self.driver_code = driver_code
         self.notes = notes
 
     def to_dict(self):
@@ -100,6 +103,8 @@ class ParsedVehicle:
             "raw": self.raw,
             "uncertain": self.uncertain,
             "prep_time": self.prep_time,
+            "pickup_time": self.pickup_time,
+            "driver_code": self.driver_code,
             "notes": self.notes,
         }
 
@@ -114,6 +119,7 @@ def _find_table_cells(page):
 
     # 1. Built-in table detection
     is_echo = False
+    is_wash = False
     try:
         tabs = page.find_tables()
         for tab in tabs:
@@ -124,16 +130,27 @@ def _find_table_cells(page):
                     continue
                 if _is_echo_date_row(row):
                     continue
-                _cells_to_vehicle(row, found, echo=is_echo)
+                if _is_wash_header(row):
+                    is_wash = True
+                    continue
+                if is_wash:
+                    _wash_row_to_vehicle(row, found)
+                    continue
+                if is_echo:
+                    _cells_to_vehicle(row, found, echo=is_echo)
+                    continue
+                _cells_to_vehicle(row, found)
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("Table detection failed: %s", exc)
 
-    # 2. Word-based scan for non-ECHO pages (captures plain-text lists too)
-    # Skip on ECHO pages: the table extraction already handles all rows,
-    # and the word scan would pick up headers/page numbers as false positives.
-    if not is_echo:
-        words = page.get_text("words")
-        _words_to_vehicle(words, found)
+    # 2. Word scan fallback for non-tabular pages. Skipped on ECHO pages and
+    #    Vehicle Wash Report pages: the table extraction already handles all
+    #    rows, and the generic word scan picks up vehicle-code fragments and
+    #    wrapped driver names as false positives.
+    if not is_echo and not is_wash:
+        if not _is_wash_report_page(page):
+            words = page.get_text("words")
+            _words_to_vehicle(words, found)
 
     return found
 
@@ -144,6 +161,30 @@ def _is_echo_header(row):
         return False
     vals = [str(c).strip().replace("\n", " ") if c else "" for c in row]
     return vals[0] == "Prep Time" and vals[1] == "Vehicle" and vals[2] == "Vehicle Type"
+
+
+def _is_wash_header(row):
+    """Detect the Vehicle Wash Report header:
+    ['Report Time', 'Pickup Time', 'Vehicle Code+Type', 'Order Type',
+     'Driver Code', 'Reservation #', ...]"""
+    if not row or len(row) < 3:
+        return False
+    vals = [str(c).strip().replace("\n", " ") if c else "" for c in row]
+    return (vals[0] == "Report Time" and vals[1] == "Pickup Time"
+            and vals[2] == "Vehicle Code+Type")
+
+
+def _is_wash_report_page(page):
+    """Best-effort page detection for the Vehicle Wash Report format used
+    before the table header scan so we don't run the generic word scan
+    (which mis-reads 'nnnn-JAXCODE [ TYPE ]' vehicle cells)."""
+    try:
+        text = page.get_text()
+    except Exception:  # pragma: no cover - defensive
+        return False
+    return ("Vehicle Wash Report" in text
+            or "Vehicle Code+Type" in text
+            or "[From Date:" in text)
 
 
 def _is_echo_date_row(row):
@@ -262,6 +303,81 @@ def _echo_row_to_vehicle(cols, found):
             existing.route = route
         if not existing.prep_time and prep_time:
             existing.prep_time = prep_time
+        if not existing.notes and notes:
+            existing.notes = notes
+
+
+def _wash_row_to_vehicle(cols, found):
+    """Parse a Vehicle Wash Report data row by column index.
+
+    Columns: 0=Report Time, 1=Pickup Time, 2=Vehicle Code+Type
+             ('9101-JAXSDN [ SEDAN ]'), 3=Order Type, 4=Driver Code,
+             5=Reservation #.
+    """
+    if not cols:
+        return
+    if not cols[0] and not cols[2]:
+        return
+    raw = " | ".join(c for c in cols if c)
+
+    # Column 0: Report Time — when the vehicle needs to be detailed
+    prep_time = normalize_route(cols[0]) if cols[0] else None
+    # Column 1: Pickup Time — when the vehicle leaves the bay
+    pickup_time = normalize_route(cols[1]) if len(cols) > 1 and cols[1] else None
+
+    # Column 2: Vehicle Code+Type. Format '9101-JAXSDN [ SEDAN ]' — the unit
+    # is the leading code (before the dash / bracket), the type is inside [].
+    # Some rows have no location suffix, e.g. '9999 [ COORDINATOR ]'.
+    vehicle_cell = cols[2] if len(cols) > 2 else ""
+    vt = None
+    m = re.search(r"\[([^\]]*)\]", vehicle_cell)
+    if m:
+        vt = normalize_type(m.group(1).strip())
+    unit = None
+    for tok in re.split(r"[\s\[]+", vehicle_cell.strip()):
+        u = normalize_unit(tok)
+        if u and re.search(r"\d{2,6}", tok):
+            unit = u
+            break
+    if not unit:
+        return
+
+    # Column 3: Order Type (e.g. Shuttle, Hourly, Airport Arrival)
+    route = normalize_route(cols[3]) if len(cols) > 3 and cols[3] else None
+    if route and re.fullmatch(r"(?i)route|assignment|location|status", route):
+        route = None
+
+    # Column 4: Driver Code — may wrap onto several lines mid-token, so join
+    # the wrapped pieces before collapsing any remaining whitespace.
+    driver_code = None
+    if len(cols) > 4 and cols[4]:
+        joined = re.sub(r"[\n\r]+", "", cols[4])
+        driver_code = normalize_route(re.sub(r"\s+", " ", joined).strip()) or None
+
+    # Column 5: Reservation # — kept as a note so it's visible and preserved
+    notes = None
+    if len(cols) > 5 and cols[5]:
+        res = normalize_notes(cols[5])
+        if res:
+            notes = f"Res # {res}"
+
+    existing = found.get(unit)
+    if existing is None:
+        found[unit] = ParsedVehicle(unit, type=vt, route=route, raw=raw,
+                                    prep_time=prep_time, notes=notes,
+                                    pickup_time=pickup_time,
+                                    driver_code=driver_code)
+    else:
+        if not existing.type and vt:
+            existing.type = vt
+        if not existing.route and route:
+            existing.route = route
+        if not existing.prep_time and prep_time:
+            existing.prep_time = prep_time
+        if not existing.pickup_time and pickup_time:
+            existing.pickup_time = pickup_time
+        if not existing.driver_code and driver_code:
+            existing.driver_code = driver_code
         if not existing.notes and notes:
             existing.notes = notes
 
