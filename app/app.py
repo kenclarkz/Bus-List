@@ -767,7 +767,10 @@ def register_routes(app):
 
     @app.route("/entry/<int:entry_id>/skip", methods=["POST"])
     def entry_skip(entry_id):
+        wants_json = request.headers.get("Accept", "") == "application/json"
         if session.get("user") != "employee":
+            if wants_json:
+                return jsonify(ok=False, error="Manager view is read-only"), 403
             flash("Manager view is read-only", "error")
             return redirect(url_for("dashboard"))
         entry = ScheduleEntry.query.get_or_404(entry_id)
@@ -775,6 +778,8 @@ def register_routes(app):
         if not reason:
             reason = entry.skip_reason or ""
         status = sched_svc.set_entry_skipped(entry, skipped=True, reason=reason)
+        if wants_json:
+            return jsonify(ok=True, unit=entry.vehicle.unit_number, reason=reason)
         flash(f"Vehicle {entry.vehicle.unit_number} marked as skipped", "success")
         return redirect(request.referrer or url_for("dashboard"))
 
@@ -786,7 +791,9 @@ def register_routes(app):
         entry = ScheduleEntry.query.get_or_404(entry_id)
         sched_svc.set_entry_skipped(entry, skipped=False)
         flash(f"Vehicle {entry.vehicle.unit_number} un-skipped", "success")
-        return redirect(request.referrer or url_for("dashboard"))
+        # Drop back to the same row after the full reload instead of the top.
+        ref = (request.referrer or url_for("dashboard")).split("#", 1)[0]
+        return redirect(f"{ref}#row-{entry_id}")
 
     @app.route("/entry/<int:entry_id>/complete", methods=["POST"])
     def entry_complete(entry_id):

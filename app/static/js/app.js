@@ -126,6 +126,101 @@ function completeWork(btn) {
   });
 }
 
+function markSkipped(row, entryId, reason, unskipUrl) {
+  var ck = row.querySelector('.checklist');
+  if (ck) ck.remove();
+  var startRow = row.querySelector('.row-start');
+  if (startRow) startRow.remove();
+  var doneBtn = row.querySelector('.done-btn');
+  if (doneBtn) doneBtn.remove();
+
+  var note = row.querySelector('.skip-note');
+  if (!note) {
+    note = document.createElement('p');
+    note.className = 'muted small skip-note';
+    note.style.cssText = 'margin:12px 0 4px';
+    var progress = row.querySelector('.progress');
+    if (progress) {
+      row.insertBefore(note, progress);
+    } else {
+      row.appendChild(note);
+    }
+  }
+  note.textContent = 'Skipped — counts toward completion.';
+  if (reason) {
+    var strong = document.createElement('strong');
+    strong.textContent = 'Reason: ' + reason;
+    note.appendChild(document.createTextNode(' '));
+    note.appendChild(strong);
+    note.appendChild(document.createTextNode(' '));
+  }
+  note.appendChild(document.createTextNode('Un-skip to work this vehicle.'));
+
+  var badge = row.querySelector('.entry-status');
+  if (badge) {
+    badge.textContent = 'Skipped';
+    badge.className = 'badge entry-status warn';
+  }
+  var fill = row.querySelector('.progress-fill');
+  if (fill) fill.classList.add('fill-warn');
+  var pct = row.querySelector('.pct');
+  if (pct && pct.textContent.indexOf('(skipped)') === -1) {
+    pct.textContent += ' (skipped)';
+  }
+
+  if (!row.querySelector('.unskip-form')) {
+    var skipBtn = row.querySelector('[data-modal-target="modal-skip-' + entryId + '"]');
+    if (skipBtn) {
+      var unskip = document.createElement('form');
+      unskip.className = 'unskip-form';
+      unskip.method = 'post';
+      unskip.action = unskipUrl || '/entry/' + entryId + '/unskip';
+      unskip.style.display = 'inline';
+      var ub = document.createElement('button');
+      ub.type = 'submit';
+      ub.className = 'btn small secondary';
+      ub.textContent = 'Un-skip';
+      unskip.appendChild(ub);
+      skipBtn.parentNode.insertBefore(unskip, skipBtn);
+      skipBtn.remove();
+    }
+  }
+
+  var modal = document.getElementById('modal-skip-' + entryId);
+  if (modal) modal.remove();
+}
+
+function skipWork(form) {
+  var entryId = form.getAttribute('data-skip-entry');
+  var unskipUrl = form.getAttribute('data-unskip-url') || '';
+  var btn = form.querySelector('[type="submit"]');
+  if (btn) btn.disabled = true;
+  var body = new FormData(form);
+  fetch(form.getAttribute('action'), {
+    method: 'POST',
+    headers: { 'Accept': 'application/json' },
+    body: body
+  }).then(function (r) {
+    return r.json().then(function (data) {
+      if (!data.ok) {
+        if (btn) btn.disabled = false;
+        alert(data.error || 'Could not skip this vehicle.');
+        return;
+      }
+      var row = document.getElementById('row-' + entryId);
+      if (row) {
+        var reason = data.reason || body.get('reason') || '';
+        markSkipped(row, entryId, reason, unskipUrl);
+      }
+      var modal = document.getElementById('modal-skip-' + entryId);
+      if (modal) modal.classList.remove('open');
+    });
+  }).catch(function () {
+    if (btn) btn.disabled = false;
+    alert('Could not skip this vehicle. Try again.');
+  });
+}
+
 document.addEventListener('DOMContentLoaded', function () {
   document.querySelectorAll('.ck input').forEach(function (chk) {
     if (chk.type !== 'checkbox') return;
@@ -166,6 +261,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
   document.querySelectorAll('.done-btn').forEach(function (btn) {
     btn.addEventListener('click', function () { completeWork(btn); });
+  });
+
+  document.querySelectorAll('.skip-form').forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      skipWork(form);
+    });
   });
 
   // modal openers

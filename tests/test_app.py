@@ -1360,6 +1360,36 @@ def test_skip_does_not_record_cleaning_and_stores_reason(client, app):
         "not in service today") != -1
 
 
+def test_skip_json_and_unskip_fragment(client, app):
+    """The skip endpoint answers JSON for AJAX (so the page doesn't reload and
+    lose scroll position), and un-skip redirects back to the same row."""
+    with app.app_context():
+        from app.services.vehicles import find_or_create_vehicle
+        from app.services import schedule as ss
+        v, _ = find_or_create_vehicle("760", location_id=vehicles_loc(app).id)
+        sched = ss.get_or_create_schedule(location=vehicles_loc(app))
+        entry = ss.ensure_entry(sched, v)
+        ea = entry.id
+
+    r = client.post(f"/entry/{ea}/skip", data={"reason": "Maintenance"},
+                    headers={"Accept": "application/json"})
+    assert r.status_code == 200
+    payload = r.get_json()
+    assert payload["ok"] is True
+    assert payload["unit"] == "760"
+    assert payload["reason"] == "Maintenance"
+
+    with app.app_context():
+        assert ScheduleEntry.query.get(ea).status == "skipped"
+
+    r = client.post(f"/entry/{ea}/unskip")
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith(f"#row-{ea}")
+
+    with app.app_context():
+        assert ScheduleEntry.query.get(ea).status == "pending"
+
+
 # ---------------------------------------------------------------------------
 # Dump tracking
 # ---------------------------------------------------------------------------
