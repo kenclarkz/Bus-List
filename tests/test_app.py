@@ -896,6 +896,37 @@ def test_replacement(client, app):
         assert len(done) == 2
 
 
+def test_replacement_greys_out_original_and_links_units(client, app):
+    """Replacing a vehicle greys out the original row and labels both sides:
+    the replacement states which specific vehicle it replaced and the original
+    shows which vehicle replaced it."""
+    with app.app_context():
+        from app.services.vehicles import find_or_create_vehicle
+        from app.services import schedule as ss
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        v1, _ = find_or_create_vehicle("400", location_id=loc.id)
+        v2, _ = find_or_create_vehicle("410", location_id=loc.id)
+        entry = ss.ensure_entry(sched, v1)
+        entry_id = entry.id
+        orig_entry_id = entry.id
+
+    r = client.post(f"/schedule/{entry_id}/replace", data={
+        "replacement_unit": "410",
+        "reason": "down for service",
+    })
+    assert r.status_code == 302
+
+    html = client.get("/").data.decode()
+
+    # The original vehicle row is greyed out and shows the replacer.
+    assert "row-replaced" in html
+    assert f'id="row-{orig_entry_id}"' in html
+    assert "Replaced by 410" in html
+    # The replacement vehicle states exactly which vehicle it replaced.
+    assert "Replacement for 400" in html
+
+
 # ---------------------------------------------------------------------------
 # End day / finalize
 # ---------------------------------------------------------------------------

@@ -299,9 +299,19 @@ def _prep_time_sort_key(entry):
 
 
 def build_schedule_view(sched):
+    entries_by_id = {e.id: e for e in sched.entries}
+    # original entry id -> replacement entry (the vehicle that took its place)
+    replaced_by = {}
+    for e in sched.entries:
+        if e.is_replacement and e.replacement_of_entry_id in entries_by_id:
+            replaced_by[e.replacement_of_entry_id] = e
+
     rows = []
     for entry in sorted(sched.entries, key=_prep_time_sort_key):
         done, total, pct = sched_svc.entry_progress(entry)
+        original = entries_by_id.get(entry.replacement_of_entry_id) \
+            if entry.is_replacement else None
+        replacer = replaced_by.get(entry.id)
         rows.append({
             "entry": entry,
             "vehicle": entry.vehicle,
@@ -309,6 +319,10 @@ def build_schedule_view(sched):
             "total": total,
             "pct": pct,
             "indicator": status_indicator(entry.vehicle.last_washed),
+            # The vehicle this row replaced (for replacement entries).
+            "replacement_of": original.vehicle if original else None,
+            # The vehicle that replaced this row (for replaced originals).
+            "replaced_by": replacer.vehicle if replacer else None,
         })
     return rows
 
