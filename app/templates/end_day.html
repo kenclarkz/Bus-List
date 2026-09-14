@@ -58,7 +58,10 @@
     <tr><th>Unit</th><th>Route</th><th>Done</th><th>Color</th></tr>
     {% for r in incomplete_rows %}
     <tr>
-      <td><strong>{{ r.vehicle.unit_number }}</strong></td>
+      <td><strong>{{ r.vehicle.unit_number }}</strong>
+        {% if r.entry.is_replacement and r.replacement_of %}<span class="badge warn">Replacement for {{ r.replacement_of.unit_number }}</span>
+        {% elif r.replaced_by %}<span class="badge muted">Replaced by {{ r.replaced_by.unit_number }}</span>{% endif %}
+      </td>
       <td>{{ r.vehicle.route or '—' }}</td>
       <td>{{ r.done }}/{{ r.total }}</td>
       <td>
@@ -81,7 +84,7 @@
     <tr><th>Unit</th><th>Route</th><th>Completed By</th><th>Dump</th></tr>
     {% for r in completed_rows %}
     <tr>
-      <td><strong>{{ r.vehicle.unit_number }}</strong>{% if r.entry.status == 'skipped' %} <span class="badge warn">Skipped</span>{% endif %}</td>
+      <td><strong>{{ r.vehicle.unit_number }}</strong>{% if r.entry.status == 'skipped' %} <span class="badge warn">Skipped</span>{% endif %}{% if r.entry.is_replacement and r.replacement_of %} <span class="badge warn">Replacement for {{ r.replacement_of.unit_number }}</span>{% elif r.replaced_by %} <span class="badge muted">Replaced by {{ r.replaced_by.unit_number }}</span>{% endif %}</td>
       <td>{{ r.vehicle.route or '—' }}{% if r.entry.status == 'skipped' and r.entry.skip_reason %}<div class="muted small">{{ r.entry.skip_reason }}</div>{% endif %}</td>
       <td>
         {% if r.entry.status == 'skipped' %}

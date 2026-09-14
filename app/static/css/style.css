@@ -191,6 +191,15 @@ tr.row-inactive td { color: var(--muted); }
   padding: 14px;
 }
 .vrow-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.vrow.row-replaced {
+  background: #f8fafc;
+  border-color: var(--border);
+  box-shadow: none;
+  opacity: .65;
+}
+.vrow.row-replaced .vnum,
+.vrow.row-replaced .vmeta,
+.vrow.row-replaced .progress { color: var(--muted); }
 .vnum { font-size: 1.25rem; font-weight: 800; }
 .vmeta { color: var(--muted); font-size: .85rem; }
 .vnote {
@@ -376,6 +385,8 @@ html[data-theme="dark"] textarea { background: #000000; color: var(--text); }
 
 html[data-theme="dark"] .btn.secondary { background: #333333; color: #ffffff; }
 html[data-theme="dark"] .btn.secondary:hover { background: #444444; }
+
+html[data-theme="dark"] .vrow.row-replaced { background: #0a0a0a; border-color: #222; }
 
 html[data-theme="dark"] table { background: var(--card); color: var(--text); }
 html[data-theme="dark"] tr:hover td { background: rgba(255, 255, 255, .05); }

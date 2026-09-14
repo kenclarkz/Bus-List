@@ -33,7 +33,7 @@
       <tr><th>Unit</th><th>Type</th><th>Route</th><th>Prep</th><th>Status</th><th>Checklist</th></tr>
       {% for r in rows %}
       <tr>
-        <td><strong>{{ r.vehicle.unit_number }}</strong>{% if r.entry.is_replacement %} *{% endif %}</td>
+        <td><strong>{{ r.vehicle.unit_number }}</strong>{% if r.entry.is_replacement and r.replacement_of %} <span style="font-size:10px;background:#fef3c7;padding:1px 4px;border-radius:3px">replaces {{ r.replacement_of.unit_number }}</span>{% elif r.replaced_by %} <span style="font-size:10px;background:#f1f5f9;padding:1px 4px;border-radius:3px">replaced by {{ r.replaced_by.unit_number }}</span>{% endif %}</td>
         <td>{{ r.vehicle.vehicle_type.name if r.vehicle.vehicle_type else '—' }}</td>
         <td>{{ r.vehicle.route or '—' }}</td>
         <td>{{ r.entry.prep_time or '—' }}</td>
