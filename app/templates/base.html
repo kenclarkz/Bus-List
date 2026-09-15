@@ -30,6 +30,7 @@
     {% if current_role == 'driver' %}
     <nav class="nav">
       <a href="{{ url_for('driver_dashboard') }}" class="{{ 'active' if request.endpoint == 'driver_dashboard' }}">Finished</a>
+      <a href="{{ url_for('settings_page') }}" class="{{ 'active' if request.endpoint == 'settings_page' }}">Settings</a>
     </nav>
     {% else %}
     <nav class="nav">
@@ -52,15 +53,6 @@
     {% endif %}
     {% if current_user %}
     <div class="topbar-right">
-      <form method="post" action="{{ url_for('set_theme') }}" class="theme-form">
-        <select name="theme" aria-label="Theme" onchange="this.form.submit()">
-          <option value="off" {{ 'selected' if dark_mode == 'off' }}>Light</option>
-          <option value="on" {{ 'selected' if dark_mode == 'dark' }}>Dark</option>
-          <option value="system" {{ 'selected' if dark_mode == 'system' }}>System</option>
-          <option value="futuristic" {{ 'selected' if dark_mode == 'futuristic' }}>Futuristic</option>
-          <option value="halloween" {{ 'selected' if dark_mode == 'halloween' }}>Halloween</option>
-        </select>
-      </form>
       <form method="post" action="{{ url_for('logout') }}" class="logout-form">
         <button type="submit" class="btn small secondary">Logout</button>
       </form>

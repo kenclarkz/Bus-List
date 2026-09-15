@@ -1286,11 +1286,11 @@ def test_theme_is_per_user(client, manager_client, app):
         emp = Employee.query.filter_by(active=True).first()
         assert s.get_user_theme("employee", emp.id) == "off"
 
-    # Employee (as a specific named person) prefers futuristic via /theme.
+    # Employee (as a specific named person) prefers futuristic via Settings.
     with app.app_context():
         emp = Employee.query.filter_by(active=True).first()
         emp_id = str(emp.id)
-    r = client.post("/theme", data={"theme": "futuristic"})
+    r = client.post("/settings", data={"dark_mode": "futuristic"})
     assert r.status_code == 302
     with app.app_context():
         from app.services import settings as s
@@ -1316,7 +1316,9 @@ def test_theme_is_per_user(client, manager_client, app):
 def test_driver_can_set_own_theme(app):
     d = app.test_client()
     d.post("/login", data={"username": "driver", "password": "driver"})
-    r = d.post("/theme", data={"theme": "on"})
+    # Drivers can open Settings (their own theme page), not just the board.
+    assert d.get("/settings").status_code == 200
+    r = d.post("/settings", data={"dark_mode": "on"})
     assert r.status_code == 302
     assert b'data-theme="dark"' in d.get("/driver").data
     with app.app_context():
@@ -1325,10 +1327,13 @@ def test_driver_can_set_own_theme(app):
         assert s.get_user_theme("manager") == "off"
 
 
-def test_employee_theme_chooser_in_topbar(client, app):
+def test_theme_chooser_is_in_settings_not_topbar(client, app):
     html = client.get("/").data.decode()
-    assert "theme-form" in html
-    assert 'name="theme"' in html
+    assert "theme-form" not in html
+    assert 'name="dark_mode"' not in html
+    html = client.get("/settings").data.decode()
+    assert "Appearance" in html
+    assert 'name="dark_mode"' in html
 
 
 def test_categorized_checklist_setting_and_defaults(app):
@@ -1874,7 +1879,8 @@ def test_driver_restricted_to_finished_screen(app):
     assert d.get("/driver").status_code == 200
     # Drivers may not browse the rest of the app.
     assert d.get("/").status_code == 302
-    assert d.get("/settings").status_code == 302
+    # ...but Settings (their own theme page) stays available.
+    assert d.get("/settings").status_code == 200
 
 
 def test_driver_screen_shows_only_finished_vehicles(app):
