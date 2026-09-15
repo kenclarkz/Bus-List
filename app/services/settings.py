@@ -9,7 +9,7 @@ DEFAULTS = {
     "checklist": "Sweep,Mop,Windows,Seats,Bathroom,Dump,Bay Checked,Final Inspection",
     "checklist_inside": "Sweep,Mop,Windows,Seats,Bathroom",
     "checklist_outside": "Dump,Bay Checked,Final Inspection",
-    "dark_mode": "off",       # off | on | system
+    "dark_mode": "off",       # off | on | system | futuristic
 }
 
 

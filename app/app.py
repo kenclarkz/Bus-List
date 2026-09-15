@@ -404,9 +404,10 @@ def register_routes(app):
         emp = None
         if user == "employee" and session.get("employee_id"):
             emp = Employee.query.get(session["employee_id"])
-        # Resolve the stored setting ("on"|"off"|"system") to the value used in
-        # the data-theme attribute. CSS only defines dark styles for "dark", so
-        # "on" must map to "dark"; "system" is resolved live by the browser.
+        # Resolve the stored setting ("on"|"off"|"system"|"futuristic") to the
+        # value used in the data-theme attribute. CSS defines dark styles for
+        # "dark" and "futuristic", so "on" must map to "dark"; "system" is
+        # resolved live by the browser.
         raw_dark_mode = settings.get_setting("dark_mode", "off")
         resolved_dark_mode = "dark" if raw_dark_mode == "on" else raw_dark_mode
         return {
@@ -1089,7 +1090,7 @@ def register_routes(app):
             if outside is not None:
                 settings.set_setting("checklist_outside", outside)
             dark_mode = request.form.get("dark_mode")
-            if dark_mode in ("off", "on", "system"):
+            if dark_mode in ("off", "on", "system", "futuristic"):
                 settings.set_setting("dark_mode", dark_mode)
             # Per-vehicle-type checklists (Inside + Outside). A type uses the
             # global default unless its own fields are submitted and non-empty.

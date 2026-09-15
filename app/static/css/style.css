@@ -408,6 +408,200 @@ html[data-theme="dark"] .hlist li { background: var(--card); }
 
 html[data-theme="dark"] .login-card { background: var(--card); color: var(--text); }
 
+/* ---------------------------------- */
+/* Futuristic theme                    */
+/* ---------------------------------- */
+
+html[data-theme="futuristic"] {
+  color-scheme: dark;
+  --primary: #00e5ff;
+  --primary-dark: #00ff88;
+  --primary-neon: #ff00ff;
+  --bg: #000000;
+  --card: #0a0a0f;
+  --border: rgba(0, 229, 255, .35);
+  --text: #ffffff;
+  --muted: #8a8aaa;
+  --success: #00ff88;
+  --success-bg: rgba(0, 255, 136, .12);
+  --warn: #ffe600;
+  --warn-bg: rgba(255, 230, 0, .12);
+  --danger: #ff2d6f;
+  --danger-bg: rgba(255, 45, 111, .14);
+  --info: #7d5fff;
+  --info-bg: rgba(125, 95, 255, .14);
+  --shadow: 0 0 18px rgba(0, 229, 255, .45), 0 0 44px rgba(0, 229, 255, .18);
+}
+
+html[data-theme="futuristic"] body {
+  background: radial-gradient(ellipse at top, #05050a 0%, #000000 60%);
+  background-attachment: fixed;
+  color: var(--text);
+}
+
+/* neon-rimmed cards, tables, boxes */
+html[data-theme="futuristic"] .card,
+html[data-theme="futuristic"] .stat,
+html[data-theme="futuristic"] table,
+html[data-theme="futuristic"] .vrow,
+html[data-theme="futuristic"] .now-worker,
+html[data-theme="futuristic"] .modal,
+html[data-theme="futuristic"] .hlist li,
+html[data-theme="futuristic"] .login-card,
+html[data-theme="futuristic"] fieldset.type-checklist-card {
+  background: var(--card);
+  border-color: var(--border);
+  box-shadow: var(--shadow);
+}
+
+/* bigger multicolored 3D headings */
+html[data-theme="futuristic"] h1,
+html[data-theme="futuristic"] h2,
+html[data-theme="futuristic"] .stat .num {
+  font-size: 2.6rem;
+  font-weight: 900;
+  background: linear-gradient(90deg, #00e5ff, #7d5fff, #ff00ff, #ffe600, #00ff88);
+  background-size: 300% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 0 rgba(255, 255, 255, 0);
+  -webkit-text-stroke: 0;
+  letter-spacing: .02em;
+  animation: futuristic-hue 6s linear infinite;
+}
+html[data-theme="futuristic"] h2 { font-size: 1.9rem; }
+html[data-theme="futuristic"] h1 {
+  font-size: 2.8rem;
+  text-shadow: 0 1px 0 #003a40, 1px 2px 0 #104a1f, 2px 3px 0 #c700ff, 0 0 22px rgba(0,229,255,.85), 0 0 46px rgba(255,0,255,.55);
+}
+
+@keyframes futuristic-hue {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+html[data-theme="futuristic"] h1::after,
+html[data-theme="futuristic"] h2::after {
+  content: "";
+  display: block;
+  height: 2px;
+  max-width: 320px;
+  margin: 10px 0;
+  background: linear-gradient(90deg, #00e5ff, #ff00ff, #ffe600, #00ff88);
+  box-shadow: 0 0 12px rgba(0, 229, 255, .8);
+}
+
+/* neon topbar */
+html[data-theme="futuristic"] .topbar {
+  background: rgba(0, 0, 0, .7);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 0 18px rgba(0, 229, 255, .5), 0 0 40px rgba(255, 0, 255, .25);
+  backdrop-filter: blur(4px);
+}
+html[data-theme="futuristic"] .nav a { color: #7defff; }
+html[data-theme="futuristic"] .nav a:hover { background: rgba(0, 229, 255, .12); color: #fff; }
+html[data-theme="futuristic"] .nav a.active {
+  background: linear-gradient(90deg, #00e5ff, #7d5fff);
+  color: #000;
+  box-shadow: 0 0 16px rgba(0, 229, 255, .7);
+}
+
+html[data-theme="futuristic"] .role-btn { background: rgba(0, 229, 255, .05); color: #7defff; border-color: var(--border); }
+html[data-theme="futuristic"] .role-btn.active,
+html[data-theme="futuristic"] .role-btn.no-click { background: linear-gradient(90deg, #00ff88, #00e5ff); color: #000; border-color: #00ff88; box-shadow: 0 0 14px rgba(0, 255, 136, .7); }
+
+html[data-theme="futuristic"] .btn { background: linear-gradient(90deg, #00e5ff, #7d5fff); color: #000; box-shadow: 0 0 14px rgba(0, 229, 255, .6); }
+html[data-theme="futuristic"] .btn:hover { filter: brightness(1.15); }
+html[data-theme="futuristic"] .btn.secondary { background: rgba(0, 229, 255, .08); color: #cfd8ff; box-shadow: none; }
+html[data-theme="futuristic"] .btn.success { background: linear-gradient(90deg, #00ff88, #00e5ff); box-shadow: 0 0 14px rgba(0, 255, 136, .6); }
+html[data-theme="futuristic"] .btn.warn { background: linear-gradient(90deg, #ffe600, #ff7b00); }
+html[data-theme="futuristic"] .btn.danger { background: linear-gradient(90deg, #ff2d6f, #ff00ff); box-shadow: 0 0 14px rgba(255, 45, 111, .6); }
+
+/* neon inputs */
+html[data-theme="futuristic"] input[type=text],
+html[data-theme="futuristic"] input[type=number],
+html[data-theme="futuristic"] input[type=date],
+html[data-theme="futuristic"] input[type=password],
+html[data-theme="futuristic"] select,
+html[data-theme="futuristic"] textarea {
+  background: #000000;
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 8px rgba(0, 229, 255, .2);
+}
+html[data-theme="futuristic"] input:focus,
+html[data-theme="futuristic"] select:focus,
+html[data-theme="futuristic"] textarea:focus {
+  outline: none;
+  border-color: #00ff88;
+  box-shadow: 0 0 12px rgba(0, 229, 255, .8);
+}
+
+/* neon checklist chips */
+html[data-theme="futuristic"] .ck {
+  background: #05050a;
+  color: var(--text);
+  border-color: var(--border);
+  box-shadow: 0 0 8px rgba(0, 229, 255, .25);
+}
+html[data-theme="futuristic"] .ck:has(input:checked),
+html[data-theme="futuristic"] .ck.done {
+  background: rgba(0, 255, 136, .15);
+  border-color: #00ff88;
+  color: #7dffc8;
+  box-shadow: 0 0 14px rgba(0, 255, 136, .6);
+  -webkit-text-stroke: 0;
+}
+
+html[data-theme="futuristic"] tr:hover td { background: rgba(0, 229, 255, .07); }
+html[data-theme="futuristic"] .vrow.row-replaced { background: rgba(10, 10, 20, .4); border-color: #8833ff; opacity: .8; }
+html[data-theme="futuristic"] .vrow.row-replaced .vnum,
+html[data-theme="futuristic"] .vrow.row-replaced .vmeta,
+html[data-theme="futuristic"] .vrow.row-replaced .progress { color: var(--muted); }
+
+html[data-theme="futuristic"] .badge.muted { background: rgba(138, 138, 170, .15); color: #b9b9d8; }
+html[data-theme="futuristic"] .badge.success { background: var(--success-bg); color: var(--success); box-shadow: 0 0 10px rgba(0,255,136,.4); }
+html[data-theme="futuristic"] .badge.warn { background: var(--warn-bg); color: var(--warn); box-shadow: 0 0 10px rgba(255,230,0,.4); }
+html[data-theme="futuristic"] .badge.danger { background: var(--danger-bg); color: var(--danger); box-shadow: 0 0 10px rgba(255,45,111,.4); }
+html[data-theme="futuristic"] .badge.info { background: var(--info-bg); color: var(--info); box-shadow: 0 0 10px rgba(125,95,255,.4); }
+
+html[data-theme="futuristic"] .flash-success { background: var(--success-bg); color: var(--success); }
+html[data-theme="futuristic"] .flash-error { background: var(--danger-bg); color: var(--danger); }
+html[data-theme="futuristic"] .flash-info { background: var(--info-bg); color: var(--info); }
+html[data-theme="futuristic"] .flash-warn { background: var(--warn-bg); color: var(--warn); }
+
+html[data-theme="futuristic"] code { background: #101027; color: #00ffc8; }
+html[data-theme="futuristic"] .now-worker-avatar { background: linear-gradient(135deg, #00e5ff, #ff00ff); box-shadow: 0 0 14px rgba(0,229,255,.7); }
+html[data-theme="futuristic"] .progress-fill { background: linear-gradient(90deg, #00e5ff, #00ff88); }
+
+/* Keep prints light and readable even in the futuristic theme. */
+@media print {
+  html[data-theme="futuristic"] {
+    color-scheme: light;
+    --bg: #fff;
+    --card: #fff;
+    --border: #ccc;
+    --text: #111;
+    --muted: #555;
+  }
+  html[data-theme="futuristic"] body { background: #fff !important; }
+  html[data-theme="futuristic"] table { background: #fff !important; }
+  html[data-theme="futuristic"] .vrow { background: #fff !important; }
+  html[data-theme="futuristic"] h1,
+  html[data-theme="futuristic"] h2,
+  html[data-theme="futuristic"] .stat .num {
+    background: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    color: #111;
+    text-shadow: none;
+    -webkit-text-stroke: 0;
+  }
+  html[data-theme="futuristic"] h1::after, html[data-theme="futuristic"] h2::after { display: none; }
+}
+
 /* Print always renders light so dark mode doesn't ink out reports. */
 @media print {
   html[data-theme="dark"] {
