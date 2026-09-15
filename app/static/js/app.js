@@ -291,6 +291,58 @@ document.addEventListener('DOMContentLoaded', function () {
       if (e.target === m) m.classList.remove('open');
     });
   });
+
+  // photo viewer (incident report photos)
+  var photos = document.querySelectorAll('.photo-grid .photo-item img[data-photo-viewer]');
+  if (photos.length) {
+    var viewer = document.getElementById('photo-viewer');
+    var viewerImg = document.getElementById('photo-viewer-img');
+    var viewerCaption = document.getElementById('photo-viewer-caption');
+    var viewerCount = document.getElementById('photo-viewer-count');
+    var viewerPrev = document.getElementById('photo-viewer-prev');
+    var viewerNext = document.getElementById('photo-viewer-next');
+    var currentPhoto = 0;
+
+    function showPhoto(index) {
+      currentPhoto = (index + photos.length) % photos.length;
+      viewerImg.src = photos[currentPhoto].src;
+      viewerImg.alt = photos[currentPhoto].getAttribute('alt') || 'Incident photo';
+      viewerCaption.textContent = photos[currentPhoto].getAttribute('data-caption') || '';
+      viewerCount.textContent = (currentPhoto + 1) + ' of ' + photos.length;
+      viewerPrev.style.display = photos.length > 1 ? '' : 'none';
+      viewerNext.style.display = photos.length > 1 ? '' : 'none';
+    }
+
+    function openPhoto(index) {
+      showPhoto(index);
+      viewer.classList.add('open');
+      viewer.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closePhoto() {
+      viewer.classList.remove('open');
+      viewer.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    }
+
+    photos.forEach(function (img, i) {
+      img.addEventListener('click', function () { openPhoto(i); });
+    });
+
+    document.getElementById('photo-viewer-close').addEventListener('click', closePhoto);
+    viewer.addEventListener('click', function (e) {
+      if (e.target === viewer) closePhoto();
+    });
+    viewerPrev.addEventListener('click', function () { showPhoto(currentPhoto - 1); });
+    viewerNext.addEventListener('click', function () { showPhoto(currentPhoto + 1); });
+    document.addEventListener('keydown', function (e) {
+      if (!viewer.classList.contains('open')) return;
+      if (e.key === 'Escape') closePhoto();
+      else if (e.key === 'ArrowLeft') showPhoto(currentPhoto - 1);
+      else if (e.key === 'ArrowRight') showPhoto(currentPhoto + 1);
+    });
+  }
 });
 
 function updateStatusIndicators() {

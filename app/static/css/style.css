@@ -316,6 +316,7 @@ tr.row-inactive td { color: var(--muted); }
   border-radius: 6px;
   display: block;
   margin-bottom: 6px;
+  cursor: zoom-in;
 }
 .photo-previews { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 .photo-preview {
@@ -341,6 +342,50 @@ html[data-theme="halloween"] .photo-item { background: #120d1e; border-color: va
 .modal-bg.open { display: flex; }
 .modal { background: #fff; border-radius: var(--radius); padding: 20px; max-width: 460px; width: 100%; box-shadow: 0 10px 40px rgba(0,0,0,.2); }
 .modal h3 { margin-top: 0; }
+
+/* photo viewer (incident report photos) */
+.photo-viewer {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(15,23,42,.94);
+  display: none; align-items: center; justify-content: center;
+  padding: 56px 16px 16px;
+}
+.photo-viewer.open { display: flex; }
+.photo-viewer-stage {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  max-width: min(92vw, 1100px); max-height: 100%;
+  margin: 0;
+}
+.photo-viewer-stage img {
+  max-width: 100%; max-height: 78vh; width: auto; height: auto;
+  object-fit: contain; border-radius: var(--radius);
+  box-shadow: 0 10px 40px rgba(0,0,0,.45); background: #000;
+}
+.photo-viewer-caption { color: #e2e8f0; text-align: center; margin: 0; }
+.photo-viewer-count { color: #94a3b8; font-size: .85rem; }
+.photo-viewer-close,
+.photo-viewer-nav {
+  background: rgba(255,255,255,.14); color: #fff; border: none;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+}
+.photo-viewer-close:hover,
+.photo-viewer-nav:hover { background: rgba(255,255,255,.3); }
+.photo-viewer-close {
+  position: absolute; top: 12px; right: 16px;
+  width: 40px; height: 40px; font-size: 1.5rem; line-height: 1;
+}
+.photo-viewer-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 44px; height: 44px; font-size: 2rem; line-height: 1;
+}
+.photo-viewer-nav.prev { left: 16px; }
+.photo-viewer-nav.next { right: 16px; }
+@media (max-width: 600px) {
+  .photo-viewer-nav { width: 36px; height: 36px; font-size: 1.5rem; }
+  .photo-viewer-nav.prev { left: 8px; }
+  .photo-viewer-nav.next { right: 8px; }
+}
 
 /* history list */
 .hlist { list-style: none; padding: 0; margin: 0; }
