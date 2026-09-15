@@ -84,4 +84,29 @@
   </div>
   {% else %}<p class="muted">No replacements recorded.</p>{% endif %}
 </div>
+
+<div class="card">
+  <div class="flex between" style="margin-bottom:8px">
+    <h2 style="margin:0">Incident Reports</h2>
+    <a class="btn small" href="{{ url_for('incident_new', vehicle=vehicle.id) }}">+ Report Issue</a>
+  </div>
+  {% if vehicle.incidents %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>#</th><th>Type</th><th>Severity</th><th>Location</th><th>Reported By</th><th>When</th><th>Status</th></tr>
+    {% for i in vehicle.incidents %}
+    <tr>
+      <td><a href="{{ url_for('incident_detail', incident_id=i.id) }}"><strong>#{{ i.id }}</strong></a></td>
+      <td>{{ i.issue_type }}</td>
+      <td><span class="badge {{ i.severity|incident_severity_class }}">{{ i.severity }}</span></td>
+      <td>{{ i.location or '—' }}</td>
+      <td>{{ i.reporter.name if i.reporter else 'Manager' }}</td>
+      <td>{{ i.created_at.strftime('%b %d %Y %H:%M') }}</td>
+      <td><span class="badge {{ i.status|incident_status_class }}">{{ i.status }}</span></td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}<p class="muted">No incidents reported for this vehicle.</p>{% endif %}
+</div>
 {% endblock %}

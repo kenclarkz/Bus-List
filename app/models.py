@@ -93,6 +93,11 @@ class Vehicle(db.Model):
         "Replacement", back_populates="replacement_vehicle",
         foreign_keys="Replacement.replacement_vehicle_id"
     )
+    incidents = db.relationship(
+        "IncidentReport", back_populates="vehicle",
+        cascade="all, delete-orphan",
+        order_by="IncidentReport.created_at.desc()"
+    )
 
 
 class Employee(db.Model):
@@ -280,3 +285,69 @@ class Setting(db.Model):
     key = db.Column(db.String(80), primary_key=True)
     value = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class IncidentReport(db.Model):
+    """An issue reported against a vehicle, permanently linked to its history.
+
+    Status flow: Open -> In Progress -> Resolved. Managers may review, edit,
+    assign, add notes/photos, and resolve. Reports and photos are stored on
+    disk under the uploads folder.
+    """
+    __tablename__ = "incident_reports"
+
+    id = db.Column(db.Integer, primary_key=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicles.id"), nullable=False)
+    issue_type = db.Column(db.String(40), nullable=False)
+    severity = db.Column(db.String(20), default="Medium")
+    description = db.Column(db.Text, nullable=False)
+    location = db.Column(db.String(200))
+    occurred_at = db.Column(db.DateTime, default=datetime.utcnow)
+    status = db.Column(db.String(20), default="Open")
+    reported_by = db.Column(db.Integer, db.ForeignKey("employees.id"))
+    assigned_to = db.Column(db.Integer, db.ForeignKey("employees.id"))
+    resolution_notes = db.Column(db.Text)
+    resolved_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    vehicle = db.relationship("Vehicle", back_populates="incidents")
+    reporter = db.relationship("Employee", foreign_keys=[reported_by])
+    assignee = db.relationship("Employee", foreign_keys=[assigned_to])
+    notes = db.relationship(
+        "IncidentNote", back_populates="incident",
+        cascade="all, delete-orphan", order_by="IncidentNote.created_at"
+    )
+    photos = db.relationship(
+        "IncidentPhoto", back_populates="incident",
+        cascade="all, delete-orphan", order_by="IncidentPhoto.created_at"
+    )
+
+
+class IncidentNote(db.Model):
+    """A manager/employee note attached to an incident report."""
+    __tablename__ = "incident_notes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    incident_id = db.Column(db.Integer, db.ForeignKey("incident_reports.id"), nullable=False)
+    text = db.Column(db.Text, nullable=False)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    incident = db.relationship("IncidentReport", back_populates="notes")
+    employee = db.relationship("Employee")
+
+
+class IncidentPhoto(db.Model):
+    """A photo attached to an incident report (stored on disk, path kept here)."""
+    __tablename__ = "incident_photos"
+
+    id = db.Column(db.Integer, primary_key=True)
+    incident_id = db.Column(db.Integer, db.ForeignKey("incident_reports.id"), nullable=False)
+    file_path = db.Column(db.String(512), nullable=False)
+    caption = db.Column(db.String(255))
+    uploaded_by = db.Column(db.Integer, db.ForeignKey("employees.id"))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    incident = db.relationship("IncidentReport", back_populates="photos")
+    uploader = db.relationship("Employee")

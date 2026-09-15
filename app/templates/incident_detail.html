@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}Incident #{{ incident.id }} — {{ incident.vehicle.unit_number }}{% endblock %}
+{% block content %}
+<div class="flex between" style="margin-bottom:16px">
+  <h1 style="margin:0">Incident #{{ incident.id }}</h1>
+  <div class="flex">
+    <a class="btn secondary" href="{{ url_for('incidents_list') }}">Back</a>
+    <a class="btn secondary" href="{{ url_for('vehicle_detail', vehicle_id=incident.vehicle_id) }}">Vehicle {{ incident.vehicle.unit_number }}</a>
+  </div>
+</div>
+
+<div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(160px,1fr))">
+  <div class="stat"><div class="num" style="font-size:1rem">{{ incident.vehicle.unit_number }}</div><div class="lbl">Vehicle</div></div>
+  <div class="stat"><div class="num" style="font-size:1rem">{{ incident.issue_type }}</div><div class="lbl">Type</div></div>
+  <div class="stat"><div class="num" style="font-size:1rem"><span class="badge {{ incident.severity|incident_severity_class }}">{{ incident.severity }}</span></div><div class="lbl">Severity</div></div>
+  <div class="stat"><div class="num" style="font-size:1rem"><span class="badge {{ incident.status|incident_status_class }}">{{ incident.status }}</span></div><div class="lbl">Status</div></div>
+  <div class="stat"><div class="num" style="font-size:1rem">{{ incident.reporter.name if incident.reporter else 'Manager' }}</div><div class="lbl">Reported By</div></div>
+  <div class="stat"><div class="num" style="font-size:1rem">{{ incident.assignee.name if incident.assignee else '—' }}</div><div class="lbl">Assigned To</div></div>
+</div>
+
+<div class="card">
+  <h2>Details</h2>
+  <p><strong>Reported:</strong> {{ incident.created_at.strftime('%b %d, %Y %I:%M %p') }}</p>
+  <p><strong>Occurred:</strong> {{ incident.occurred_at.strftime('%b %d, %Y %I:%M %p') if incident.occurred_at else '—' }}</p>
+  <p><strong>Vehicle:</strong> <a href="{{ url_for('vehicle_detail', vehicle_id=incident.vehicle_id) }}">{{ incident.vehicle.unit_number }}</a>
+    {% if incident.vehicle.vehicle_type %} — {{ incident.vehicle.vehicle_type.name }}{% endif %}</p>
+  <p><strong>Location on vehicle:</strong> {{ incident.location or '—' }}</p>
+  <p><strong>Description:</strong></p>
+  <p class="small" style="white-space:pre-wrap">{{ incident.description }}</p>
+  {% if incident.resolved_at %}
+  <p><strong>Resolved:</strong> {{ incident.resolved_at.strftime('%b %d, %Y %I:%M %p') }}</p>
+  {% endif %}
+  {% if incident.resolution_notes %}
+  <p><strong>Resolution notes:</strong></p>
+  <p class="small" style="white-space:pre-wrap">{{ incident.resolution_notes }}</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Photos ({{ incident.photos|length }})</h2>
+  {% if incident.photos %}
+  <div class="photo-grid">
+    {% for p in incident.photos %}
+    <div class="photo-item">
+      <a href="{{ url_for('incident_photo', photo_id=p.id) }}" target="_blank">
+        <img src="{{ url_for('incident_photo', photo_id=p.id) }}" alt="{{ p.caption or 'Incident photo' }}">
+      </a>
+      <div class="small muted">{{ p.uploader.name if p.uploader else 'Manager' }} · {{ p.created_at.strftime('%b %d %H:%M') }}</div>
+      {% if current_role == 'manager' %}
+      <form method="post" action="{{ url_for('incident_photo_delete', photo_id=p.id) }}"
+            style="display:inline"
+            onsubmit="return confirm('Remove this photo from the incident?')">
+        <button type="submit" class="btn small secondary">Remove</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">No photos attached.</p>
+  {% endif %}
+
+  {% if current_role == 'manager' %}
+  <form method="post" action="{{ url_for('incident_photo_upload', incident_id=incident.id) }}"
+        enctype="multipart/form-data" class="flex" style="margin-top:12px">
+    <input type="file" name="photos" multiple accept="image/*" style="max-width:320px">
+    <button type="submit" class="btn small">+ Add Photos</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Notes ({{ incident.notes|length }})</h2>
+  {% if incident.notes %}
+  <ul class="hlist">
+    {% for n in incident.notes %}
+    <li>
+      <span class="small muted">{{ n.created_at.strftime('%b %d %I:%M %p') }} · {{ n.employee.name if n.employee else 'Manager' }}</span>
+      <p style="margin:4px 0 0;white-space:pre-wrap">{{ n.text }}</p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No notes yet.</p>
+  {% endif %}
+
+  {% if current_role == 'manager' %}
+  <form method="post" action="{{ url_for('incident_note', incident_id=incident.id) }}" class="flex" style="margin-top:12px">
+    <input type="text" name="text" placeholder="Add a note..." required style="flex:1;min-width:200px">
+    <button type="submit" class="btn small">Add Note</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if current_role == 'manager' %}
+<div class="card">
+  <h2>Manage</h2>
+
+  {% if incident.status != 'Resolved' %}
+  <form method="post" action="{{ url_for('incident_resolve', incident_id=incident.id) }}" class="card" style="border:dashed 1px var(--success)">
+    <h3>Resolve Issue</h3>
+    <label>Resolution notes</label>
+    <textarea name="resolution_notes" rows="2" placeholder="What was done to fix it?"></textarea>
+    <button type="submit" class="btn success" style="margin-top:8px">Mark Resolved</button>
+  </form>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('incident_edit', incident_id=incident.id) }}">
+    <div class="form-row">
+      <div>
+        <label>Issue Type</label>
+        <select name="issue_type">
+          {% for t in issue_types %}
+          <option value="{{ t }}" {{ 'selected' if incident.issue_type == t }}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Severity</label>
+        <select name="severity">
+          {% for s in severities %}
+          <option value="{{ s }}" {{ 'selected' if incident.severity == s }}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Status</label>
+        <select name="status">
+          {% for st in statuses %}
+          <option value="{{ st }}" {{ 'selected' if incident.status == st }}>{{ st }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div>
+        <label>Assigned To</label>
+        <select name="assigned_to">
+          <option value="">— None —</option>
+          {% for e in employees %}
+          <option value="{{ e.id }}" {{ 'selected' if incident.assigned_to == e.id }}>{{ e.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Location on Vehicle</label>
+        <input type="text" name="location" value="{{ incident.location or '' }}">
+      </div>
+      <div>
+        <label>Date / Time</label>
+        {% if incident.occurred_at %}
+        <input type="datetime-local" name="occurred_at" value="{{ incident.occurred_at.strftime('%Y-%m-%dT%H:%M') }}">
+        {% else %}
+        <input type="datetime-local" name="occurred_at">
+        {% endif %}
+      </div>
+    </div>
+    <label>Description</label>
+    <textarea name="description" rows="3">{{ incident.description }}</textarea>
+    <div class="flex" style="margin-top:12px">
+      <button type="submit" class="btn">Save Changes</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

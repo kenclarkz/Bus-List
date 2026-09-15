@@ -5,12 +5,16 @@ import json
 from datetime import date, datetime, timedelta
 
 from flask import Flask, render_template, request, redirect, url_for, flash, \
-    jsonify, session, send_file
+    jsonify, session, send_file, abort
 from werkzeug.utils import secure_filename
 
 from .models import db, Vehicle, Employee, ScheduleEntry, Replacement, Note, \
-    DailySchedule, PrepReportImport, TrashPickup, Location
+    DailySchedule, PrepReportImport, TrashPickup, Location, \
+    IncidentReport, IncidentNote, IncidentPhoto
 from .services import settings, vehicles, schedule as sched_svc
+from .services import incidents as incidents_svc
+from .services.incidents import ISSUE_TYPES, SEVERITIES, STATUSES, \
+    allowed_photo, save_incident_photo, SEVERITY_CLASSES, STATUS_CLASSES
 
 # The only three accounts. Passwords are the lowercase role name. No accounts
 # can be created through the app.
@@ -30,6 +34,12 @@ MANAGER_ONLY_ENDPOINTS = {
     "employees_page",
     "employee_toggle_active",
     "settings_page",
+    # Incident management (review / edit / assign / note / photos / resolve).
+    "incident_edit",
+    "incident_note",
+    "incident_photo_upload",
+    "incident_resolve",
+    "incident_photo_delete",
 }
 
 
@@ -405,6 +415,14 @@ def register_routes(app):
             return "outside"
         # Unknown tasks default to inside.
         return "inside"
+
+    @app.template_filter("incident_severity_class")
+    def incident_severity_class_filter(value):
+        return SEVERITY_CLASSES.get(value, "muted")
+
+    @app.template_filter("incident_status_class")
+    def incident_status_class_filter(value):
+        return STATUS_CLASSES.get(value, "muted")
 
     @app.template_filter("strip_res")
     def strip_res_filter(value):
@@ -1200,6 +1218,260 @@ def register_routes(app):
                                locations=locations,
                                default_location=default_loc,
                                now_iso=datetime.utcnow().strftime("%Y-%m-%dT%H:%M"))
+
+    # ------------------------------------------------------------------
+    # Incident reports
+    # ------------------------------------------------------------------
+
+    def _incident_actor_id():
+        """Resolve who is recording an incident action: the signed-in employee
+        id, or None for the Manager account."""
+        if session.get("user") == "employee" and session.get("employee_id"):
+            try:
+                return int(session["employee_id"])
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    @app.route("/incidents")
+    def incidents_list():
+        filters = {
+            "unit": request.args.get("unit", "").strip(),
+            "type": request.args.get("type", "").strip(),
+            "severity": request.args.get("severity", "").strip(),
+            "employee": request.args.get("employee", "").strip(),
+            "status": request.args.get("status", "").strip(),
+        }
+        q = IncidentReport.query.join(
+            Vehicle, IncidentReport.vehicle_id == Vehicle.id)
+        if filters["unit"]:
+            q = q.filter(
+                Vehicle.unit_number.ilike(f"%{filters['unit']}%"))
+        if filters["type"]:
+            q = q.filter(IncidentReport.issue_type == filters["type"])
+        if filters["severity"]:
+            q = q.filter(IncidentReport.severity == filters["severity"])
+        if filters["status"]:
+            q = q.filter(IncidentReport.status == filters["status"])
+        if filters["employee"]:
+            try:
+                emp_id = int(filters["employee"])
+            except ValueError:
+                emp_id = None
+            if emp_id:
+                q = q.filter(db.or_(IncidentReport.reported_by == emp_id,
+                                    IncidentReport.assigned_to == emp_id))
+        incidents = q.order_by(IncidentReport.created_at.desc()).all()
+
+        summary = {
+            "open": IncidentReport.query.filter_by(status="Open").count(),
+            "in_progress": IncidentReport.query.filter_by(
+                status="In Progress").count(),
+            "resolved": IncidentReport.query.filter_by(status="Resolved").count(),
+            "total": IncidentReport.query.count(),
+        }
+        return render_template(
+            "incidents.html", incidents=incidents, filters=filters,
+            issue_types=ISSUE_TYPES, severities=SEVERITIES, statuses=STATUSES,
+            employees=Employee.query.filter_by(active=True)
+            .order_by(Employee.name).all(),
+            summary=summary)
+
+    @app.route("/incidents/new", methods=["GET", "POST"])
+    def incident_new():
+        if request.method == "POST":
+            vehicle = None
+            vehicle_id = request.form.get("vehicle_id", "").strip()
+            if vehicle_id:
+                vehicle = Vehicle.query.get(int(vehicle_id))
+            if not vehicle:
+                unit = request.form.get("unit_number", "").strip()
+                if unit:
+                    vehicle, _ = vehicles.find_or_create_vehicle(
+                        unit, location_id=vehicles.default_location().id)
+            if not vehicle:
+                flash("Please choose a vehicle", "error")
+                return redirect(url_for("incident_new"))
+
+            issue_type = request.form.get("issue_type", "").strip()
+            if issue_type not in ISSUE_TYPES:
+                flash("Please choose a valid issue type", "error")
+                return redirect(url_for("incident_new"))
+            description = request.form.get("description", "").strip()
+            if not description:
+                flash("Description is required", "error")
+                return redirect(url_for("incident_new"))
+            severity = request.form.get("severity", "Medium").strip()
+            if severity not in SEVERITIES:
+                severity = "Medium"
+            occurred_at = datetime.utcnow()
+            occurred_raw = request.form.get("occurred_at", "").strip()
+            if occurred_raw:
+                try:
+                    occurred_at = datetime.fromisoformat(occurred_raw)
+                except ValueError:
+                    pass
+            # Reported by: managers pick from the list, employees are always
+            # the currently selected employee.
+            reported_by = _incident_actor_id()
+            if reported_by is None and session.get("user") == "manager":
+                raw = request.form.get("reported_by", "").strip()
+                try:
+                    reported_by = int(raw) if raw else None
+                except ValueError:
+                    reported_by = None
+
+            incident = IncidentReport(
+                vehicle_id=vehicle.id,
+                issue_type=issue_type,
+                severity=severity,
+                description=description,
+                location=request.form.get("location", "").strip() or None,
+                occurred_at=occurred_at,
+                reported_by=reported_by,
+            )
+            db.session.add(incident)
+            db.session.flush()
+
+            for f in request.files.getlist("photos"):
+                if f and f.filename:
+                    photo = incidents_svc.add_photo(
+                        incident, f, uploaded_by=reported_by)
+                    if photo is None:
+                        flash(f"Skipped photo '{f.filename}': "
+                              "unsupported file type", "warn")
+            db.session.commit()
+            flash("Incident report submitted", "success")
+            return redirect(url_for("incident_detail", incident_id=incident.id))
+
+        preselect = request.args.get("vehicle", "").strip()
+        try:
+            preselect_id = int(preselect)
+        except ValueError:
+            preselect_id = None
+        return render_template(
+            "incident_new.html",
+            vehicles=Vehicle.query.order_by(Vehicle.unit_number).all(),
+            employees=Employee.query.filter_by(active=True)
+            .order_by(Employee.name).all(),
+            issue_types=ISSUE_TYPES, severities=SEVERITIES,
+            preselect_id=preselect_id,
+            now_iso=datetime.now().strftime("%Y-%m-%dT%H:%M"))
+
+    @app.route("/incidents/<int:incident_id>")
+    def incident_detail(incident_id):
+        incident = IncidentReport.query.get_or_404(incident_id)
+        return render_template(
+            "incident_detail.html", incident=incident,
+            issue_types=ISSUE_TYPES, severities=SEVERITIES, statuses=STATUSES,
+            employees=Employee.query.filter_by(active=True)
+            .order_by(Employee.name).all())
+
+    @app.route("/incidents/<int:incident_id>/edit", methods=["POST"])
+    def incident_edit(incident_id):
+        incident = IncidentReport.query.get_or_404(incident_id)
+        prev_status = incident.status
+        issue_type = request.form.get("issue_type", "").strip()
+        if issue_type in ISSUE_TYPES:
+            incident.issue_type = issue_type
+        severity = request.form.get("severity", "").strip()
+        if severity in SEVERITIES:
+            incident.severity = severity
+        status = request.form.get("status", "").strip()
+        if status in STATUSES and status != prev_status:
+            incident.status = status
+            if status == "Resolved":
+                incident.resolved_at = incident.resolved_at or datetime.utcnow()
+            else:
+                incident.resolved_at = None
+        location = request.form.get("location", "").strip()
+        incident.location = location or None
+        description = request.form.get("description", "").strip()
+        if description:
+            incident.description = description
+        occurred_raw = request.form.get("occurred_at", "").strip()
+        if occurred_raw:
+            try:
+                incident.occurred_at = datetime.fromisoformat(occurred_raw)
+            except ValueError:
+                pass
+        assigned_raw = request.form.get("assigned_to", "").strip()
+        if assigned_raw:
+            try:
+                incident.assigned_to = int(assigned_raw)
+            except ValueError:
+                pass
+        elif "assigned_to" in request.form:
+            incident.assigned_to = None
+        db.session.commit()
+        flash("Incident updated", "success")
+        return redirect(url_for("incident_detail", incident_id=incident.id))
+
+    @app.route("/incidents/<int:incident_id>/note", methods=["POST"])
+    def incident_note(incident_id):
+        incident = IncidentReport.query.get_or_404(incident_id)
+        note = incidents_svc.add_note(
+            incident, request.form.get("text", ""),
+            employee_id=_incident_actor_id())
+        db.session.commit()
+        flash("Note added", "success") if note else flash(
+            "Note cannot be empty", "error")
+        return redirect(url_for("incident_detail", incident_id=incident.id))
+
+    @app.route("/incidents/<int:incident_id>/photos", methods=["POST"])
+    def incident_photo_upload(incident_id):
+        incident = IncidentReport.query.get_or_404(incident_id)
+        actor = _incident_actor_id()
+        added = 0
+        skipped = 0
+        for f in request.files.getlist("photos"):
+            if not f or not f.filename:
+                continue
+            photo = incidents_svc.add_photo(incident, f, uploaded_by=actor)
+            if photo is None:
+                skipped += 1
+            else:
+                added += 1
+        db.session.commit()
+        if added:
+            flash(f"{added} photo(s) added", "success")
+        else:
+            flash("No new photos added", "warn")
+        if skipped:
+            flash(f"{skipped} photo(s) skipped: unsupported file type", "warn")
+        return redirect(url_for("incident_detail", incident_id=incident.id))
+
+    @app.route("/incidents/<int:incident_id>/resolve", methods=["POST"])
+    def incident_resolve(incident_id):
+        incident = IncidentReport.query.get_or_404(incident_id)
+        incident.status = "Resolved"
+        incident.resolution_notes = request.form.get(
+            "resolution_notes", "").strip() or None
+        incident.resolved_at = datetime.utcnow()
+        db.session.commit()
+        flash("Incident marked as resolved", "success")
+        return redirect(url_for("incident_detail", incident_id=incident.id))
+
+    @app.route("/incidents/photo/<int:photo_id>")
+    def incident_photo(photo_id):
+        photo = IncidentPhoto.query.get_or_404(photo_id)
+        if not os.path.isfile(photo.file_path):
+            abort(404)
+        return send_file(photo.file_path)
+
+    @app.route("/incidents/photo/<int:photo_id>/delete", methods=["POST"])
+    def incident_photo_delete(photo_id):
+        photo = IncidentPhoto.query.get_or_404(photo_id)
+        incident_id = photo.incident_id
+        if photo.file_path and os.path.isfile(photo.file_path):
+            try:
+                os.remove(photo.file_path)
+            except OSError:
+                pass
+        db.session.delete(photo)
+        db.session.commit()
+        flash("Photo removed", "success")
+        return redirect(url_for("incident_detail", incident_id=incident_id))
 
     def _import_date_options():
         """Build date options for import: today, tomorrow, +2 days."""

@@ -53,13 +53,22 @@ report. It is not a static mockup.
 8. **History** — previous days, vehicle cleaning history, prep report imports,
    replacements, and (per-vehicle) completed checklists.
 9. **Data architecture** — real persistent database (SQLite via SQLAlchemy).
-   Models: Vehicles, Employees, Daily Prep Schedules, Checklist Tasks,
-   Cleaning/Service History, Vehicle Replacements, Prep Report Imports,
-   Activity/Notes, Locations, Vehicle Types, Settings. Designed to support
-   multiple employees and locations later (Location is a first-class model).
+    Models: Vehicles, Employees, Daily Prep Schedules, Checklist Tasks,
+    Cleaning/Service History, Vehicle Replacements, Prep Report Imports,
+    Activity/Notes, Locations, Vehicle Types, Settings, and **Incident
+    Reports** (with notes & photos). Designed to support multiple employees
+    and locations later (Location is a first-class model).
 10. **UI** — mobile/tablet/desktop responsive, large checkboxes & buttons,
     minimal typing, clean professional interface, color-coded statuses, fast
     search, clear daily workflow.
+11. **Incident Reports** — a dedicated tab where anyone can report an issue
+    for any vehicle: type (Mechanical / Interior / Exterior / Damage /
+    Safety / Other), severity, location, description, date/time, and employee,
+    with one or more photo uploads. Managers can review, edit, assign, add
+    notes, attach extra photos, and resolve issues (Open → In Progress →
+    Resolved). Every incident is permanently linked to the vehicle's history
+    page, and the list supports filters by vehicle, issue type, severity,
+    employee, and status.
 
 ---
 
