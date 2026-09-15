@@ -1109,7 +1109,7 @@ def register_routes(app):
             if outside is not None:
                 settings.set_setting("checklist_outside", outside)
             dark_mode = request.form.get("dark_mode")
-            if dark_mode in ("off", "on", "system", "futuristic"):
+            if dark_mode in ("off", "on", "system", "futuristic", "halloween"):
                 settings.set_setting("dark_mode", dark_mode)
             # Per-vehicle-type checklists (Inside + Outside). A type uses the
             # global default unless its own fields are submitted and non-empty.
