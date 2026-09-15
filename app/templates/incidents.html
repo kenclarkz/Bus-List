@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Incidents{% endblock %}
+{% block content %}
+<h1>Incident Reports</h1>
+<div class="flex between" style="margin-bottom:16px">
+  <span class="muted">{{ incidents|length }} incidents
+    ({{ summary.open }} open · {{ summary.in_progress }} in progress ·
+    {{ summary.resolved }} resolved)</span>
+  <a class="btn" href="{{ url_for('incident_new') }}">+ Report Issue</a>
+</div>
+
+<div class="card">
+  <div class="filters">
+    <form method="get" action="{{ url_for('incidents_list') }}" class="flex">
+      <input type="text" name="unit" placeholder="Vehicle #" value="{{ filters.unit }}">
+      <select name="type">
+        <option value="">All Types</option>
+        {% for t in issue_types %}<option value="{{ t }}" {{ 'selected' if filters.type == t }}>{{ t }}</option>{% endfor %}
+      </select>
+      <select name="severity">
+        <option value="">All Severity</option>
+        {% for s in severities %}<option value="{{ s }}" {{ 'selected' if filters.severity == s }}>{{ s }}</option>{% endfor %}
+      </select>
+      <select name="status">
+        <option value="">All Status</option>
+        {% for st in statuses %}<option value="{{ st }}" {{ 'selected' if filters.status == st }}>{{ st }}</option>{% endfor %}
+      </select>
+      <select name="employee">
+        <option value="">All Employees</option>
+        {% for e in employees %}<option value="{{ e.id }}" {{ 'selected' if filters.employee == e.id|string }}>{{ e.name }}</option>{% endfor %}
+      </select>
+      <button class="btn small" type="submit">Filter</button>
+      <a class="btn small secondary" href="{{ url_for('incidents_list') }}">Clear</a>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  {% if incidents %}
+  <div class="table-wrap">
+  <table>
+    <tr>
+      <th>#</th><th>Vehicle</th><th>Type</th><th>Severity</th><th>Location</th>
+      <th>Reported By</th><th>Assigned To</th><th>When</th><th>Status</th>
+    </tr>
+    {% for i in incidents %}
+    <tr>
+      <td><a href="{{ url_for('incident_detail', incident_id=i.id) }}"><strong>#{{ i.id }}</strong></a></td>
+      <td><strong>{{ i.vehicle.unit_number }}</strong></td>
+      <td>{{ i.issue_type }}</td>
+      <td><span class="badge {{ i.severity|incident_severity_class }}">{{ i.severity }}</span></td>
+      <td>{{ i.location or '—' }}</td>
+      <td>{{ i.reporter.name if i.reporter else 'Manager' }}</td>
+      <td>{{ i.assignee.name if i.assignee else '—' }}</td>
+      <td>
+        {{ i.occurred_at.strftime('%b %d %H:%M') if i.occurred_at else '—' }}
+      </td>
+      <td><span class="badge {{ i.status|incident_status_class }}">{{ i.status }}</span></td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">No incidents match the current filters.</p>
+  {% endif %}
+</div>
+{% endblock %}
