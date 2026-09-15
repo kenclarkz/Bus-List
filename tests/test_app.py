@@ -1177,7 +1177,7 @@ def test_dark_mode_can_be_turned_on(manager_client, app):
     assert r.status_code == 302
     with app.app_context():
         from app.services import settings as s
-        assert s.get_setting("dark_mode") == "on"
+        assert s.get_user_theme("manager") == "on"
     assert b'data-theme="dark"' in manager_client.get("/").data
     assert b'data-theme="dark"' in manager_client.get("/settings").data
 
@@ -1194,7 +1194,7 @@ def test_dark_mode_survives_saving_other_settings(manager_client, app):
     assert r.status_code == 302
     with app.app_context():
         from app.services import settings as s
-        assert s.get_setting("dark_mode") == "on"
+        assert s.get_user_theme("manager") == "on"
     assert b'data-theme="dark"' in manager_client.get("/").data
 
 
@@ -1202,7 +1202,7 @@ def test_dark_mode_rejects_unknown_values(manager_client, app):
     manager_client.post("/settings", data={"dark_mode": "hotdog-pink"})
     with app.app_context():
         from app.services import settings as s
-        assert s.get_setting("dark_mode", "off") == "off"
+        assert s.get_user_theme("manager") == "off"
 
 
 def test_futuristic_theme_can_be_turned_on(manager_client, app):
@@ -1217,7 +1217,7 @@ def test_futuristic_theme_can_be_turned_on(manager_client, app):
     assert r.status_code == 302
     with app.app_context():
         from app.services import settings as s
-        assert s.get_setting("dark_mode") == "futuristic"
+        assert s.get_user_theme("manager") == "futuristic"
     assert b'data-theme="futuristic"' in manager_client.get("/").data
     assert b'data-theme="futuristic"' in manager_client.get("/settings").data
 
@@ -1234,7 +1234,7 @@ def test_futuristic_theme_survives_saving_other_settings(manager_client, app):
     assert r.status_code == 302
     with app.app_context():
         from app.services import settings as s
-        assert s.get_setting("dark_mode") == "futuristic"
+        assert s.get_user_theme("manager") == "futuristic"
     assert b'data-theme="futuristic"' in manager_client.get("/").data
     assert b'data-theme="futuristic"' in manager_client.get("/settings").data
 
@@ -1251,7 +1251,7 @@ def test_halloween_theme_can_be_turned_on(manager_client, app):
     assert r.status_code == 302
     with app.app_context():
         from app.services import settings as s
-        assert s.get_setting("dark_mode") == "halloween"
+        assert s.get_user_theme("manager") == "halloween"
     assert b'data-theme="halloween"' in manager_client.get("/").data
     assert b'data-theme="halloween"' in manager_client.get("/settings").data
 
@@ -1268,9 +1268,67 @@ def test_halloween_theme_survives_saving_other_settings(manager_client, app):
     assert r.status_code == 302
     with app.app_context():
         from app.services import settings as s
-        assert s.get_setting("dark_mode") == "halloween"
+        assert s.get_user_theme("manager") == "halloween"
     assert b'data-theme="halloween"' in manager_client.get("/").data
     assert b'data-theme="halloween"' in manager_client.get("/settings").data
+
+
+def test_theme_is_per_user(client, manager_client, app):
+    """Manager, employee and driver each keep their own theme, and a change by
+    one never affects the others."""
+    from app.models import Employee
+    # Manager prefers dark.
+    manager_client.post("/settings", data={"dark_mode": "on"})
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_theme("manager") == "on"
+        # The employee has their own theme, unaffected by the manager.
+        emp = Employee.query.filter_by(active=True).first()
+        assert s.get_user_theme("employee", emp.id) == "off"
+
+    # Employee (as a specific named person) prefers futuristic via /theme.
+    with app.app_context():
+        emp = Employee.query.filter_by(active=True).first()
+        emp_id = str(emp.id)
+    r = client.post("/theme", data={"theme": "futuristic"})
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_theme("employee", int(emp_id)) == "futuristic"
+        assert s.get_user_theme("manager") == "on"
+
+    # Each role sees their own theme rendered.
+    assert b'data-theme="futuristic"' in client.get("/").data
+    assert b'data-theme="dark"' in manager_client.get("/").data
+
+    # A different employee (not yet chosen) still falls back to the global.
+    d = app.test_client()
+    d.post("/login", data={"username": "employee", "password": "employee"})
+    with app.app_context():
+        other_emp = Employee(name="Other Person", active=True)
+        db.session.add(other_emp)
+        db.session.commit()
+        other_id = str(other_emp.id)
+    d.post("/select", data={"employee_id": other_id})
+    assert b'data-theme="off"' in d.get("/").data
+
+
+def test_driver_can_set_own_theme(app):
+    d = app.test_client()
+    d.post("/login", data={"username": "driver", "password": "driver"})
+    r = d.post("/theme", data={"theme": "on"})
+    assert r.status_code == 302
+    assert b'data-theme="dark"' in d.get("/driver").data
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_theme("driver") == "on"
+        assert s.get_user_theme("manager") == "off"
+
+
+def test_employee_theme_chooser_in_topbar(client, app):
+    html = client.get("/").data.decode()
+    assert "theme-form" in html
+    assert 'name="theme"' in html
 
 
 def test_categorized_checklist_setting_and_defaults(app):
@@ -1896,8 +1954,9 @@ def test_manager_cannot_toggle_tasks(client, app):
 
 
 def test_employee_cannot_access_manager_only_pages(client, app):
-    """Employees may not visit Vehicles, Staff or Settings pages."""
-    for path in ["/vehicles", "/vehicles/new", "/employees", "/settings"]:
+    """Employees may not visit Vehicles or Staff pages, but they CAN open
+    Settings to change their own theme."""
+    for path in ["/vehicles", "/vehicles/new", "/employees"]:
         r = client.get(path)
         assert r.status_code == 302
         assert "/" == r.headers["Location"]
@@ -1905,6 +1964,10 @@ def test_employee_cannot_access_manager_only_pages(client, app):
         from app.services.vehicles import find_or_create_vehicle
         v, _ = find_or_create_vehicle("104", location_id=vehicles_loc(app).id)
         assert client.get(f"/vehicles/{v.id}").status_code == 302
+    # Settings is available to every role for their own theme.
+    r = client.get("/settings")
+    assert r.status_code == 200
+    assert b"Appearance" in r.data
 
 
 def test_manager_can_access_all_pages(manager_client):
@@ -1914,13 +1977,13 @@ def test_manager_can_access_all_pages(manager_client):
 
 
 def test_employee_header_hides_manager_only_tabs(client):
-    """Employees see Today, Import, End Day, History and Trash but not the
-    Vehicles, Staff or Settings tabs."""
+    """Employees see Today, Import, End Day, History, Trash and their own
+    Settings (theme) tab but not the Vehicles or Staff tabs."""
     html = client.get("/").data.decode()
-    for href in ['href="/vehicles"', 'href="/employees"', 'href="/settings"']:
+    for href in ['href="/vehicles"', 'href="/employees"']:
         assert href not in html
     for href in ['href="/import"', 'href="/end"', 'href="/history"',
-                 'href="/trash"']:
+                 'href="/trash"', 'href="/settings"']:
         assert href in html
 
 

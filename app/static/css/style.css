@@ -72,6 +72,18 @@ a { color: var(--primary); text-decoration: none; }
 .logout-form .btn { background: #334155; color: #cbd5e1; }
 .logout-form .btn:hover { background: var(--danger); color: #fff; }
 
+.topbar-right { display: flex; align-items: center; gap: 8px; }
+.theme-form { margin: 0; padding: 0; display: flex; }
+.theme-form .theme-select,
+.theme-form select {
+  background: #334155;
+  color: #e2e8f0;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: .75rem;
+}
+
 /* login */
 .login-body { background: #000000; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; }
 .login-card { background: #fff; border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.35); padding: 32px; max-width: 420px; width: 100%; }

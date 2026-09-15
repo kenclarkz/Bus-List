@@ -9,8 +9,36 @@ DEFAULTS = {
     "checklist": "Sweep,Mop,Windows,Seats,Bathroom,Dump,Bay Checked,Final Inspection",
     "checklist_inside": "Sweep,Mop,Windows,Seats,Bathroom",
     "checklist_outside": "Dump,Bay Checked,Final Inspection",
-    "dark_mode": "off",       # off | on | system | futuristic | halloween
+    "dark_mode": "off",       # global fallback theme: off | on | system | futuristic | halloween
 }
+
+# Valid theme choices. Each user may store their own under a per-user key.
+THEME_CHOICES = ("off", "on", "system", "futuristic", "halloween")
+
+
+def theme_key(user, employee_id=None):
+    """DB key storing one user's own theme choice (per-account, and per
+    employee when the shared employee account has picked a name)."""
+    if user == "employee" and employee_id:
+        return f"theme:employee:{employee_id}"
+    return f"theme:{user or 'employee'}"
+
+
+def get_user_theme(user, employee_id=None):
+    """A user's own theme choice, falling back to the global default."""
+    if user:
+        own = get_setting(theme_key(user, employee_id))
+        if own:
+            return own
+    return get_setting("dark_mode", "off") or "off"
+
+
+def set_user_theme(user, employee_id=None, value="off"):
+    """Persist a user's own theme choice. Ignored for unknown values."""
+    if value not in THEME_CHOICES:
+        return False
+    set_setting(theme_key(user, employee_id), value)
+    return True
 
 
 def get_setting(key, default=None):
