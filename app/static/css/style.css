@@ -606,6 +606,194 @@ html[data-theme="futuristic"] .progress-fill { background: linear-gradient(90deg
   html[data-theme="futuristic"] h1::after, html[data-theme="futuristic"] h2::after { display: none; }
 }
 
+/* ---------------------------------- */
+/* Halloween theme                     */
+/* ---------------------------------- */
+
+html[data-theme="halloween"] {
+  color-scheme: dark;
+  --primary: #ff8a00;
+  --primary-dark: #ff6a00;
+  --pumpkin: #ff7518;
+  --purple: #7c3aed;
+  --ghost: #d8b4fe;
+  --bg: #0d0a14;
+  --card: #191226;
+  --border: rgba(255, 138, 0, .35);
+  --text: #f5ead1;
+  --muted: #a99a86;
+  --success: #7ce32d;
+  --success-bg: rgba(124, 227, 45, .14);
+  --warn: #ff9e00;
+  --warn-bg: rgba(255, 158, 0, .14);
+  --danger: #ff4d00;
+  --danger-bg: rgba(255, 77, 0, .16);
+  --info: #a855f7;
+  --info-bg: rgba(168, 85, 247, .16);
+  --shadow: 0 4px 20px rgba(255, 106, 0, .25), 0 0 44px rgba(124, 58, 237, .16);
+}
+
+html[data-theme="halloween"] body {
+  background:
+    radial-gradient(ellipse at top, #2a1230 0%, #0d0a14 55%),
+    radial-gradient(circle at 85% 15%, rgba(255, 117, 24, .14), transparent 40%);
+  background-attachment: fixed;
+  color: var(--text);
+}
+
+/* pumpkin-spiced cards, tables, boxes */
+html[data-theme="halloween"] .card,
+html[data-theme="halloween"] .stat,
+html[data-theme="halloween"] table,
+html[data-theme="halloween"] .vrow,
+html[data-theme="halloween"] .now-worker,
+html[data-theme="halloween"] .modal,
+html[data-theme="halloween"] .hlist li,
+html[data-theme="halloween"] .login-card,
+html[data-theme="halloween"] fieldset.type-checklist-card {
+  background: var(--card);
+  border-color: var(--border);
+  box-shadow: var(--shadow);
+}
+
+/* spooky headings with pumpkin garnish */
+html[data-theme="halloween"] h1 { color: var(--pumpkin); text-shadow: 0 0 18px rgba(255, 117, 24, .5); }
+html[data-theme="halloween"] h2 { color: var(--ghost); }
+html[data-theme="halloween"] h1::before { content: "🎃 "; }
+html[data-theme="halloween"] h1::after,
+html[data-theme="halloween"] h2::after {
+  content: "";
+  display: block;
+  height: 2px;
+  max-width: 320px;
+  margin: 10px 0;
+  background: linear-gradient(90deg, #ff7518, #7c3aed, #ff7518);
+  box-shadow: 0 0 12px rgba(255, 117, 24, .7);
+}
+html[data-theme="halloween"] .stat .num { color: var(--pumpkin); }
+
+@keyframes halloween-swing {
+  0%, 100% { transform: rotate(-8deg); }
+  50% { transform: rotate(8deg); }
+}
+
+/* spooky topbar with a swinging spider */
+html[data-theme="halloween"] .topbar {
+  background: linear-gradient(90deg, #120b1e 0%, #241237 100%);
+  border-bottom: 2px solid var(--border);
+  box-shadow: 0 2px 18px rgba(255, 106, 0, .35);
+}
+html[data-theme="halloween"] .topbar::after {
+  content: "🕷️";
+  position: absolute;
+  right: 10px;
+  top: 4px;
+  font-size: 1.3rem;
+  transform-origin: top center;
+  animation: halloween-swing 3s ease-in-out infinite;
+  pointer-events: none;
+}
+html[data-theme="halloween"] .nav a { color: var(--ghost); }
+html[data-theme="halloween"] .nav a:hover { background: rgba(124, 58, 237, .25); color: #fff; }
+html[data-theme="halloween"] .nav a.active {
+  background: linear-gradient(90deg, #ff8a00, #ff4d00);
+  color: #1a1200;
+  box-shadow: 0 0 16px rgba(255, 138, 0, .6);
+}
+
+html[data-theme="halloween"] .role-btn { background: rgba(124, 58, 237, .15); color: var(--ghost); border-color: var(--border); }
+html[data-theme="halloween"] .role-btn.active,
+html[data-theme="halloween"] .role-btn.no-click { background: linear-gradient(90deg, #ff8a00, #ff4d00); color: #1a1200; border-color: #ff8a00; box-shadow: 0 0 14px rgba(255, 138, 0, .7); }
+html[data-theme="halloween"] .logout-form .btn { background: rgba(124, 58, 237, .15); color: var(--ghost); }
+
+html[data-theme="halloween"] .btn { background: linear-gradient(90deg, #ff8a00, #ff4d00); color: #1a1200; box-shadow: 0 0 14px rgba(255, 117, 24, .55); }
+html[data-theme="halloween"] .btn:hover { filter: brightness(1.15); }
+html[data-theme="halloween"] .btn.secondary { background: rgba(124, 58, 237, .2); color: var(--ghost); box-shadow: none; }
+html[data-theme="halloween"] .btn.success { background: linear-gradient(90deg, #7ce32d, #3fae1f); color: #0d2412; box-shadow: 0 0 14px rgba(124, 227, 45, .5); }
+html[data-theme="halloween"] .btn.warn { background: linear-gradient(90deg, #ff9e00, #ff7518); color: #1a1200; }
+html[data-theme="halloween"] .btn.danger { background: linear-gradient(90deg, #ff4d00, #d40075); box-shadow: 0 0 14px rgba(255, 77, 0, .55); }
+
+/* candlelit inputs */
+html[data-theme="halloween"] input[type=text],
+html[data-theme="halloween"] input[type=number],
+html[data-theme="halloween"] input[type=date],
+html[data-theme="halloween"] input[type=password],
+html[data-theme="halloween"] select,
+html[data-theme="halloween"] textarea {
+  background: #120d1e;
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 8px rgba(255, 117, 24, .12);
+}
+html[data-theme="halloween"] input:focus,
+html[data-theme="halloween"] select:focus,
+html[data-theme="halloween"] textarea:focus {
+  outline: none;
+  border-color: #ff8a00;
+  box-shadow: 0 0 12px rgba(255, 138, 0, .75);
+}
+
+/* haunted checklist chips */
+html[data-theme="halloween"] .ck {
+  background: #120d1e;
+  color: var(--text);
+  border-color: var(--border);
+  box-shadow: 0 0 8px rgba(124, 58, 237, .25);
+}
+html[data-theme="halloween"] .ck:has(input:checked),
+html[data-theme="halloween"] .ck.done {
+  background: rgba(124, 227, 45, .14);
+  border-color: #7ce32d;
+  color: #b6f37e;
+  box-shadow: 0 0 14px rgba(124, 227, 45, .5);
+}
+
+html[data-theme="halloween"] tr:hover td { background: rgba(255, 138, 0, .07); }
+html[data-theme="halloween"] .vrow.row-replaced { background: rgba(17, 11, 28, .45); border-color: #4c1d95; opacity: .8; }
+html[data-theme="halloween"] .vrow.row-replaced .vnum,
+html[data-theme="halloween"] .vrow.row-replaced .vmeta,
+html[data-theme="halloween"] .vrow.row-replaced .progress { color: var(--muted); }
+
+html[data-theme="halloween"] .badge.muted { background: rgba(169, 154, 134, .15); color: #c9bdab; }
+html[data-theme="halloween"] .badge.success { background: var(--success-bg); color: var(--success); box-shadow: 0 0 10px rgba(124,227,45,.4); }
+html[data-theme="halloween"] .badge.warn { background: var(--warn-bg); color: var(--warn); box-shadow: 0 0 10px rgba(255,158,0,.4); }
+html[data-theme="halloween"] .badge.danger { background: var(--danger-bg); color: var(--danger); box-shadow: 0 0 10px rgba(255,77,0,.4); }
+html[data-theme="halloween"] .badge.info { background: var(--info-bg); color: var(--info); box-shadow: 0 0 10px rgba(168,85,247,.4); }
+
+html[data-theme="halloween"] .flash-success { background: var(--success-bg); color: var(--success); }
+html[data-theme="halloween"] .flash-error { background: var(--danger-bg); color: var(--danger); }
+html[data-theme="halloween"] .flash-info { background: var(--info-bg); color: var(--info); }
+html[data-theme="halloween"] .flash-warn { background: var(--warn-bg); color: var(--warn); }
+
+html[data-theme="halloween"] code { background: #241237; color: #f0a832; }
+html[data-theme="halloween"] .now-worker-avatar { background: linear-gradient(135deg, #ff8a00, #7c3aed); box-shadow: 0 0 14px rgba(255, 117, 24, .65); }
+html[data-theme="halloween"] .now-worker-unit { color: var(--pumpkin); }
+html[data-theme="halloween"] .progress-fill { background: linear-gradient(90deg, #ff7518, #ffc04d); }
+
+/* Keep prints light and readable even in the halloween theme. */
+@media print {
+  html[data-theme="halloween"] {
+    color-scheme: light;
+    --bg: #fff;
+    --card: #fff;
+    --border: #ccc;
+    --text: #111;
+    --muted: #555;
+  }
+  html[data-theme="halloween"] body { background: #fff !important; }
+  html[data-theme="halloween"] table { background: #fff !important; }
+  html[data-theme="halloween"] .vrow { background: #fff !important; }
+  html[data-theme="halloween"] h1,
+  html[data-theme="halloween"] h2,
+  html[data-theme="halloween"] .stat .num {
+    color: #111;
+    text-shadow: none;
+  }
+  html[data-theme="halloween"] h1::before { content: none; }
+  html[data-theme="halloween"] h1::after, html[data-theme="halloween"] h2::after { display: none; }
+  html[data-theme="halloween"] .topbar::after { content: none; }
+}
+
 /* Print always renders light so dark mode doesn't ink out reports. */
 @media print {
   html[data-theme="dark"] {
