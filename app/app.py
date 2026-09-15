@@ -467,8 +467,9 @@ def register_routes(app):
         if not user or user not in ROLE_ACCOUNTS:
             session.clear()
             return redirect(url_for("login"))
-        # Drivers only see the finished-vehicles screen (plus their own theme chooser).
-        if user == "driver" and request.endpoint not in ("driver_dashboard", "set_theme"):
+        # Drivers only see the finished-vehicles screen (plus their own Settings
+        # page for their theme choice).
+        if user == "driver" and request.endpoint not in ("driver_dashboard", "settings_page"):
             return redirect(url_for("driver_dashboard"))
         # Vehicles, Staff and operational Settings are manager-only.
         if user != "manager" and request.endpoint in MANAGER_ONLY_ENDPOINTS:
@@ -530,22 +531,6 @@ def register_routes(app):
         session.clear()
         flash("You have been logged out", "success")
         return redirect(url_for("login"))
-
-    @app.route("/theme", methods=["POST"])
-    def set_theme():
-        """Save the signed-in user's own theme preference (not global)."""
-        theme = request.form.get("theme")
-        if isinstance(theme, str):
-            theme = theme.strip()
-        if theme in settings.THEME_CHOICES:
-            settings.set_user_theme(
-                session.get("user"), session.get("employee_id"), theme)
-            flash("Theme updated", "success")
-        else:
-            flash("Invalid theme", "error")
-        if session.get("user") == "driver":
-            return redirect(url_for("driver_dashboard"))
-        return redirect(request.referrer or url_for("dashboard"))
 
     @app.route("/set-current-vehicle", methods=["POST"])
     def set_current_vehicle():
