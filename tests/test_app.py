@@ -167,6 +167,143 @@ def test_echo_format_parsing():
     assert parsed["7101"].notes is None
 
 
+def _make_wash_report_pdf(rows):
+    """Build a Vehicle Wash Report format PDF using a bordered table.
+
+    rows: list of (report_time, pickup_time, unit, loc, vtype, order_type,
+                   driver_code, reservation)
+    """
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=792, height=612)
+    headers = ["Report Time", "Pickup Time", "Vehicle Code+Type", "Order Type",
+               "Driver Code", "Reservation #"]
+    col_widths = [60, 60, 130, 75, 130, 80]
+    row_h = 28
+    x0, y0 = 40, 60
+
+    all_rows = [headers]
+    for (rpt, pkup, unit, loc, vtype, stype, driver, res) in rows:
+        code = f"{unit}-{loc}" if loc else unit
+        all_rows.append([rpt, pkup, f"{code} [ {vtype} ]", stype, driver, res])
+
+    for ri, row in enumerate(all_rows):
+        ry = y0 + ri * row_h
+        cx = x0
+        for ci, (cell, w) in enumerate(zip(row, col_widths)):
+            shape = page.new_shape()
+            shape.draw_rect(fitz.Rect(cx, ry, cx + w, ry + row_h))
+            shape.finish(color=(0, 0, 0))
+            shape.commit()
+            page.insert_text((cx + 3, ry + 14), cell, fontsize=8)
+            cx += w
+    return doc.tobytes()
+
+
+def test_wash_format_parsing():
+    """The Vehicle Wash Report format is parsed into unit/type/route plus the
+    report time, pickup time and driver code columns."""
+    data = _make_wash_report_pdf([
+        ("04:30", "05:00", "9101", "JAXSDN", "SEDAN", "As Directed",
+         "291486*50", "295185*1"),
+        ("05:30", "07:30", "9417", "JAXMB", "MINIBUS", "Hourly",
+         "LAVERNEBELLAMY", "291281*2"),
+        ("09:30", "09:30", "5308", "JAXUNF", "ADAMINIBUS", "As Directed",
+         "", "292713*1"),
+    ])
+    parsed, method, warnings = parse_prep_report(data, "wash.pdf")
+
+    assert method == "text"
+    assert not warnings
+    assert len(parsed) == 3
+
+    v = parsed["9101"]
+    assert v.type == "SEDAN"
+    assert v.route == "As Directed"
+    assert v.prep_time == "04:30"
+    assert v.pickup_time == "05:00"
+    assert v.driver_code == "291486*50"
+    assert v.notes == "Res # 295185*1"
+
+    v = parsed["9417"]
+    assert v.type == "MINIBUS"
+    assert v.route == "Hourly"
+    assert v.prep_time == "05:30"
+    assert v.pickup_time == "07:30"
+    assert v.driver_code == "LAVERNEBELLAMY"
+
+    v = parsed["5308"]
+    assert v.pickup_time == "09:30"
+    assert v.driver_code is None
+
+
+def test_wash_import_end_to_end_and_dashboard(client, app):
+    """Importing a Vehicle Wash Report stores report time / pickup time /
+    driver code on the board and the dashboard shows them."""
+    data = _make_wash_report_pdf([
+        ("04:30", "05:00", "9101", "JAXSDN", "SEDAN", "As Directed",
+         "291486*50", "295185*1"),
+        ("05:00", "07:15", "7101", "JAXMINIC", "MINIC34", "Transfer",
+         "LEOJEREZ", "295185*1"),
+    ])
+
+    r = client.post("/import", data={
+        "pdf": (io.BytesIO(data), "wash_report.pdf"),
+    }, content_type="multipart/form-data")
+    assert r.status_code == 200
+    assert b"Import Preview" in r.data
+    assert b"291486*50" in r.data
+    assert b"LEOJEREZ" in r.data
+
+    with app.app_context():
+        from app.models import PrepReportImport
+        iid = PrepReportImport.query.first().id
+
+    r = client.post(f"/import/{iid}/apply")
+    assert r.status_code == 302
+
+    with app.app_context():
+        sched = DailySchedule.query.filter_by(work_date=date.today()).first()
+        assert sched is not None
+        fields = {}
+        for e in sched.entries:
+            v = Vehicle.query.get(e.vehicle_id)
+            fields[v.unit_number] = (e.prep_time, e.pickup_time, e.driver_code)
+        assert fields.get("9101") == ("04:30", "05:00", "291486*50")
+        assert fields.get("7101") == ("05:00", "07:15", "LEOJEREZ")
+
+    html = client.get("/").data.decode()
+    assert "Report 04:30" in html
+    assert "Pickup 05:00" in html
+    assert "Driver 291486*50" in html
+    assert "Report 05:00" in html
+    assert "Pickup 07:15" in html
+    assert "Driver LEOJEREZ" in html
+    assert "Res # 295185*1" in html
+
+
+def test_sample_vehicle_wash_report_in_repo():
+    """The repo-shipped Vehicle Wash Report template parses cleanly."""
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(root, "sample_vehicle_wash_report.pdf")
+    assert os.path.isfile(path)
+    with open(path, "rb") as f:
+        parsed, method, warnings = parse_prep_report(f.read(),
+                                                     "sample_vehicle_wash_report.pdf")
+    assert method == "text"
+    assert not warnings
+    assert len(parsed) >= 30
+    v = parsed["9101"]
+    assert v.prep_time == "04:30"
+    assert v.pickup_time == "05:00"
+    assert v.notes == "Res # 291486*50"
+    v = parsed["7101"]
+    assert v.prep_time == "05:00"
+    assert v.pickup_time == "07:15"
+    assert v.driver_code == "LEOJEREZ"
+
+
 # ---------------------------------------------------------------------------
 # OCR fallback (scanned PDFs with no selectable text)
 # ---------------------------------------------------------------------------

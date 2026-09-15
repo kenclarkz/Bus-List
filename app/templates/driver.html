@@ -25,7 +25,9 @@
         <div class="vmeta">
           {{ v.vehicle_type.name if v.vehicle_type else '—' }}
           {% if v.route %} · Route {{ v.route }}{% endif %}
-          {% if r.entry.prep_time %} · Prep {{ r.entry.prep_time }}{% endif %}
+          {% if r.entry.prep_time %} · Report {{ r.entry.prep_time }}{% endif %}
+          {% if r.entry.pickup_time %} · Pickup {{ r.entry.pickup_time }}{% endif %}
+          {% if r.entry.driver_code %} · Driver {{ r.entry.driver_code }}{% endif %}
         </div>
         <span class="badge success">Completed</span>
         {% if r.workers %}

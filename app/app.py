@@ -132,6 +132,13 @@ def _migrate():
         if "skip_reason" not in scols:
             con.execute("ALTER TABLE schedule_entries ADD COLUMN skip_reason VARCHAR(255)")
             con.commit()
+        scols = {r[1] for r in con.execute("PRAGMA table_info(schedule_entries)")}
+        if "pickup_time" not in scols:
+            con.execute("ALTER TABLE schedule_entries ADD COLUMN pickup_time VARCHAR(40)")
+            con.commit()
+        if "driver_code" not in scols:
+            con.execute("ALTER TABLE schedule_entries ADD COLUMN driver_code VARCHAR(120)")
+            con.commit()
         vcols = {r[1] for r in con.execute("PRAGMA table_info(vehicles)")}
         if "last_dumped" not in vcols:
             con.execute("ALTER TABLE vehicles ADD COLUMN last_dumped DATETIME")
@@ -882,10 +889,13 @@ def register_routes(app):
         vehicle.status = request.form.get("status") or vehicle.status or "Active"
         vehicle.active = True
         prep_time = request.form.get("prep_time") or None
+        pickup_time = request.form.get("pickup_time") or None
+        driver_code = request.form.get("driver_code") or None
         sched = sched_svc.get_or_create_schedule(d=sched_dt, location=loc)
         order = (max((e.order_index for e in sched.entries), default=-1) + 1)
         entry = sched_svc.ensure_entry(
-            sched, vehicle, order_index=order, prep_time=prep_time)
+            sched, vehicle, order_index=order, prep_time=prep_time,
+            pickup_time=pickup_time, driver_code=driver_code)
         db.session.commit()
         flash(f"Vehicle {vehicle.unit_number} added to {sched_dt.strftime('%b %d')}'s board",
               "success")
