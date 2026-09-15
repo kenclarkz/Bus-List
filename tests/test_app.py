@@ -1205,6 +1205,40 @@ def test_dark_mode_rejects_unknown_values(manager_client, app):
         assert s.get_setting("dark_mode", "off") == "off"
 
 
+def test_futuristic_theme_can_be_turned_on(manager_client, app):
+    r = manager_client.post("/settings", data={
+        "dark_mode": "futuristic",
+        "recent_days": "2",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_setting("dark_mode") == "futuristic"
+    assert b'data-theme="futuristic"' in manager_client.get("/").data
+    assert b'data-theme="futuristic"' in manager_client.get("/settings").data
+
+
+def test_futuristic_theme_survives_saving_other_settings(manager_client, app):
+    manager_client.post("/settings", data={"dark_mode": "futuristic"})
+    r = manager_client.post("/settings", data={
+        "recent_days": "3",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_setting("dark_mode") == "futuristic"
+    assert b'data-theme="futuristic"' in manager_client.get("/").data
+    assert b'data-theme="futuristic"' in manager_client.get("/settings").data
+
+
 def test_categorized_checklist_setting_and_defaults(app):
     """Verify the default Inside/Outside split and that custom values stick."""
     from app.services import settings as s
