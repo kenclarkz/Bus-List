@@ -201,6 +201,10 @@ tr.row-inactive td { color: var(--muted); }
 .vrow.row-replaced .vmeta,
 .vrow.row-replaced .progress { color: var(--muted); }
 .vnum { font-size: 1.25rem; font-weight: 800; }
+.driver-code {
+  font-size: 1.3rem; font-weight: 800; color: var(--info);
+  letter-spacing: .02em;
+}
 .vmeta { color: var(--muted); font-size: .85rem; }
 .vnote {
   margin-top: 8px; padding: 6px 10px;

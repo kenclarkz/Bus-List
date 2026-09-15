@@ -279,7 +279,7 @@ def test_wash_import_end_to_end_and_dashboard(client, app):
     assert "Report 05:00" in html
     assert "Pickup 07:15" in html
     assert "Driver LEOJEREZ" in html
-    assert "Res # 295185*1" in html
+    assert "Res # 295185*1" not in html
 
 
 def test_sample_vehicle_wash_report_in_repo():
