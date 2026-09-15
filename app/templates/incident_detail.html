@@ -42,9 +42,8 @@
   <div class="photo-grid">
     {% for p in incident.photos %}
     <div class="photo-item">
-      <a href="{{ url_for('incident_photo', photo_id=p.id) }}" target="_blank">
-        <img src="{{ url_for('incident_photo', photo_id=p.id) }}" alt="{{ p.caption or 'Incident photo' }}">
-      </a>
+      <img src="{{ url_for('incident_photo', photo_id=p.id) }}" alt="{{ p.caption or 'Incident photo' }}"
+           data-photo-viewer data-caption="{{ (p.uploader.name if p.uploader else 'Manager') }} · {{ p.created_at.strftime('%b %d %H:%M') }}{% if p.caption %} — {{ p.caption }}{% endif %}">
       <div class="small muted">{{ p.uploader.name if p.uploader else 'Manager' }} · {{ p.created_at.strftime('%b %d %H:%M') }}</div>
       {% if current_role == 'manager' %}
       <form method="post" action="{{ url_for('incident_photo_delete', photo_id=p.id) }}"
@@ -163,4 +162,15 @@
   </form>
 </div>
 {% endif %}
+
+<div class="photo-viewer" id="photo-viewer" aria-hidden="true">
+  <button type="button" class="photo-viewer-close" id="photo-viewer-close" aria-label="Close photo">×</button>
+  <button type="button" class="photo-viewer-nav prev" id="photo-viewer-prev" aria-label="Previous photo">‹</button>
+  <figure class="photo-viewer-stage">
+    <img id="photo-viewer-img" src="" alt="Incident photo">
+    <figcaption class="photo-viewer-caption small" id="photo-viewer-caption"></figcaption>
+    <div class="photo-viewer-count" id="photo-viewer-count"></div>
+  </figure>
+  <button type="button" class="photo-viewer-nav next" id="photo-viewer-next" aria-label="Next photo">›</button>
+</div>
 {% endblock %}
