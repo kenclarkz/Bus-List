@@ -33,7 +33,6 @@ MANAGER_ONLY_ENDPOINTS = {
     "vehicle_toggle_active",
     "employees_page",
     "employee_toggle_active",
-    "settings_page",
     # Incident management (review / edit / assign / note / photos / resolve).
     "incident_edit",
     "incident_note",
@@ -436,13 +435,15 @@ def register_routes(app):
     def inject_globals():
         user = session.get("user")
         emp = None
+        emp_id = None
         if user == "employee" and session.get("employee_id"):
-            emp = Employee.query.get(session["employee_id"])
-        # Resolve the stored setting ("on"|"off"|"system"|"futuristic") to the
-        # value used in the data-theme attribute. CSS defines dark styles for
-        # "dark" and "futuristic", so "on" must map to "dark"; "system" is
-        # resolved live by the browser.
-        raw_dark_mode = settings.get_setting("dark_mode", "off")
+            emp_id = session["employee_id"]
+            emp = Employee.query.get(emp_id)
+        # Resolve the signed-in user's own stored theme ("on"|"off"|"system"|
+        # "futuristic"|"halloween") to the value used in the data-theme
+        # attribute. CSS defines dark styles for "dark" and "futuristic", so
+        # "on" must map to "dark"; "system" is resolved live by the browser.
+        raw_dark_mode = settings.get_user_theme(user, emp_id)
         resolved_dark_mode = "dark" if raw_dark_mode == "on" else raw_dark_mode
         return {
             "today": date.today,
@@ -466,10 +467,10 @@ def register_routes(app):
         if not user or user not in ROLE_ACCOUNTS:
             session.clear()
             return redirect(url_for("login"))
-        # Drivers only see the finished-vehicles screen.
-        if user == "driver" and request.endpoint != "driver_dashboard":
+        # Drivers only see the finished-vehicles screen (plus their own theme chooser).
+        if user == "driver" and request.endpoint not in ("driver_dashboard", "set_theme"):
             return redirect(url_for("driver_dashboard"))
-        # Vehicles, Staff (employees) and Settings pages are manager-only.
+        # Vehicles, Staff and operational Settings are manager-only.
         if user != "manager" and request.endpoint in MANAGER_ONLY_ENDPOINTS:
             return redirect(url_for("dashboard"))
         # Employees must pick their name from the dropdown before using the
@@ -529,6 +530,22 @@ def register_routes(app):
         session.clear()
         flash("You have been logged out", "success")
         return redirect(url_for("login"))
+
+    @app.route("/theme", methods=["POST"])
+    def set_theme():
+        """Save the signed-in user's own theme preference (not global)."""
+        theme = request.form.get("theme")
+        if isinstance(theme, str):
+            theme = theme.strip()
+        if theme in settings.THEME_CHOICES:
+            settings.set_user_theme(
+                session.get("user"), session.get("employee_id"), theme)
+            flash("Theme updated", "success")
+        else:
+            flash("Invalid theme", "error")
+        if session.get("user") == "driver":
+            return redirect(url_for("driver_dashboard"))
+        return redirect(request.referrer or url_for("dashboard"))
 
     @app.route("/set-current-vehicle", methods=["POST"])
     def set_current_vehicle():
@@ -1114,36 +1131,46 @@ def register_routes(app):
     def settings_page():
         from .models import VehicleType
         from .services.schedule import refresh_type_entries
+        user = session.get("user")
+        emp_id = session.get("employee_id")
         if request.method == "POST":
-            for key in ["recent_days", "due_soon_days", "location"]:
-                val = request.form.get(key)
-                if val is not None:
-                    settings.set_setting(key, val)
-            # Categorized checklist: Inside and Outside task lists.
-            inside = request.form.get("checklist_inside")
-            if inside is not None:
-                settings.set_setting("checklist_inside", inside)
-            outside = request.form.get("checklist_outside")
-            if outside is not None:
-                settings.set_setting("checklist_outside", outside)
+            # Theme is the one setting every account can change, and it is
+            # stored per-user so one person's choice never changes someone
+            # else's appearance.
             dark_mode = request.form.get("dark_mode")
-            if dark_mode in ("off", "on", "system", "futuristic", "halloween"):
-                settings.set_setting("dark_mode", dark_mode)
-            # Per-vehicle-type checklists (Inside + Outside). A type uses the
-            # global default unless its own fields are submitted and non-empty.
-            for vt in VehicleType.query.all():
-                in_val = request.form.get(f"type_checklist_inside_{vt.id}")
-                out_val = request.form.get(f"type_checklist_outside_{vt.id}")
-                if in_val is None and out_val is None:
-                    continue
-                in_tasks = [x.strip() for x in (in_val or "").split(",") if x.strip()]
-                out_tasks = [x.strip() for x in (out_val or "").split(",") if x.strip()]
-                combined = settings.format_type_checklist_for_storage(in_tasks, out_tasks)
-                new_val = combined or None
-                if vt.checklist != new_val:
-                    vt.checklist = new_val
-                    db.session.commit()
-                    refresh_type_entries(vt)
+            if dark_mode in settings.THEME_CHOICES:
+                settings.set_user_theme(user, emp_id, dark_mode)
+            # The remaining operational settings are manager-only.
+            if user == "manager":
+                for key in ["recent_days", "due_soon_days", "location"]:
+                    val = request.form.get(key)
+                    if val is not None:
+                        settings.set_setting(key, val)
+                # Categorized checklist: Inside and Outside task lists.
+                inside = request.form.get("checklist_inside")
+                if inside is not None:
+                    settings.set_setting("checklist_inside", inside)
+                outside = request.form.get("checklist_outside")
+                if outside is not None:
+                    settings.set_setting("checklist_outside", outside)
+                # Per-vehicle-type checklists (Inside + Outside). A type uses
+                # the global default unless its own fields are submitted.
+                for vt in VehicleType.query.all():
+                    in_val = request.form.get(f"type_checklist_inside_{vt.id}")
+                    out_val = request.form.get(f"type_checklist_outside_{vt.id}")
+                    if in_val is None and out_val is None:
+                        continue
+                    in_tasks = [x.strip() for x in (in_val or "").split(",")
+                                if x.strip()]
+                    out_tasks = [x.strip() for x in (out_val or "").split(",")
+                                 if x.strip()]
+                    combined = settings.format_type_checklist_for_storage(
+                        in_tasks, out_tasks)
+                    new_val = combined or None
+                    if vt.checklist != new_val:
+                        vt.checklist = new_val
+                        db.session.commit()
+                        refresh_type_entries(vt)
             db.session.commit()
             flash("Settings saved", "success")
             return redirect(url_for("settings_page"))
@@ -1158,7 +1185,7 @@ def register_routes(app):
             "location": settings.get_setting("location") or "Main Depot",
             "checklist_inside": ", ".join(settings.get_checklist_inside()),
             "checklist_outside": ", ".join(settings.get_checklist_outside()),
-            "dark_mode": settings.get_setting("dark_mode", "off"),
+            "dark_mode": settings.get_user_theme(user, emp_id),
         }, vehicle_types=vtypes)
 
     @app.route("/trash", methods=["GET", "POST"])

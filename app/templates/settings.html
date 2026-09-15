@@ -4,6 +4,7 @@
 <h1>Settings</h1>
 <div class="card">
   <h2>Appearance</h2>
+  <p class="muted">Your theme choice only changes how the app looks for you.</p>
   <form method="post" action="{{ url_for('settings_page') }}">
     <label for="dark_mode">Theme</label>
     <select id="dark_mode" name="dark_mode">
@@ -18,6 +19,7 @@
     </div>
   </form>
 </div>
+{% if current_role == 'manager' %}
 <div class="card">
   <form method="post" action="{{ url_for('settings_page') }}">
     <div class="form-row">
@@ -75,4 +77,5 @@
   <p><span class="status-due">●</span> Due Soon — past {{ settings.recent_days }} days, within {{ settings.due_soon_days }} days</p>
   <p><span class="status-overdue">●</span> Overdue — more than {{ settings.due_soon_days }} days</p>
 </div>
+{% endif %}
 {% endblock %}
