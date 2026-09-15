@@ -1,5 +1,6 @@
 """Application factory and route registration."""
 import os
+import re
 import json
 from datetime import date, datetime, timedelta
 
@@ -404,6 +405,14 @@ def register_routes(app):
             return "outside"
         # Unknown tasks default to inside.
         return "inside"
+
+    @app.template_filter("strip_res")
+    def strip_res_filter(value):
+        """Strip reservation ('Res # ...') notes so they don't clutter the
+        dashboard board. Other operational notes are preserved."""
+        if not value:
+            return value
+        return re.sub(r"(?i)\s*\bRes\s*#\s*[\w.*-]+", "", str(value)).strip()
 
     @app.context_processor
     def inject_globals():

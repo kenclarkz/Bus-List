@@ -152,8 +152,10 @@
         {% if v.route %} · Route {{ v.route }}{% endif %}
         {% if entry.prep_time %} · Report {{ entry.prep_time }}{% endif %}
         {% if entry.pickup_time %} · Pickup {{ entry.pickup_time }}{% endif %}
-        {% if entry.driver_code %} · Driver {{ entry.driver_code }}{% endif %}
       </div>
+      {% if entry.driver_code %}
+      <span class="driver-code">Driver {{ entry.driver_code }}</span>
+      {% endif %}
       <span class="badge entry-status {{ 'warn' if entry.status == 'skipped' else ('success' if entry.status == 'completed' else ('info' if entry.status == 'in_progress' else 'muted')) }}">
         {{ {'pending': 'Pending', 'in_progress': 'In Progress', 'completed': 'Completed', 'skipped': 'Skipped'}[entry.status] }}
       </span>
@@ -181,8 +183,9 @@
       {% endif %}
     </div>
 
-    {% if v.notes %}
-    <div class="vnote">{{ v.notes }}</div>
+    {% set notes = v.notes | strip_res %}
+    {% if notes %}
+    <div class="vnote">{{ notes }}</div>
     {% endif %}
 
     {% if entry.status != 'skipped' and not r.replaced_by %}
