@@ -68,7 +68,12 @@ report. It is not a static mockup.
     notes, attach extra photos, and resolve issues (Open → In Progress →
     Resolved). Every incident is permanently linked to the vehicle's history
     page, and the list supports filters by vehicle, issue type, severity,
-    employee, and status.
+    employee, and status. The report form also collects the company's full
+    **ECHO East Coast Accident / Incident Report** fields (driver, road,
+    police, other vehicles, insurance, witnesses, property damage, etc.), and
+    each saved report is stamped onto the blank ECHO PDF template
+    (`app/pdf_templates/ECHO_EAST_COAST_INCIDENT_REPORT.pdf`) so managers can
+    download a filled PDF from the incident page.
 
 ---
 
@@ -165,6 +170,9 @@ app/
     schedule.py          # daily board, checklist, replacements, preview/apply
     settings.py          # configurable thresholds/checklist
     vehicles.py          # entity helpers, import/journal records
+    incidents.py         # incident validation, ECHO form fields, photos
+    incident_pdf.py      # fills the ECHO incident report PDF template
+  pdf_templates/         # blank company PDF templates (incident report form)
 scripts/
   make_sample_report.py  # generates a sample prep report PDF
 tests/                   # pytest suite

@@ -672,10 +672,10 @@ def test_imported_pdf_saved_and_viewable(client, app):
     assert r.data == data
     assert r.headers["Content-Type"] == "application/pdf"
 
-    # History page links to the original PDF.
+    # History page links to the wrapper viewer (which embeds the original).
     r = client.get("/history")
     assert b"View PDF" in r.data
-    assert f"/import/{imp.id}/view".encode() in r.data
+    assert f"/import/{imp.id}/pdf".encode() in r.data
 
     # Deleting the import removes the saved file.
     r = client.post(f"/import/{imp.id}/delete")
@@ -2180,3 +2180,35 @@ def test_import_apply_tracks_who_imported(app, client):
     html = e.get("/history").data.decode()
     assert emp_name in html
     assert f">{emp_name}</td>" in html
+
+
+# ---------------------------------------------------------------------------
+# Prep report PDF viewer (exit / back navigation)
+# ---------------------------------------------------------------------------
+
+def test_import_pdf_view_wrapper_has_back_controls(client, app):
+    """Viewing a prep report PDF must let the user get back to the app."""
+    with open("sample_prep_report.pdf", "rb") as f:
+        data = f.read()
+    r = client.post("/import", data={
+        "pdf": (io.BytesIO(data), "prep.pdf"),
+        "sched_date": date.today().isoformat(),
+    }, content_type="multipart/form-data")
+    assert r.status_code == 200
+    with app.app_context():
+        from app.models import PrepReportImport
+        imp = PrepReportImport.query.first()
+        assert imp is not None
+        iid = imp.id
+
+    # History links to the wrapper (not a raw target=_blank PDF).
+    html = client.get("/history").data.decode()
+    assert f"/import/{iid}/pdf" in html
+
+    # The wrapper embeds the PDF and shows explicit exit buttons.
+    r = client.get(f"/import/{iid}/pdf")
+    assert r.status_code == 200
+    body = r.data.decode()
+    assert f"/import/{iid}/view" in body          # embedded PDF source
+    assert "Back to History" in body              # primary exit path
+    assert "Download Original" in body

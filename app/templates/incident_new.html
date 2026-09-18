@@ -5,7 +5,10 @@
 
 <div class="card">
   <p class="muted">Submit a new issue for any vehicle. Add a description,
-    severity, location, and one or more photos. Works from mobile or desktop.</p>
+    severity, location, and one or more photos. Works from mobile or desktop.
+    The lower section matches the company's ECHO East Coast
+    <strong>Accident / Incident Report</strong> — what you fill in there prints
+    onto that PDF template.</p>
   <form method="post" action="{{ url_for('incident_new') }}" enctype="multipart/form-data">
     <div class="form-row">
       <div>
@@ -39,7 +42,7 @@
         </select>
       </div>
       <div>
-        <label>Date / Time</label>
+        <label>Date / Time of Incident</label>
         <input type="datetime-local" name="occurred_at" value="{{ now_iso }}">
       </div>
     </div>
@@ -66,6 +69,9 @@
     <label>Photos <span class="small muted">(one or more)</span></label>
     <input type="file" name="photos" multiple accept="image/*">
     <div class="photo-previews" id="photo-previews"></div>
+
+    {% include "_echo_fields.html" %}
+
     <div class="flex" style="margin-top:16px">
       <button type="submit" class="btn">Submit Report</button>
       <a class="btn secondary" href="{{ url_for('incidents_list') }}">Cancel</a>

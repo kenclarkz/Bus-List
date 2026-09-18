@@ -14,7 +14,9 @@ from .models import db, Vehicle, Employee, ScheduleEntry, Replacement, Note, \
 from .services import settings, vehicles, schedule as sched_svc
 from .services import incidents as incidents_svc
 from .services.incidents import ISSUE_TYPES, SEVERITIES, STATUSES, \
-    allowed_photo, save_incident_photo, SEVERITY_CLASSES, STATUS_CLASSES
+    allowed_photo, save_incident_photo, SEVERITY_CLASSES, STATUS_CLASSES, \
+    echo_field_groups, collect_echo_fields, set_echo_fields
+from .services import incident_pdf as incident_pdf_svc
 
 # The only three accounts. Passwords are the lowercase role name. No accounts
 # can be created through the app.
@@ -159,6 +161,13 @@ def _migrate():
         pcols = {r[1] for r in con.execute("PRAGMA table_info(prep_report_imports)")}
         if "file_path" not in pcols:
             con.execute("ALTER TABLE prep_report_imports ADD COLUMN file_path VARCHAR(512)")
+            con.commit()
+        icols = {r[1] for r in con.execute("PRAGMA table_info(incident_reports)")}
+        if "echo_fields" not in icols:
+            con.execute("ALTER TABLE incident_reports ADD COLUMN echo_fields TEXT")
+            con.commit()
+        if "pdf_path" not in icols:
+            con.execute("ALTER TABLE incident_reports ADD COLUMN pdf_path VARCHAR(512)")
             con.commit()
         con.close()
     except Exception:
@@ -800,6 +809,28 @@ def register_routes(app):
             return redirect(url_for("history_days"))
         return send_file(imp.file_path, mimetype="application/pdf")
 
+    @app.route("/import/<int:import_id>/pdf")
+    def import_pdf_view(import_id):
+        """A wrapper page around the original prep-report PDF.
+
+        The browser's built-in PDF viewer has no visible 'back' control on
+        phones, so viewing a raw PDF can leave users stranded. This page embeds
+        the PDF and always shows an explicit button back to History (or to the
+        report that the import produced).
+        """
+        imp = PrepReportImport.query.get_or_404(import_id)
+        if not imp.file_path or not os.path.isfile(imp.file_path):
+            flash("Original PDF file is no longer available", "error")
+            return redirect(url_for("history_days"))
+        sched_date = imp.schedule_date
+        return render_template(
+            "pdf_view.html",
+            imp=imp,
+            pdf_url=url_for("import_view", import_id=imp.id),
+            back_url=url_for("history_days"),
+            report_url=url_for("dashboard", date=sched_date.isoformat())
+            if sched_date else None)
+
     @app.route("/import/<int:import_id>/apply", methods=["POST"])
     def import_apply(import_id):
         imp = PrepReportImport.query.get_or_404(import_id)
@@ -1345,6 +1376,8 @@ def register_routes(app):
             db.session.add(incident)
             db.session.flush()
 
+            set_echo_fields(incident, collect_echo_fields(request.form))
+
             for f in request.files.getlist("photos"):
                 if f and f.filename:
                     photo = incidents_svc.add_photo(
@@ -1352,6 +1385,13 @@ def register_routes(app):
                     if photo is None:
                         flash(f"Skipped photo '{f.filename}': "
                               "unsupported file type", "warn")
+            # Save the filled company PDF so managers can download it later.
+            try:
+                incident.pdf_path = incident_pdf_svc.save_incident_pdf(
+                    incident)
+            except Exception:
+                # PDF generation is best-effort; never block the report.
+                incident.pdf_path = None
             db.session.commit()
             flash("Incident report submitted", "success")
             return redirect(url_for("incident_detail", incident_id=incident.id))
@@ -1368,6 +1408,7 @@ def register_routes(app):
             .order_by(Employee.name).all(),
             issue_types=ISSUE_TYPES, severities=SEVERITIES,
             preselect_id=preselect_id,
+            echo_groups=echo_field_groups(),
             now_iso=datetime.now().strftime("%Y-%m-%dT%H:%M"))
 
     @app.route("/incidents/<int:incident_id>")
@@ -1377,7 +1418,30 @@ def register_routes(app):
             "incident_detail.html", incident=incident,
             issue_types=ISSUE_TYPES, severities=SEVERITIES, statuses=STATUSES,
             employees=Employee.query.filter_by(active=True)
-            .order_by(Employee.name).all())
+            .order_by(Employee.name).all(),
+            echo_groups=echo_field_groups(incident),
+            pdf_exists=bool(incident.pdf_path and
+                            os.path.isfile(incident.pdf_path)))
+
+    @app.route("/incidents/<int:incident_id>/pdf")
+    def incident_pdf_download(incident_id):
+        incident = IncidentReport.query.get_or_404(incident_id)
+        # Regenerate if a saved copy isn't available (e.g. old rows).
+        if not incident.pdf_path or not os.path.isfile(incident.pdf_path):
+            try:
+                incident.pdf_path = incident_pdf_svc.save_incident_pdf(
+                    incident)
+                db.session.commit()
+            except Exception:
+                flash("Could not generate the PDF report", "error")
+                return redirect(url_for(
+                    "incident_detail", incident_id=incident.id))
+        unit = incident.vehicle.unit_number if incident.vehicle else "vehicle"
+        download_name = f"ECHO_Incident_Report_{unit}_{incident.id}.pdf"
+        return send_file(incident.pdf_path,
+                         mimetype="application/pdf",
+                         as_attachment=True,
+                         download_name=download_name)
 
     @app.route("/incidents/<int:incident_id>/edit", methods=["POST"])
     def incident_edit(incident_id):
@@ -1415,6 +1479,12 @@ def register_routes(app):
                 pass
         elif "assigned_to" in request.form:
             incident.assigned_to = None
+        set_echo_fields(incident, collect_echo_fields(request.form))
+        # Refresh the saved company PDF with the updated data.
+        try:
+            incident.pdf_path = incident_pdf_svc.save_incident_pdf(incident)
+        except Exception:
+            incident.pdf_path = None
         db.session.commit()
         flash("Incident updated", "success")
         return redirect(url_for("incident_detail", incident_id=incident.id))

@@ -1,0 +1,42 @@
+{# ECHO East Coast ACCIDENT / INCIDENT REPORT fields.
+   Expects `echo_groups` = [(group_label, [(name, label, input_type, extra, value)])].
+   input_type: text | textarea | yesno | select #}
+{% for group_label, rows in echo_groups %}
+<div class="card echo-group">
+  <h3>{{ group_label }}</h3>
+  <div class="form-row">
+  {% for name, label, ftype, extra, value in rows %}
+    {% if ftype == 'yesno' %}
+    <div>
+      <label>{{ label }}</label>
+      <select name="echo_fields[{{ name }}]">
+        <option value="">—</option>
+        <option value="Yes" {{ 'selected' if value == 'Yes' }}>Yes</option>
+        <option value="No" {{ 'selected' if value == 'No' }}>No</option>
+      </select>
+    </div>
+    {% elif ftype == 'textarea' %}
+    <div style="flex-basis:100%">
+      <label>{{ label }}</label>
+      <textarea name="echo_fields[{{ name }}]" rows="3">{{ value }}</textarea>
+    </div>
+    {% elif ftype == 'select' %}
+    <div>
+      <label>{{ label }}</label>
+      <select name="echo_fields[{{ name }}]">
+        <option value="">— Select —</option>
+        {% for opt in extra %}
+        <option value="{{ opt }}" {{ 'selected' if (value or '') == opt }}>{{ opt }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% else %}
+    <div>
+      <label>{{ label }}</label>
+      <input type="text" name="echo_fields[{{ name }}]" value="{{ value or '' }}" autocomplete="off">
+    </div>
+    {% endif %}
+  {% endfor %}
+  </div>
+</div>
+{% endfor %}

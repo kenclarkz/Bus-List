@@ -7,7 +7,8 @@ import pytest
 from app import create_app
 from app.models import db, Vehicle, Employee, IncidentReport, IncidentNote, \
     IncidentPhoto
-from app.services.incidents import ISSUE_TYPES, SEVERITIES, STATUSES
+from app.services.incidents import ISSUE_TYPES, SEVERITIES, STATUSES, \
+    echo_field_groups
 from app.services.vehicles import find_or_create_vehicle, default_location
 
 
@@ -382,3 +383,107 @@ def test_vehicle_detail_lists_incidents(manager_client, app):
     assert "Incident Reports" in html
     assert "Damage" in html
     assert 'href="/incidents/new?vehicle=' in html
+
+
+# ---------------------------------------------------------------------------
+# ECHO report PDF generation & download
+# ---------------------------------------------------------------------------
+
+def test_submit_with_echo_fields_creates_pdf(client, app):
+    vid = _make_vehicle(app, unit="9101")
+    r = client.post("/incidents/new", data={
+        "vehicle_id": str(vid),
+        "issue_type": "Mechanical",
+        "description": "Engine overheating on I-95",
+        "echo_fields[driver_name]": "John Smith",
+        "echo_fields[police_notified]": "Yes",
+        "echo_fields[police_report_number]": "2026-0112",
+        "echo_fields[accident_type]": "Collision",
+        "echo_fields[roadway_conditions]": "Dry",
+        "echo_fields[witnesses]": "Two witnesses nearby.",
+        "echo_fields[hazardous_spill]": "No",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        inc = IncidentReport.query.first()
+        assert inc.echo_fields is not None
+        import json
+        echo = json.loads(inc.echo_fields)
+        assert echo["driver_name"] == "John Smith"
+        assert echo["police_notified"] == "Yes"
+        assert echo["accident_type"] == "Collision"
+        # Yes list fields should not leak into unknown keys.
+        assert "unit_number" not in echo
+        # A filled PDF copy is saved for managers to download.
+        assert inc.pdf_path and os.path.isfile(inc.pdf_path)
+        iid = inc.id
+    body = client.get(f"/incidents/{iid}").data.decode()
+    assert "Download Filled PDF" in body
+
+
+def test_incident_pdf_download(client, app):
+    iid = _make_incident(app, unit="9203")
+    r = client.get(f"/incidents/{iid}/pdf")
+    assert r.status_code == 200
+    assert r.data[:4] == b"%PDF"
+    assert r.headers["Content-Type"] == "application/pdf"
+    assert "ECHO_Incident_Report_9203" in r.headers.get(
+        "Content-Disposition", "")
+
+
+def test_incident_pdf_download_available_to_manager(manager_client, app):
+    iid = _make_incident(app, unit="8414")
+    r = manager_client.get(f"/incidents/{iid}/pdf")
+    assert r.status_code == 200
+    assert r.data[:4] == b"%PDF"
+
+
+def test_manager_edit_updates_echo_fields_and_pdf(manager_client, app):
+    iid = _make_incident(app, unit="8406")
+    r = manager_client.post(f"/incidents/{iid}/edit", data={
+        "issue_type": "Damage",
+        "severity": "Critical",
+        "status": "In Progress",
+        "description": "Dented front bumper",
+        "echo_fields[driver_name]": "Jane Manager",
+        "echo_fields[city]": "Jacksonville",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        import json
+        inc = IncidentReport.query.get(iid)
+        echo = json.loads(inc.echo_fields)
+        assert echo["driver_name"] == "Jane Manager"
+        assert echo["city"] == "Jacksonville"
+        assert inc.pdf_path and os.path.isfile(inc.pdf_path)
+        pdf_path = inc.pdf_path
+        inc.pdf_path = None
+        db.session.commit()
+    # Download regenerates when the saved copy went missing.
+    r = manager_client.get(f"/incidents/{iid}/pdf")
+    assert r.status_code == 200
+    with app.app_context():
+        inc = IncidentReport.query.get(iid)
+        assert inc.pdf_path and os.path.isfile(inc.pdf_path)
+
+
+def test_echo_field_groups_covers_required_sections(app):
+    with app.app_context():
+        groups = echo_field_groups()
+        labels = [g[0] for g in groups]
+        assert "Driver" in labels
+        assert "Accident / Incident" in labels
+        assert "Other Vehicle — Driver" in labels
+        names = {name for _, rows in groups for name, *_ in rows}
+        # Core template fields are present so the PDF can be filled.
+        for key in ["driver_name", "police_notified", "police_report_number",
+                    "road_name", "accident_type", "injuries_other_party",
+                    "insurance_co", "witnesses", "hazardous_spill"]:
+            assert key in names
+
+
+def test_driver_cannot_download_pdf(app):
+    iid = _make_incident(app, unit="9416")
+    d = app.test_client()
+    d.post("/login", data={"username": "driver", "password": "driver"})
+    assert d.get(f"/incidents/{iid}/pdf").status_code == 302

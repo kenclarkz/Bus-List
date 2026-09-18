@@ -6,6 +6,9 @@
   <div class="flex">
     <a class="btn secondary" href="{{ url_for('incidents_list') }}">Back</a>
     <a class="btn secondary" href="{{ url_for('vehicle_detail', vehicle_id=incident.vehicle_id) }}">Vehicle {{ incident.vehicle.unit_number }}</a>
+    {% if pdf_exists %}
+    <a class="btn" href="{{ url_for('incident_pdf_download', incident_id=incident.id) }}">⬇ Download PDF</a>
+    {% endif %}
   </div>
 </div>
 
@@ -34,6 +37,29 @@
   <p><strong>Resolution notes:</strong></p>
   <p class="small" style="white-space:pre-wrap">{{ incident.resolution_notes }}</p>
   {% endif %}
+</div>
+
+<div class="card">
+  <h2>ECHO Accident / Incident Report</h2>
+  {% if echo_groups %}
+  <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(180px,1fr))">
+    {% for group_label, rows in echo_groups %}
+    {% for name, label, ftype, extra, value in rows %}
+    {% if value %}
+    <div>
+      <div class="lbl small muted">{{ group_label }} — {{ label }}</div>
+      <div style="font-weight:600">{{ value }}</div>
+    </div>
+    {% endif %}
+    {% endfor %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">No ECHO report form data recorded.</p>
+  {% endif %}
+  <div style="margin-top:12px">
+    <a class="btn" href="{{ url_for('incident_pdf_download', incident_id=incident.id) }}">⬇ Download Filled PDF</a>
+  </div>
 </div>
 
 <div class="card">
@@ -156,6 +182,16 @@
     </div>
     <label>Description</label>
     <textarea name="description" rows="3">{{ incident.description }}</textarea>
+
+    {% if echo_groups %}
+    <div style="margin-top:20px">
+      <h3 style="border-top:2px solid var(--border,#e2e8f0);padding-top:16px">ECHO Accident / Incident Report Form</h3>
+      <p class="small muted">These fields fill in the company's ECHO East Coast
+        Accident / Incident Report PDF. Yes / No answers are circled on the PDF.</p>
+    </div>
+    {% include "_echo_fields.html" %}
+    {% endif %}
+
     <div class="flex" style="margin-top:12px">
       <button type="submit" class="btn">Save Changes</button>
     </div>

@@ -308,6 +308,11 @@ class IncidentReport(db.Model):
     assigned_to = db.Column(db.Integer, db.ForeignKey("employees.id"))
     resolution_notes = db.Column(db.Text)
     resolved_at = db.Column(db.DateTime)
+    # Data for the ECHO East Coast accident/incident report PDF template,
+    # stored as a JSON object. pdf_path is the filled, saved copy managers
+    # can download.
+    echo_fields = db.Column(db.Text)
+    pdf_path = db.Column(db.String(512))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
