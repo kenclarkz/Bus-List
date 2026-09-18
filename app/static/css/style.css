@@ -163,6 +163,32 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); b
 .form-row { display: flex; gap: 12px; flex-wrap: wrap; }
 .form-row > div { flex: 1; min-width: 160px; }
 
+/* collapsible form / detail sections */
+details.sect { margin: 12px 0; padding: 4px 16px 16px; }
+details.sect summary {
+  cursor: pointer;
+  font-weight: 700;
+  padding: 12px 0;
+  color: var(--primary);
+  font-size: 1.05rem;
+}
+details.sect[open] summary { border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+details.sect h2, details.sect h3 { margin-top: 20px; }
+
+/* read-only report detail grid */
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px 24px;
+  margin: 12px 0;
+}
+.info-grid > div { font-size: .95rem; }
+
+/* inline choice (radio) rows */
+.choice-row { display: flex; gap: 18px; flex-wrap: wrap; margin: 6px 0 4px; }
+.choice-row label { color: inherit; display: inline-flex; align-items: center; gap: 6px; }
+.choice-row input[type=radio] { width: auto; }
+
 /* flash */
 .flash { padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; font-weight: 600; }
 .flash-success { background: var(--success-bg); color: var(--success); }

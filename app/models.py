@@ -293,6 +293,10 @@ class IncidentReport(db.Model):
     Status flow: Open -> In Progress -> Resolved. Managers may review, edit,
     assign, add notes/photos, and resolve. Reports and photos are stored on
     disk under the uploads folder.
+
+    The columns below mirror the paper ECHO East Coast Accident/Incident Report
+    template so a completed incident can be rendered onto the same form and
+    downloaded as a filled-in PDF (see services/incident_report_pdf.py).
     """
     __tablename__ = "incident_reports"
 
@@ -310,6 +314,61 @@ class IncidentReport(db.Model):
     resolved_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # --- Accident/Incident Report (ECHO template) fields ----------------
+    driver_name = db.Column(db.String(200))
+    police_notified = db.Column(db.Boolean)
+    police_report_number = db.Column(db.String(80))
+    road_name = db.Column(db.String(200))
+    intersection_with = db.Column(db.String(200))
+    county_parish = db.Column(db.String(120))
+    city_town = db.Column(db.String(120))
+    roadway_conditions = db.Column(db.String(120))
+    accident_type = db.Column(db.String(80))  # Collision / Passengers involved / Incident
+    injuries_other_party = db.Column(db.Boolean)
+    employee_injured = db.Column(db.Boolean)
+    employee_citation = db.Column(db.Boolean)
+    violation_reason = db.Column(db.String(255))
+    investigating_supervisor = db.Column(db.String(200))
+    employee_supervisor = db.Column(db.String(200))
+
+    other_driver_is_owner = db.Column(db.Boolean)
+    other_driver_name = db.Column(db.String(200))
+    other_driver_address = db.Column(db.String(200))
+    other_driver_city = db.Column(db.String(120))
+    other_driver_state = db.Column(db.String(40))
+    other_driver_zip = db.Column(db.String(40))
+    other_driver_phone = db.Column(db.String(80))
+    other_driver_license = db.Column(db.String(80))
+    other_driver_license_state = db.Column(db.String(40))
+
+    owner_name = db.Column(db.String(200))
+    owner_address = db.Column(db.String(200))
+    owner_city = db.Column(db.String(120))
+    owner_state = db.Column(db.String(40))
+    owner_zip = db.Column(db.String(40))
+
+    other_make = db.Column(db.String(100))
+    other_model = db.Column(db.String(100))
+    other_year = db.Column(db.String(20))
+    other_color = db.Column(db.String(60))
+    other_plate = db.Column(db.String(60))
+    other_passengers = db.Column(db.String(40))
+    other_injuries = db.Column(db.Boolean)
+    other_driver_ticketed = db.Column(db.Boolean)
+
+    insurance_company = db.Column(db.String(200))
+    insurance_policy = db.Column(db.String(120))
+    insurance_address = db.Column(db.String(200))
+    insurance_city = db.Column(db.String(120))
+    insurance_state = db.Column(db.String(40))
+    insurance_zip = db.Column(db.String(40))
+    insurance_phone = db.Column(db.String(80))
+
+    witnesses = db.Column(db.Text)
+    property_damage = db.Column(db.Boolean)
+    owner_object_struck = db.Column(db.String(255))
+    hazmat_spill = db.Column(db.Boolean)
 
     vehicle = db.relationship("Vehicle", back_populates="incidents")
     reporter = db.relationship("Employee", foreign_keys=[reported_by])

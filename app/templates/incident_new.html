@@ -1,71 +1,79 @@
 {% extends "base.html" %}
 {% block title %}Report an Issue{% endblock %}
 {% block content %}
+{% from "_incident_report_fields.html" import report_fields %}
 <h1>Report an Issue</h1>
 
 <div class="card">
-  <p class="muted">Submit a new issue for any vehicle. Add a description,
-    severity, location, and one or more photos. Works from mobile or desktop.</p>
+  <p class="muted">Submit an accident / incident report for any vehicle. The
+    form follows the ECHO Accident/Incident Report template; once saved,
+    managers can download a filled-in PDF copy.</p>
   <form method="post" action="{{ url_for('incident_new') }}" enctype="multipart/form-data">
-    <div class="form-row">
-      <div>
-        <label>Vehicle</label>
-        <select name="vehicle_id">
-          <option value="">— Select Vehicle —</option>
-          {% for v in vehicles %}
-          <option value="{{ v.id }}" {{ 'selected' if v.id == preselect_id }}>
-            {{ v.unit_number }}{% if v.vehicle_type %} — {{ v.vehicle_type.name }}{% endif %}
-          </option>
-          {% endfor %}
-        </select>
+    <details class="card sect" open>
+      <summary>Vehicle &amp; Report</summary>
+      <div class="form-row">
+        <div>
+          <label>Vehicle</label>
+          <select name="vehicle_id">
+            <option value="">— Select Vehicle —</option>
+            {% for v in vehicles %}
+            <option value="{{ v.id }}" {{ 'selected' if v.id == preselect_id }}>
+              {{ v.unit_number }}{% if v.vehicle_type %} — {{ v.vehicle_type.name }}{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>Or enter unit # <span class="small muted">(if not listed)</span></label>
+          <input type="text" name="unit_number" placeholder="e.g. 155" autocomplete="off">
+        </div>
       </div>
-      <div>
-        <label>Or enter unit # <span class="small muted">(if not listed)</span></label>
-        <input type="text" name="unit_number" placeholder="e.g. 155" autocomplete="off">
+      <div class="form-row">
+        <div>
+          <label>Issue Type *</label>
+          <select name="issue_type" required>
+            <option value="">— Select Type —</option>
+            {% for t in issue_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>Severity</label>
+          <select name="severity">
+            {% for s in severities %}<option value="{{ s }}" {{ 'selected' if s == 'Medium' }}>{{ s }}</option>{% endfor %}
+          </select>
+        </div>
       </div>
-    </div>
-    <div class="form-row">
-      <div>
-        <label>Issue Type *</label>
-        <select name="issue_type" required>
-          <option value="">— Select Type —</option>
-          {% for t in issue_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
-        </select>
+      <div class="form-row">
+        <div>
+          <label>Location on Vehicle</label>
+          <input type="text" name="location" placeholder="e.g. Left rear tire, Driver seat" autocomplete="off">
+        </div>
+        <div>
+          <label>Reported by</label>
+          {% if current_role == 'employee' and current_employee %}
+          <input type="text" value="{{ current_employee.name }}" disabled>
+          {% else %}
+          <select name="reported_by">
+            <option value="">Manager</option>
+            {% for e in employees %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}
+          </select>
+          {% endif %}
+        </div>
       </div>
-      <div>
-        <label>Severity</label>
-        <select name="severity">
-          {% for s in severities %}<option value="{{ s }}" {{ 'selected' if s == 'Medium' }}>{{ s }}</option>{% endfor %}
-        </select>
-      </div>
-      <div>
-        <label>Date / Time</label>
-        <input type="datetime-local" name="occurred_at" value="{{ now_iso }}">
-      </div>
-    </div>
-    <div class="form-row">
-      <div>
-        <label>Location on Vehicle</label>
-        <input type="text" name="location" placeholder="e.g. Left rear tire, Driver seat" autocomplete="off">
-      </div>
-      <div>
-        <label>Reported by</label>
-        {% if current_role == 'employee' and current_employee %}
-        <input type="text" value="{{ current_employee.name }}" disabled>
-        {% else %}
-        <select name="reported_by">
-          <option value="">Manager</option>
-          {% for e in employees %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}
-        </select>
-        {% endif %}
-      </div>
-    </div>
-    <label>Description *</label>
-    <textarea name="description" required rows="4"
-              placeholder="Describe the issue in detail..."></textarea>
-    <label>Photos <span class="small muted">(one or more)</span></label>
-    <input type="file" name="photos" multiple accept="image/*">
-    <div class="photo-previews" id="photo-previews"></div>
+    </details>
+
+    {{ report_fields() }}
+
+    <details class="card sect">
+      <summary>Description * &amp; Photos</summary>
+      <label>Fully describe the Accident / Incident *</label>
+      <textarea name="description" required rows="5"
+                placeholder="Describe what happened in detail..."></textarea>
+      <label>Photos <span class="small muted">(one or more)</span></label>
+      <input type="file" name="photos" multiple accept="image/*">
+      <div class="photo-previews" id="photo-previews"></div>
+    </details>
+
     <div class="flex" style="margin-top:16px">
       <button type="submit" class="btn">Submit Report</button>
       <a class="btn secondary" href="{{ url_for('incidents_list') }}">Cancel</a>

@@ -219,10 +219,25 @@ def test_manager_can_view_incidents(manager_client, app):
     assert manager_client.get("/incidents/new").status_code == 200
 
 
-def test_driver_cannot_access_incidents(app):
+def test_driver_cannot_manage_incidents(app):
+    """Drivers may submit incidents but cannot manage (review/edit) them."""
     d = app.test_client()
     d.post("/login", data={"username": "driver", "password": "driver"})
-    assert d.get("/incidents").status_code == 302
+    assert d.get("/incidents").status_code == 200
+    assert d.get("/incidents/new").status_code == 200
+    d.post("/incidents/new", data={
+        "unit_number": "8493",
+        "issue_type": "Exterior",
+        "description": "Minor scratch",
+    })
+    with app.app_context():
+        inc = IncidentReport.query.first()
+        assert inc is not None  # a vehicle-less crew member can still report
+    iid = inc.id
+    # Editing / resolving stays manager-only.
+    assert d.get(f"/incidents/{iid}").status_code == 200
+    assert d.post(f"/incidents/{iid}/edit", data={}).status_code == 302
+    assert d.post(f"/incidents/{iid}/resolve", data={}).status_code == 302
 
 
 # ---------------------------------------------------------------------------
@@ -382,3 +397,146 @@ def test_vehicle_detail_lists_incidents(manager_client, app):
     assert "Incident Reports" in html
     assert "Damage" in html
     assert 'href="/incidents/new?vehicle=' in html
+
+
+# ---------------------------------------------------------------------------
+# ECHO Accident/Incident Report (filled-in PDF download)
+# ---------------------------------------------------------------------------
+
+def test_submit_saves_echo_report_fields(client, app):
+    vid = _make_vehicle(app)
+    r = client.post("/incidents/new", data={
+        "vehicle_id": str(vid),
+        "issue_type": "Damage",
+        "severity": "High",
+        "description": "Rear-ended at low speed",
+        "driver_name": "John Smith",
+        "police_notified": "yes",
+        "police_report_number": "E-44123",
+        "road_name": "FL A1A",
+        "intersection_with": "3rd Street",
+        "county_parish": "Duval",
+        "city_town": "Jacksonville Beach",
+        "roadway_conditions": "Wet",
+        "accident_type": "Collision",
+        "injuries_other_party": "no",
+        "employee_injured": "no",
+        "employee_citation": "no",
+        "investigating_supervisor": "R. Daudt",
+        "employee_supervisor": "B. Bunten",
+        "other_driver_is_owner": "yes",
+        "other_driver_name": "Jane Doe",
+        "other_driver_address": "123 Main St",
+        "other_driver_city": "Jacksonville",
+        "other_driver_state": "FL",
+        "other_driver_zip": "32224",
+        "other_driver_phone": "904-555-1234",
+        "other_driver_license": "D12345678",
+        "other_driver_license_state": "FL",
+        "other_make": "Toyota",
+        "other_model": "Camry",
+        "other_year": "2018",
+        "other_color": "Silver",
+        "other_plate": "XYZ 123",
+        "other_passengers": "2",
+        "other_injuries": "no",
+        "other_driver_ticketed": "no",
+        "insurance_company": "GEICO",
+        "insurance_policy": "P-998877",
+        "property_damage": "yes",
+        "owner_object_struck": "Guardrail",
+        "hazmat_spill": "no",
+        "witnesses": "Two bystanders helped.",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        inc = IncidentReport.query.first()
+        assert inc.driver_name == "John Smith"
+        assert inc.police_notified is True
+        assert inc.police_report_number == "E-44123"
+        assert inc.road_name == "FL A1A"
+        assert inc.intersection_with == "3rd Street"
+        assert inc.accident_type == "Collision"
+        assert inc.injuries_other_party is False
+        assert inc.other_driver_is_owner is True
+        assert inc.insurance_company == "GEICO"
+        assert inc.property_damage is True
+        assert inc.hazmat_spill is False
+        assert inc.witnesses == "Two bystanders helped."
+
+
+def test_download_filled_incident_pdf(client, app):
+    vid = _make_vehicle(app, unit="9101")
+    with app.app_context():
+        v = Vehicle.query.get(vid)
+        v.vehicle_type = None
+        db.session.add(IncidentReport(
+            vehicle_id=vid, issue_type="Damage", severity="High",
+            description="Front bumper cracked.",
+            driver_name="John Smith", accident_type="Collision",
+            police_notified=True, police_report_number="E-44123",
+            road_name="FL A1A", city_town="Jacksonville Beach"))
+        db.session.commit()
+        iid = IncidentReport.query.first().id
+
+    r = client.get(f"/incidents/{iid}/pdf")
+    assert r.status_code == 200
+    assert r.mimetype == "application/pdf"
+    assert r.data.startswith(b"%PDF")
+    # The generated copy carries the recorded values onto the template.
+    text = ""
+    import pymupdf
+    doc = pymupdf.open("pdf", r.data)
+    for page in doc:
+        text += page.get_text()
+    assert "John Smith" in text
+    assert "FL A1A" in text
+    assert "E-44123" in text
+    assert "Front bumper cracked." in text
+    assert "Jacksonville Beach" in text
+
+
+def test_driver_can_submit_incident(app):
+    d = app.test_client()
+    d.post("/login", data={"username": "driver", "password": "driver"})
+    assert d.get("/incidents/new").status_code == 200
+    r = d.post("/incidents/new", data={
+        "unit_number": "8493",
+        "issue_type": "Damage",
+        "severity": "Medium",
+        "description": "Tail light broken",
+        "driver_name": "Danny Driver",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        inc = IncidentReport.query.first()
+        assert inc is not None
+        assert inc.vehicle.unit_number == "8493"
+        assert inc.driver_name == "Danny Driver"
+
+
+def test_manager_edit_saves_echo_report_fields(manager_client, app):
+    iid = _make_incident(app)
+    r = manager_client.post(f"/incidents/{iid}/edit", data={
+        "issue_type": "Mechanical",
+        "severity": "Medium",
+        "status": "Open",
+        "description": "Updated description",
+        "driver_name": "Ed Supervisor",
+        "police_notified": "no",
+        "road_name": "Beach Blvd",
+        "accident_type": "Incident",
+        "other_driver_name": "Pat Passenger",
+        "insurance_company": "Progressive",
+        "witnesses": "Front desk clerk",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        inc = IncidentReport.query.get(iid)
+        assert inc.driver_name == "Ed Supervisor"
+        assert inc.police_notified is False
+        assert inc.road_name == "Beach Blvd"
+        assert inc.accident_type == "Incident"
+        assert inc.other_driver_name == "Pat Passenger"
+        assert inc.insurance_company == "Progressive"
+        assert inc.witnesses == "Front desk clerk"

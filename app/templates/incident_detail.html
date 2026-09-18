@@ -4,6 +4,7 @@
 <div class="flex between" style="margin-bottom:16px">
   <h1 style="margin:0">Incident #{{ incident.id }}</h1>
   <div class="flex">
+    <a class="btn" href="{{ url_for('incident_pdf', incident_id=incident.id) }}">Download PDF</a>
     <a class="btn secondary" href="{{ url_for('incidents_list') }}">Back</a>
     <a class="btn secondary" href="{{ url_for('vehicle_detail', vehicle_id=incident.vehicle_id) }}">Vehicle {{ incident.vehicle.unit_number }}</a>
   </div>
@@ -35,6 +36,89 @@
   <p class="small" style="white-space:pre-wrap">{{ incident.resolution_notes }}</p>
   {% endif %}
 </div>
+
+{# ---------- ECHO Accident / Incident Report fields ---------- #}
+
+{% set echo = incident %}
+{% macro yn_val(field) %}
+  {%- if echo|attr(field) is sameas true %}Yes
+  {%- elif echo|attr(field) is sameas false %}No
+  {%- else %}—{% endif -%}
+{% endmacro %}
+
+<details class="card sect">
+  <summary>Accident / Incident Report</summary>
+  <div class="info-grid">
+    <div><strong>Driver Name:</strong> {{ echo.driver_name or '—' }}</div>
+    <div><strong>Date / Time:</strong> {{ echo.occurred_at.strftime('%m/%d/%Y %I:%M %p') if echo.occurred_at else '—' }}</div>
+    <div><strong>Police Notified:</strong> {{ yn_val('police_notified') }}
+      {% if echo.police_report_number %} — Report #: {{ echo.police_report_number }}{% endif %}
+    </div>
+    <div><strong>Road:</strong> {{ echo.road_name or '—' }}</div>
+    <div><strong>At Intersection With:</strong> {{ echo.intersection_with or '—' }}</div>
+    <div><strong>County / Parish:</strong> {{ echo.county_parish or '—' }}</div>
+    <div><strong>City / Town:</strong> {{ echo.city_town or '—' }}</div>
+    <div><strong>Roadway / Weather:</strong> {{ echo.roadway_conditions or '—' }}</div>
+    <div><strong>Type of Accident:</strong> {{ echo.accident_type or '—' }}</div>
+    <div><strong>Injuries (other party):</strong> {{ yn_val('injuries_other_party') }}</div>
+    <div><strong>Employee Injured:</strong> {{ yn_val('employee_injured') }}</div>
+    <div><strong>Citation Received:</strong> {{ yn_val('employee_citation') }}
+      {% if echo.violation_reason %} — {{ echo.violation_reason }}{% endif %}
+    </div>
+    <div><strong>Investigating Supervisor:</strong> {{ echo.investigating_supervisor or '—' }}</div>
+    <div><strong>Employee Supervisor:</strong> {{ echo.employee_supervisor or '—' }}</div>
+  </div>
+
+  <h3>Other Vehicle Information</h3>
+  <div class="info-grid">
+    <div><strong>Driver Was Owner:</strong> {{ yn_val('other_driver_is_owner') }}</div>
+    <div><strong>Driver Name:</strong> {{ echo.other_driver_name or '—' }}</div>
+    <div><strong>Driver Address:</strong> {{ echo.other_driver_address or '—' }}</div>
+    <div><strong>City / State / Zip:</strong> {{ echo.other_driver_city or '—' }}, {{ echo.other_driver_state or '' }} {{ echo.other_driver_zip or '' }}</div>
+    <div><strong>Phone:</strong> {{ echo.other_driver_phone or '—' }}</div>
+    <div><strong>License:</strong> {{ echo.other_driver_license or '—' }} {{ echo.other_driver_license_state or '' }}</div>
+  </div>
+
+  <h3>Owner Information{% if echo.owner_name %} (if Different from Driver){% endif %}</h3>
+  <div class="info-grid">
+    <div><strong>Owner Name:</strong> {{ echo.owner_name or '—' }}</div>
+    <div><strong>Address:</strong> {{ echo.owner_address or '—' }}</div>
+    <div><strong>City / State / Zip:</strong> {{ echo.owner_city or '—' }}, {{ echo.owner_state or '' }} {{ echo.owner_zip or '' }}</div>
+  </div>
+
+  <h3>Other Vehicle</h3>
+  <div class="info-grid">
+    <div><strong>Make:</strong> {{ echo.other_make or '—' }}</div>
+    <div><strong>Model:</strong> {{ echo.other_model or '—' }}</div>
+    <div><strong>Year:</strong> {{ echo.other_year or '—' }}</div>
+    <div><strong>Color:</strong> {{ echo.other_color or '—' }}</div>
+    <div><strong>License Plate:</strong> {{ echo.other_plate or '—' }}</div>
+    <div><strong>Passengers:</strong> {{ echo.other_passengers or '—' }}</div>
+    <div><strong>Injuries:</strong> {{ yn_val('other_injuries') }}</div>
+    <div><strong>Driver Ticketed:</strong> {{ yn_val('other_driver_ticketed') }}</div>
+  </div>
+
+  <h3>Insurance</h3>
+  <div class="info-grid">
+    <div><strong>Company:</strong> {{ echo.insurance_company or '—' }}</div>
+    <div><strong>Policy #:</strong> {{ echo.insurance_policy or '—' }}</div>
+    <div><strong>Address:</strong> {{ echo.insurance_address or '—' }}</div>
+    <div><strong>City / State / Zip:</strong> {{ echo.insurance_city or '—' }}, {{ echo.insurance_state or '' }} {{ echo.insurance_zip or '' }}</div>
+    <div><strong>Phone:</strong> {{ echo.insurance_phone or '—' }}</div>
+  </div>
+
+  {% if echo.witnesses %}
+  <h3>Witnesses</h3>
+  <p class="small" style="white-space:pre-wrap">{{ echo.witnesses }}</p>
+  {% endif %}
+
+  <h3>Property / Hazmat</h3>
+  <div class="info-grid">
+    <div><strong>Property Damaged:</strong> {{ yn_val('property_damage') }}</div>
+    {% if echo.owner_object_struck %}<div><strong>Object Struck:</strong> {{ echo.owner_object_struck }}</div>{% endif %}
+    <div><strong>Hazardous Material Spill:</strong> {{ yn_val('hazmat_spill') }}</div>
+  </div>
+</details>
 
 <div class="card">
   <h2>Photos ({{ incident.photos|length }})</h2>
@@ -156,6 +240,11 @@
     </div>
     <label>Description</label>
     <textarea name="description" rows="3">{{ incident.description }}</textarea>
+
+    {# --- ECHO report fields editable by managers --- #}
+    {% from "_incident_report_fields.html" import report_fields %}
+    {{ report_fields(incident) }}
+
     <div class="flex" style="margin-top:12px">
       <button type="submit" class="btn">Save Changes</button>
     </div>

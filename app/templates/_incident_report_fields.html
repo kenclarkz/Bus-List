@@ -1,0 +1,150 @@
+{# Shared ECHO Accident/Incident Report form fields.
+   Renders all fields on the paper template. `obj` is either an IncidentReport
+   (manager edit: values prefilled) or None (new report: all blank). #}
+
+{% macro yn(name, obj, positive, negative) %}
+  <div>
+    <label>{{ positive }} / {{ negative }}</label>
+    <select name="{{ name }}">
+      <option value="">— Select —</option>
+      <option value="yes" {{ 'selected' if obj and obj|attr(name) is sameas true }}>{{ positive }}</option>
+      <option value="no" {{ 'selected' if obj and obj|attr(name) is sameas false }}>{{ negative }}</option>
+    </select>
+  </div>
+{% endmacro %}
+
+{% macro inp(name, obj, label='') %}
+  <div>
+    <label>{{ label or name|replace('_', ' ')|title }}</label>
+    <input type="text" name="{{ name }}" value="{{ obj|attr(name) if obj and obj|attr(name) }}" autocomplete="off">
+  </div>
+{% endmacro %}
+
+{% macro area(name, obj, label='', rows=3) %}
+  <div style="grid-column:1/-1">
+    <label>{{ label or name|replace('_', ' ')|title }}</label>
+    <textarea name="{{ name }}" rows="{{ rows }}">{{ obj|attr(name) if obj and obj|attr(name) }}</textarea>
+  </div>
+{% endmacro %}
+
+{% macro report_fields(obj=None) %}
+<details class="card sect" open>
+  <summary>Accident / Incident Details</summary>
+  <div class="form-row">
+    {{ inp('driver_name', obj, 'Driver Full Name (Printed)') }}
+    <div>
+      <label>Date / Time of Incident</label>
+      {% if obj and obj.occurred_at %}
+      <input type="datetime-local" name="occurred_at" value="{{ obj.occurred_at.strftime('%Y-%m-%dT%H:%M') }}">
+      {% else %}
+      <input type="datetime-local" name="occurred_at" value="{{ now_iso }}">
+      {% endif %}
+    </div>
+  </div>
+  <div class="form-row">
+    {{ yn('police_notified', obj, 'Police Notified: Yes', 'No') }}
+    {{ inp('police_report_number', obj, 'Police Report Number') }}
+  </div>
+  <div class="form-row">
+    {{ inp('road_name', obj, 'Name of Road') }}
+    {{ inp('intersection_with', obj, 'At Intersection With') }}
+  </div>
+  <div class="form-row">
+    {{ inp('county_parish', obj, 'County / Parish') }}
+    {{ inp('city_town', obj, 'City / Town') }}
+    {{ inp('roadway_conditions', obj, 'Roadway & Weather Conditions (Dry, Wet, Ice, Rain, Snow)') }}
+  </div>
+  <div>
+    <label>Type of Accident</label>
+    <div class="choice-row">
+      <label><input type="radio" name="accident_type" value="Collision" {{ 'checked' if obj and obj.accident_type == 'Collision' }}> Collision</label>
+      <label><input type="radio" name="accident_type" value="Passengers involved" {{ 'checked' if obj and obj.accident_type == 'Passengers involved' }}> Passengers involved</label>
+      <label><input type="radio" name="accident_type" value="Incident" {{ 'checked' if obj and obj.accident_type == 'Incident' }}> Incident (no other vehicle or passengers)</label>
+    </div>
+  </div>
+  <div class="form-row">
+    {{ yn('injuries_other_party', obj, 'Injuries (other party): Yes', 'No') }}
+    {{ yn('employee_injured', obj, 'Employee Injured: Yes', 'No') }}
+    {{ yn('employee_citation', obj, 'Employee Received Citation: Yes', 'No') }}
+  </div>
+  <div class="form-row">
+    {{ inp('violation_reason', obj, 'Violation Reason') }}
+  </div>
+  <div class="form-row">
+    {{ inp('investigating_supervisor', obj, 'Investigating Supervisor') }}
+    {{ inp('employee_supervisor', obj, 'Employee Supervisor') }}
+  </div>
+</details>
+
+<details class="card sect">
+  <summary>Other Vehicle &amp; Insurance</summary>
+  <div class="form-row">
+    {{ yn('other_driver_is_owner', obj, 'Driver Was Owner: Yes', 'No') }}
+  </div>
+  <div class="form-row">
+    {{ inp('other_driver_name', obj, 'Other Driver Name') }}
+    {{ inp('other_driver_address', obj, 'Other Driver Address') }}
+  </div>
+  <div class="form-row">
+    {{ inp('other_driver_city', obj, 'City') }}
+    {{ inp('other_driver_state', obj, 'State') }}
+    {{ inp('other_driver_zip', obj, 'Zip') }}
+  </div>
+  <div class="form-row">
+    {{ inp('other_driver_phone', obj, 'Phone #') }}
+    {{ inp('other_driver_license', obj, 'Driver License #') }}
+    {{ inp('other_driver_license_state', obj, 'License State') }}
+  </div>
+  <h3>Owner Information (if different from driver)</h3>
+  <div class="form-row">
+    {{ inp('owner_name', obj, 'Owner Name') }}
+    {{ inp('owner_address', obj, 'Address') }}
+  </div>
+  <div class="form-row">
+    {{ inp('owner_city', obj, 'City') }}
+    {{ inp('owner_state', obj, 'State') }}
+    {{ inp('owner_zip', obj, 'Zip') }}
+  </div>
+  <h3>Other Vehicle Information</h3>
+  <div class="form-row">
+    {{ inp('other_make', obj, 'Make') }}
+    {{ inp('other_model', obj, 'Model') }}
+    {{ inp('other_year', obj, 'Year') }}
+    {{ inp('other_color', obj, 'Color') }}
+  </div>
+  <div class="form-row">
+    {{ inp('other_plate', obj, 'License Plate') }}
+    {{ inp('other_passengers', obj, 'Number of Passengers') }}
+    {{ yn('other_injuries', obj, 'Injuries: Yes', 'No') }}
+  </div>
+  <div class="form-row">
+    {{ yn('other_driver_ticketed', obj, 'Other Driver Ticketed: Yes', 'No') }}
+  </div>
+  <h3>Insurance Information</h3>
+  <div class="form-row">
+    {{ inp('insurance_company', obj, 'Insurance Co') }}
+    {{ inp('insurance_policy', obj, 'Policy #') }}
+  </div>
+  <div class="form-row">
+    {{ inp('insurance_address', obj, 'Address') }}
+    {{ inp('insurance_city', obj, 'City') }}
+    {{ inp('insurance_state', obj, 'State') }}
+    {{ inp('insurance_zip', obj, 'Zip') }}
+  </div>
+  <div class="form-row">
+    {{ inp('insurance_phone', obj, 'Phone #') }}
+  </div>
+</details>
+
+<details class="card sect">
+  <summary>Witnesses, Property &amp; Hazmat</summary>
+  {{ area('witnesses', obj, 'Witnesses / Injured Parties (names &amp; contact info)', 3) }}
+  <div class="form-row">
+    {{ yn('property_damage', obj, 'Property Damaged: Yes', 'No') }}
+    {{ inp('owner_object_struck', obj, 'Name &amp; Address of Owner of Object Struck') }}
+  </div>
+  <div class="form-row">
+    {{ yn('hazmat_spill', obj, 'Hazardous Material Spilled: Yes', 'No') }}
+  </div>
+</details>
+{% endmacro %}
