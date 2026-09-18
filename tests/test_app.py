@@ -666,8 +666,14 @@ def test_imported_pdf_saved_and_viewable(client, app):
         saved_bytes = open(saved_path, "rb").read()
         assert saved_bytes == data
 
-    # The original PDF is served back identically.
+    # The viewer page embeds the original PDF and offers a way back.
     r = client.get(f"/import/{imp.id}/view")
+    assert r.status_code == 200
+    assert r.headers["Content-Type"] != "application/pdf"
+    assert f"/import/{imp.id}/pdf".encode() in r.data
+
+    # The original PDF is served back identically.
+    r = client.get(f"/import/{imp.id}/pdf")
     assert r.status_code == 200
     assert r.data == data
     assert r.headers["Content-Type"] == "application/pdf"

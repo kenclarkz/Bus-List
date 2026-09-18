@@ -44,7 +44,7 @@
     {% for i in imports %}
     <tr>
       <td>{{ i.imported_at.strftime('%b %d %H:%M') }}</td>
-      <td>{{ i.filename }}{% if i.file_path %} <a href="{{ url_for('import_view', import_id=i.id) }}" target="_blank" class="btn small">View PDF</a>{% endif %}</td>
+      <td>{{ i.filename }}{% if i.file_path %} <a href="{{ url_for('import_view', import_id=i.id) }}" class="btn small">View PDF</a>{% endif %}</td>
       <td>{{ i.employee.name if i.employee else 'Manager' }}</td>
       <td>{{ i.extraction_method or '—' }}</td>
       <td><span class="badge {{ 'success' if i.applied else 'warn' }}">{{ 'Yes' if i.applied else 'No' }}</span></td>
