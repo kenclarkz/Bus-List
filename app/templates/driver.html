@@ -3,6 +3,7 @@
 
 {% block content %}
 <h1>Finished Vehicles <span class="muted small">Next 2 Days</span></h1>
+<div style="margin:10px 0 0"><a class="btn" href="{{ url_for('incident_new') }}">Report an Incident</a></div>
 
 {% set ns = namespace(total=0) %}
 {% for day in days %}

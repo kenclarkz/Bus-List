@@ -79,6 +79,46 @@ def _parse_imported_by(raw):
     return None
 
 
+# ECHO Accident/Incident Report fields captured alongside an incident.
+BOOL_REPORT_FIELDS = (
+    "police_notified", "injuries_other_party", "employee_injured",
+    "employee_citation", "other_driver_is_owner", "other_injuries",
+    "other_driver_ticketed", "property_damage", "hazmat_spill",
+)
+
+TEXT_REPORT_FIELDS = (
+    "driver_name", "police_report_number", "road_name", "intersection_with",
+    "county_parish", "city_town", "roadway_conditions", "accident_type",
+    "violation_reason", "investigating_supervisor", "employee_supervisor",
+    "other_driver_name", "other_driver_address", "other_driver_city",
+    "other_driver_state", "other_driver_zip", "other_driver_phone",
+    "other_driver_license", "other_driver_license_state", "owner_name",
+    "owner_address", "owner_city", "owner_state", "owner_zip", "other_make",
+    "other_model", "other_year", "other_color", "other_plate",
+    "other_passengers", "insurance_company", "insurance_policy",
+    "insurance_address", "insurance_city", "insurance_state", "insurance_zip",
+    "insurance_phone", "witnesses", "owner_object_struck",
+)
+
+
+def _parse_yes_no(value):
+    """Convert a yes/no form value into True/False/None."""
+    value = (value or "").strip().lower()
+    if value == "yes":
+        return True
+    if value == "no":
+        return False
+    return None
+
+
+def _apply_report_fields(incident, form):
+    """Copy the ECHO Accident/Incident Report form inputs onto a record."""
+    for field in TEXT_REPORT_FIELDS:
+        setattr(incident, field, (form.get(field) or "").strip() or None)
+    for field in BOOL_REPORT_FIELDS:
+        setattr(incident, field, _parse_yes_no(form.get(field)))
+
+
 def create_app(test_config=None):
     app = Flask(__name__)
 
@@ -160,6 +200,61 @@ def _migrate():
         if "file_path" not in pcols:
             con.execute("ALTER TABLE prep_report_imports ADD COLUMN file_path VARCHAR(512)")
             con.commit()
+        icols = {r[1] for r in con.execute("PRAGMA table_info(incident_reports)")}
+        INCIDENT_REPORT_COLUMNS = [
+            ("driver_name", "VARCHAR(200)"),
+            ("police_notified", "BOOLEAN"),
+            ("police_report_number", "VARCHAR(80)"),
+            ("road_name", "VARCHAR(200)"),
+            ("intersection_with", "VARCHAR(200)"),
+            ("county_parish", "VARCHAR(120)"),
+            ("city_town", "VARCHAR(120)"),
+            ("roadway_conditions", "VARCHAR(120)"),
+            ("accident_type", "VARCHAR(80)"),
+            ("injuries_other_party", "BOOLEAN"),
+            ("employee_injured", "BOOLEAN"),
+            ("employee_citation", "BOOLEAN"),
+            ("violation_reason", "VARCHAR(255)"),
+            ("investigating_supervisor", "VARCHAR(200)"),
+            ("employee_supervisor", "VARCHAR(200)"),
+            ("other_driver_is_owner", "BOOLEAN"),
+            ("other_driver_name", "VARCHAR(200)"),
+            ("other_driver_address", "VARCHAR(200)"),
+            ("other_driver_city", "VARCHAR(120)"),
+            ("other_driver_state", "VARCHAR(40)"),
+            ("other_driver_zip", "VARCHAR(40)"),
+            ("other_driver_phone", "VARCHAR(80)"),
+            ("other_driver_license", "VARCHAR(80)"),
+            ("other_driver_license_state", "VARCHAR(40)"),
+            ("owner_name", "VARCHAR(200)"),
+            ("owner_address", "VARCHAR(200)"),
+            ("owner_city", "VARCHAR(120)"),
+            ("owner_state", "VARCHAR(40)"),
+            ("owner_zip", "VARCHAR(40)"),
+            ("other_make", "VARCHAR(100)"),
+            ("other_model", "VARCHAR(100)"),
+            ("other_year", "VARCHAR(20)"),
+            ("other_color", "VARCHAR(60)"),
+            ("other_plate", "VARCHAR(60)"),
+            ("other_passengers", "VARCHAR(40)"),
+            ("other_injuries", "BOOLEAN"),
+            ("other_driver_ticketed", "BOOLEAN"),
+            ("insurance_company", "VARCHAR(200)"),
+            ("insurance_policy", "VARCHAR(120)"),
+            ("insurance_address", "VARCHAR(200)"),
+            ("insurance_city", "VARCHAR(120)"),
+            ("insurance_state", "VARCHAR(40)"),
+            ("insurance_zip", "VARCHAR(40)"),
+            ("insurance_phone", "VARCHAR(80)"),
+            ("witnesses", "TEXT"),
+            ("property_damage", "BOOLEAN"),
+            ("owner_object_struck", "VARCHAR(255)"),
+            ("hazmat_spill", "BOOLEAN"),
+        ]
+        for col, ctype in INCIDENT_REPORT_COLUMNS:
+            if col not in icols:
+                con.execute(f"ALTER TABLE incident_reports ADD COLUMN {col} {ctype}")
+                con.commit()
         con.close()
     except Exception:
         pass
@@ -468,8 +563,11 @@ def register_routes(app):
             session.clear()
             return redirect(url_for("login"))
         # Drivers only see the finished-vehicles screen (plus their own Settings
-        # page for their theme choice).
-        if user == "driver" and request.endpoint not in ("driver_dashboard", "settings_page"):
+        # page for their theme choice and the incident report submission flow).
+        if user == "driver" and request.endpoint not in (
+                "driver_dashboard", "settings_page", "incidents_list",
+                "incident_new", "incident_detail", "incident_pdf",
+                "incident_photo"):
             return redirect(url_for("driver_dashboard"))
         # Vehicles, Staff and operational Settings are manager-only.
         if user != "manager" and request.endpoint in MANAGER_ONLY_ENDPOINTS:
@@ -1342,6 +1440,7 @@ def register_routes(app):
                 occurred_at=occurred_at,
                 reported_by=reported_by,
             )
+            _apply_report_fields(incident, request.form)
             db.session.add(incident)
             db.session.flush()
 
@@ -1415,6 +1514,7 @@ def register_routes(app):
                 pass
         elif "assigned_to" in request.form:
             incident.assigned_to = None
+        _apply_report_fields(incident, request.form)
         db.session.commit()
         flash("Incident updated", "success")
         return redirect(url_for("incident_detail", incident_id=incident.id))
@@ -1484,6 +1584,18 @@ def register_routes(app):
         db.session.commit()
         flash("Photo removed", "success")
         return redirect(url_for("incident_detail", incident_id=incident_id))
+
+    @app.route("/incidents/<int:incident_id>/pdf")
+    def incident_pdf(incident_id):
+        """Download the incident filled onto the ECHO Accident/Incident Report."""
+        import io
+        from .services.incident_report_pdf import render_incident_pdf
+        incident = IncidentReport.query.get_or_404(incident_id)
+        data = render_incident_pdf(incident)
+        unit = incident.vehicle.unit_number or "vehicle"
+        filename = f"incident_{incident.id}_{unit}_report.pdf"
+        return send_file(io.BytesIO(data), mimetype="application/pdf",
+                         as_attachment=True, download_name=filename)
 
     def _import_date_options():
         """Build date options for import: today, tomorrow, +2 days."""

@@ -68,7 +68,10 @@ report. It is not a static mockup.
     notes, attach extra photos, and resolve issues (Open → In Progress →
     Resolved). Every incident is permanently linked to the vehicle's history
     page, and the list supports filters by vehicle, issue type, severity,
-    employee, and status.
+    employee, and status. Incident reports follow the official **ECHO East
+    Coast Accident/Incident Report** form: the app's form captures every field
+    on that template, and a **Download PDF** button renders the completed
+    report onto the blank form for managers to save, print, or email.
 
 ---
 
