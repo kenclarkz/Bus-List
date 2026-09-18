@@ -798,6 +798,15 @@ def register_routes(app):
         if not imp.file_path or not os.path.isfile(imp.file_path):
             flash("Original PDF file is no longer available", "error")
             return redirect(url_for("history_days"))
+        return render_template(
+            "import_view.html", imp=imp, pdf_url=url_for("import_pdf", import_id=import_id))
+
+    @app.route("/import/<int:import_id>/pdf")
+    def import_pdf(import_id):
+        imp = PrepReportImport.query.get_or_404(import_id)
+        if not imp.file_path or not os.path.isfile(imp.file_path):
+            flash("Original PDF file is no longer available", "error")
+            return redirect(url_for("history_days"))
         return send_file(imp.file_path, mimetype="application/pdf")
 
     @app.route("/import/<int:import_id>/apply", methods=["POST"])

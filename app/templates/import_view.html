@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}View PDF — {{ imp.filename }}{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="flex" style="justify-content: space-between; align-items: center; margin-bottom: 12px;">
+    <h1 style="margin: 0;">{{ imp.filename }}</h1>
+    <a href="{{ url_for('history_days') }}" class="btn small secondary">Back</a>
+  </div>
+  <div class="pdf-wrap">
+    <iframe src="{{ pdf_url }}#toolbar=0" title="{{ imp.filename }}"></iframe>
+  </div>
+</div>
+{% endblock %}

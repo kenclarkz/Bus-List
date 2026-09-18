@@ -396,6 +396,21 @@ html[data-theme="halloween"] .photo-item { background: #120d1e; border-color: va
 .between { justify-content: space-between; }
 .right { margin-left: auto; }
 
+/* pdf viewer */
+.pdf-wrap {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 200px);
+  min-height: 400px;
+}
+.pdf-wrap iframe {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
 address, code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
 
