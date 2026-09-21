@@ -10,10 +10,16 @@ DEFAULTS = {
     "checklist_inside": "Sweep,Mop,Windows,Seats,Bathroom",
     "checklist_outside": "Dump,Bay Checked,Final Inspection",
     "dark_mode": "off",       # global fallback theme: off | on | system | futuristic | halloween
+    "layout": "classic",      # global fallback layout: classic | sidepanel
 }
 
 # Valid theme choices. Each user may store their own under a per-user key.
 THEME_CHOICES = ("off", "on", "system", "futuristic", "halloween")
+
+# Valid layout choices. Layout is how the site chrome is arranged (top bar vs
+# sidebar); it is independent of the color theme. Each user may store their
+# own under a per-user key. "classic" is the default layout.
+LAYOUT_CHOICES = ("classic", "sidepanel")
 
 
 def theme_key(user, employee_id=None):
@@ -38,6 +44,31 @@ def set_user_theme(user, employee_id=None, value="off"):
     if value not in THEME_CHOICES:
         return False
     set_setting(theme_key(user, employee_id), value)
+    return True
+
+
+def layout_key(user, employee_id=None):
+    """DB key storing one user's own layout choice (per-account, and per
+    employee when the shared employee account has picked a name)."""
+    if user == "employee" and employee_id:
+        return f"layout:employee:{employee_id}"
+    return f"layout:{user or 'employee'}"
+
+
+def get_user_layout(user, employee_id=None):
+    """A user's own layout choice, falling back to the global default."""
+    if user:
+        own = get_setting(layout_key(user, employee_id))
+        if own:
+            return own
+    return get_setting("layout", "classic") or "classic"
+
+
+def set_user_layout(user, employee_id=None, value="classic"):
+    """Persist a user's own layout choice. Ignored for unknown values."""
+    if value not in LAYOUT_CHOICES:
+        return False
+    set_setting(layout_key(user, employee_id), value)
     return True
 
 

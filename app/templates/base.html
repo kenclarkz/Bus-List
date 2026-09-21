@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="{{ dark_mode }}">
+<html lang="en" data-theme="{{ dark_mode }}" data-layout="{{ layout or 'classic' }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,58 +19,93 @@
   {% block head %}{% endblock %}
 </head>
 <body data-employee-id="{{ current_employee.id if current_employee else '' }}">
-  <header class="topbar">
-    <div class="brand">
-      <span class="logo">🛠️</span>
-      <span class="brand-name">{{ app_name }}</span>
-      {% if current_user %}
-      <span class="role-btn active no-click">{{ current_user }}</span>
-      {% endif %}
-    </div>
-    {% if current_role == 'driver' %}
-    <nav class="nav">
-      <a href="{{ url_for('driver_dashboard') }}" class="{{ 'active' if request.endpoint == 'driver_dashboard' }}">Finished</a>
-      <a href="{{ url_for('settings_page') }}" class="{{ 'active' if request.endpoint == 'settings_page' }}">Settings</a>
-    </nav>
-    {% else %}
-    <nav class="nav">
-      <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Today</a>
-      {% if current_role == 'manager' %}
-      <a href="{{ url_for('vehicle_list') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('vehicle') }}">Vehicles</a>
-      {% endif %}
-      <a href="{{ url_for('import_report') }}" class="{{ 'active' if request.endpoint == 'import_report' }}">Import</a>
-      <a href="{{ url_for('end_day') }}" class="{{ 'active' if request.endpoint == 'end_day' }}">End Day</a>
-      <a href="{{ url_for('history_days') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('history') }}">History</a>
-      <a href="{{ url_for('incidents_list') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('incident') }}">Incidents</a>
-      <a href="{{ url_for('trash_page') }}" class="{{ 'active' if request.endpoint == 'trash_page' }}">Trash</a>
-      {% if current_role == 'manager' %}
-      <a href="{{ url_for('employees_page') }}" class="{{ 'active' if request.endpoint == 'employees_page' }}">Staff</a>
-      {% endif %}
-      {% if current_role != 'driver' %}
-      <a href="{{ url_for('settings_page') }}" class="{{ 'active' if request.endpoint == 'settings_page' }}">Settings</a>
-      {% endif %}
-    </nav>
+{% macro content_block() %}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="flash flash-{{ category }}">{{ message }}</div>
+      {% endfor %}
     {% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+{% endmacro %}
+{% if layout == 'sidepanel' %}
+<div class="sp-shell">
+  <aside class="sp-sidebar">
+    <div class="sp-brand">
+      <span class="sp-logo">🛠️</span>
+      <span class="sp-brand-name">{{ app_name }}</span>
+    </div>
     {% if current_user %}
-    <div class="topbar-right">
-      <form method="post" action="{{ url_for('logout') }}" class="logout-form">
-        <button type="submit" class="btn small secondary">Logout</button>
+    <div class="sp-role">{{ current_user }}</div>
+    {% endif %}
+    <nav class="sp-nav">
+      {% for ep, label, icon in nav_links %}
+      {% set is_active = request.endpoint == ep or
+        (ep == 'vehicle_list' and request.endpoint and request.endpoint.startswith('vehicle')) or
+        (ep == 'history_days' and request.endpoint and request.endpoint.startswith('history')) or
+        (ep == 'incidents_list' and request.endpoint and request.endpoint.startswith('incident')) %}
+      <a href="{{ url_for(ep) }}" class="{{ 'active' if is_active }}" title="{{ label }}">
+        <span class="sp-nav-icon">{{ icon }}</span>
+        <span class="sp-nav-label">{{ label }}</span>
+      </a>
+      {% endfor %}
+    </nav>
+    {% if current_user %}
+    <div class="sp-logout">
+      <form method="post" action="{{ url_for('logout') }}">
+        <button type="submit" class="sp-logout-btn">Logout</button>
       </form>
     </div>
     {% endif %}
-  </header>
+  </aside>
+  <div class="sp-main">
+    <header class="sp-topbar">
+      <div class="sp-topbar-title">
+        {% if current_employee %}
+        <span class="badge info">{{ current_employee.name }} ({{ current_employee.initials }})</span>
+        {% elif current_user %}
+        <span class="badge info">{{ current_user }}</span>
+        {% endif %}
+      </div>
+      <div class="sp-topbar-date">{{ today().strftime('%A, %B %d %Y') }}</div>
+    </header>
+    <main class="container sp-container">
+      {{ content_block() }}
+    </main>
+  </div>
+</div>
+{% else %}
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">🛠️</span>
+    <span class="brand-name">{{ app_name }}</span>
+    {% if current_user %}
+    <span class="role-btn active no-click">{{ current_user }}</span>
+    {% endif %}
+  </div>
+  <nav class="nav">
+    {% for ep, label, _ in nav_links %}
+    {% set is_active = request.endpoint == ep or
+      (ep == 'vehicle_list' and request.endpoint and request.endpoint.startswith('vehicle')) or
+      (ep == 'history_days' and request.endpoint and request.endpoint.startswith('history')) or
+      (ep == 'incidents_list' and request.endpoint and request.endpoint.startswith('incident')) %}
+    <a href="{{ url_for(ep) }}" class="{{ 'active' if is_active }}">{{ label }}</a>
+    {% endfor %}
+  </nav>
+  {% if current_user %}
+  <div class="topbar-right">
+    <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+      <button type="submit" class="btn small secondary">Logout</button>
+    </form>
+  </div>
+  {% endif %}
+</header>
 
-  <main class="container">
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        {% for category, message in messages %}
-          <div class="flash flash-{{ category }}">{{ message }}</div>
-        {% endfor %}
-      {% endif %}
-    {% endwith %}
-    {% block content %}{% endblock %}
-  </main>
-
+<main class="container">
+  {{ content_block() }}
+</main>
+{% endif %}
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>

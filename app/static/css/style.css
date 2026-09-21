@@ -935,3 +935,218 @@ html[data-theme="halloween"] .progress-fill { background: linear-gradient(90deg,
   html[data-theme="dark"] table { background: #fff !important; }
   html[data-theme="dark"] .vrow { background: #fff !important; }
 }
+
+/* ---------------------------------- */
+/* Side Panel layout (new design)      */
+/* ---------------------------------- */
+/* The "classic" layout (`.topbar` + centered `.container`) stays the default.
+   `layout: sidepanel` swaps the site chrome for a fixed left sidebar with a
+   vertical nav, a slim sticky toolbar and a wider content column. It is
+   independent of the color theme (Light / Dark / Futuristic / Halloween). */
+
+html[data-layout="sidepanel"] {
+  --side-bg: linear-gradient(180deg, #0b1220 0%, #16233b 100%);
+  --side-width: 250px;
+}
+
+html[data-layout="sidepanel"] .sp-shell { display: flex; min-height: 100vh; }
+
+html[data-layout="sidepanel"] .sp-sidebar {
+  width: var(--side-width);
+  flex: none;
+  position: fixed;
+  inset: 0 auto 0 0;
+  background: var(--side-bg);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  z-index: 60;
+  box-shadow: 4px 0 24px rgba(15, 23, 42, .25);
+}
+
+html[data-layout="sidepanel"] .sp-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 16px 14px;
+  font-weight: 800;
+  font-size: .92rem;
+  line-height: 1.25;
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+  min-height: 64px;
+}
+
+html[data-layout="sidepanel"] .sp-logo {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, .45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+}
+
+html[data-layout="sidepanel"] .sp-role {
+  align-self: flex-start;
+  margin: 12px 16px 4px;
+  background: rgba(255, 255, 255, .1);
+  color: #cbd5e1;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+
+html[data-layout="sidepanel"] .sp-nav {
+  flex: 1;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+
+html[data-layout="sidepanel"] .sp-nav a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  color: #94a3b8;
+  font-weight: 600;
+  font-size: .92rem;
+  white-space: nowrap;
+  border-left: 3px solid transparent;
+  transition: background .15s, color .15s;
+}
+
+html[data-layout="sidepanel"] .sp-nav a:hover { background: rgba(255, 255, 255, .07); color: #fff; }
+
+html[data-layout="sidepanel"] .sp-nav a.active {
+  background: linear-gradient(90deg, rgba(37, 99, 235, .35), rgba(37, 99, 235, .05));
+  color: #fff;
+  border-left-color: #60a5fa;
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, .25);
+}
+
+html[data-layout="sidepanel"] .sp-nav-icon { width: 20px; text-align: center; font-size: 1.05rem; flex: none; }
+
+html[data-layout="sidepanel"] .sp-logout {
+  padding: 12px;
+  border-top: 1px solid rgba(255, 255, 255, .08);
+}
+
+html[data-layout="sidepanel"] .sp-logout-btn {
+  width: 100%;
+  background: rgba(255, 255, 255, .06);
+  color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 10px;
+  padding: 10px;
+  font-size: .9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+html[data-layout="sidepanel"] .sp-logout-btn:hover { background: var(--danger); color: #fff; border-color: transparent; }
+
+html[data-layout="sidepanel"] .sp-main {
+  margin-left: var(--side-width);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+html[data-layout="sidepanel"] .sp-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 28px;
+  background: rgba(255, 255, 255, .85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+
+html[data-layout="sidepanel"] .sp-topbar-date { color: var(--muted); font-size: .9rem; font-weight: 600; }
+
+html[data-layout="sidepanel"] .sp-container {
+  max-width: 1320px;
+  margin: 0;
+  padding: 24px 28px 60px;
+}
+
+/* softer, more modern cards & headings for the new design */
+html[data-layout="sidepanel"] .card,
+html[data-layout="sidepanel"] .stat,
+html[data-layout="sidepanel"] .vrow,
+html[data-layout="sidepanel"] .now-worker { border-radius: 14px; }
+
+html[data-layout="sidepanel"] h1 { letter-spacing: -.01em; }
+html[data-layout="sidepanel"] h1::after {
+  content: "";
+  display: block;
+  width: 56px;
+  height: 4px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--primary), var(--info, #7c3aed));
+}
+
+html[data-layout="sidepanel"] .sp-topbar .badge { font-size: .75rem; padding: 5px 12px; }
+
+/* dark + special themes keep the glassy toolbar readable */
+html[data-layout="sidepanel"][data-theme="dark"] .sp-topbar { background: rgba(10, 10, 10, .86); }
+html[data-layout="sidepanel"][data-theme="futuristic"] .sp-topbar { background: rgba(0, 0, 0, .8); }
+html[data-layout="sidepanel"][data-theme="halloween"] .sp-topbar { background: rgba(18, 13, 30, .85); }
+
+/* keep the sidebar brand constant across color themes */
+html[data-layout="sidepanel"][data-theme="futuristic"] .sp-sidebar,
+html[data-layout="sidepanel"][data-theme="halloween"] .sp-sidebar,
+html[data-layout="sidepanel"][data-theme="dark"] .sp-sidebar {
+  background: linear-gradient(180deg, #0b1220 0%, #16233b 100%);
+}
+
+/* responsive: sidebar collapses into a horizontal toolbar on top */
+@media (max-width: 900px) {
+  html[data-layout="sidepanel"] .sp-shell { flex-direction: column; }
+  html[data-layout="sidepanel"] .sp-sidebar {
+    position: static;
+    width: 100%;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 12px;
+    box-shadow: 0 2px 12px rgba(15, 23, 42, .18);
+  }
+  html[data-layout="sidepanel"] .sp-brand { padding: 2px 6px; border-bottom: none; min-height: 0; font-size: .8rem; }
+  html[data-layout="sidepanel"] .sp-logo { width: 28px; height: 28px; font-size: .9rem; }
+  html[data-layout="sidepanel"] .sp-role { margin: 0 6px; padding: 2px 8px; font-size: .6rem; }
+  html[data-layout="sidepanel"] .sp-nav { flex-direction: row; overflow-x: auto; padding: 4px 2px; order: 3; flex-basis: 100%; }
+  html[data-layout="sidepanel"] .sp-nav a { padding: 8px 10px; font-size: .82rem; gap: 6px; border-left: none; border-bottom: 2px solid transparent; border-radius: 8px; }
+  html[data-layout="sidepanel"] .sp-nav a.active { border-left: none; border-bottom-color: var(--primary); }
+  html[data-layout="sidepanel"] .sp-logout { padding: 2px 6px; border-top: none; }
+  html[data-layout="sidepanel"] .sp-logout-btn { width: auto; padding: 8px 10px; font-size: .8rem; }
+  html[data-layout="sidepanel"] .sp-main { margin-left: 0; }
+  html[data-layout="sidepanel"] .sp-topbar { padding: 10px 14px; }
+  html[data-layout="sidepanel"] .sp-container { padding: 16px 12px 60px; }
+}
+
+/* print: hide sidepanel chrome like the classic topbar */
+@media print {
+  html[data-layout="sidepanel"] .sp-sidebar,
+  html[data-layout="sidepanel"] .sp-topbar { display: none !important; }
+  html[data-layout="sidepanel"] .sp-main { margin-left: 0; }
+  html[data-layout="sidepanel"] h1::after { display: none; }
+}
