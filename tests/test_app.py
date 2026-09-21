@@ -746,6 +746,63 @@ def test_delete_import_clears_employee_current_vehicle(client, app):
         assert emp.current_vehicle_id is None
 
 
+def test_delete_import_with_replaced_vehicle(client, app):
+    """Deleting an import whose vehicles were involved in a replacement must
+    not 500 on the NOT NULL replacement foreign keys (regression fix)."""
+    import fitz
+    from app.models import PrepReportImport, Replacement
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Unit  Type  Route")
+    page.insert_text((72, 100), "910   Coach  R1")
+    data = doc.tobytes()
+
+    r = client.post("/import", data={
+        "pdf": (io.BytesIO(data), "prep_replaced.pdf"),
+    }, content_type="multipart/form-data")
+    assert r.status_code == 200
+
+    with app.app_context():
+        iid = PrepReportImport.query.first().id
+
+    r = client.post(f"/import/{iid}/apply")
+    assert r.status_code == 302
+
+    # Replace the freshly-imported vehicle so a Replacement row references it.
+    with app.app_context():
+        from app.services.vehicles import find_or_create_vehicle
+        find_or_create_vehicle("912")
+        v = Vehicle.query.filter_by(unit_number="910").first()
+        vid = v.id
+        entry = ScheduleEntry.query.filter_by(vehicle_id=v.id).first()
+        eid = entry.id
+
+    r = client.post(f"/schedule/{eid}/replace", data={
+        "replacement_unit": "912",
+        "reason": "down for service",
+    })
+    assert r.status_code == 302
+
+    with app.app_context():
+        assert Replacement.query.filter(
+            db.or_(Replacement.original_vehicle_id == vid,
+                   Replacement.replacement_vehicle_id == vid)).count() == 1
+
+    # Deleting the import must succeed and detach the replacement rows.
+    r = client.post(f"/import/{iid}/delete")
+    assert r.status_code == 302
+
+    with app.app_context():
+        assert PrepReportImport.query.get(iid) is None
+        assert Vehicle.query.filter_by(unit_number="910").first() is None
+        assert not Replacement.query.filter(
+            db.or_(Replacement.original_vehicle_id == vid,
+                   Replacement.replacement_vehicle_id == vid)).all()
+        # The non-imported replacement vehicle survives.
+        assert Vehicle.query.filter_by(unit_number="912").first() is not None
+
+
 def test_today_board_tracks_import(client, app):
     """Today's total is 0 until a prep report is imported and applied, and
     resets to 0 once the import is deleted (matches the separate Vehicles tab,
