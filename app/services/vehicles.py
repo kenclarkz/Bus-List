@@ -141,6 +141,14 @@ def remove_import(imp):
             db.func.lower(Vehicle.unit_number) == str(unit).lower()
         ).first()
         if vehicle:
+            # Detach any replacements that reference this vehicle so the
+            # vehicle delete doesn't trip the NOT NULL foreign keys on the
+            # replacements rows (which must name both an original and a
+            # replacement vehicle).
+            Replacement.query.filter(db.or_(
+                Replacement.original_vehicle_id == vehicle.id,
+                Replacement.replacement_vehicle_id == vehicle.id,
+            )).delete(synchronize_session=False)
             for entry in ScheduleEntry.query.filter_by(
                     vehicle_id=vehicle.id).all():
                 db.session.delete(entry)
