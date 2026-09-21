@@ -60,7 +60,12 @@ report. It is not a static mockup.
     and locations later (Location is a first-class model).
 10. **UI** — mobile/tablet/desktop responsive, large checkboxes & buttons,
     minimal typing, clean professional interface, color-coded statuses, fast
-    search, clear daily workflow.
+    search, clear daily workflow. Two site layouts are available and can be
+    switched per user in **Settings**: **Classic** (top navigation bar, the
+    default design) and **Side Panel** (a new design with a fixed sidebar
+    navigation, sticky toolbar and wider content column). Layouts are
+    independent of the color themes (Light / Dark / System / Futuristic /
+    Halloween).
 11. **Incident Reports** — a dedicated tab where anyone can report an issue
     for any vehicle: type (Mechanical / Interior / Exterior / Damage /
     Safety / Other), severity, location, description, date/time, and employee,
@@ -136,9 +141,12 @@ Database and secret are configured via environment variables (see
 | `DATABASE_URL` | `sqlite:///data/detail.db` |
 | `PORT` | `5000` |
 
-Thresholds (Recently Washed / Due Soon) and the task list — split into
-**Inside** and **Outside** categories — are configurable in the **Settings**
-page at runtime. Per-vehicle-type checklists can override the global default.
+Thresholds (Recently Washed / Due Soon), the task list — split into
+**Inside** and **Outside** categories — the color theme, and the site layout
+(**Classic** top-bar design or the newer **Side Panel** sidebar design) are all
+configurable in the **Settings** page at runtime. Themes and layouts are saved
+per account, so each user keeps their own appearance. Per-vehicle-type
+checklists can override the global default.
 
 ---
 

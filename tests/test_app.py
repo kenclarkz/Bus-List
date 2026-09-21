@@ -1342,6 +1342,97 @@ def test_theme_chooser_is_in_settings_not_topbar(client, app):
     assert 'name="dark_mode"' in html
 
 
+def test_layout_defaults_to_classic(manager_client):
+    """The current design is the default: no layout -> classic top bar."""
+    r = manager_client.get("/")
+    assert b'data-layout="classic"' in r.data
+    assert b'class="topbar"' in r.data
+    assert b"sp-sidebar" not in r.data
+
+
+def test_layout_can_be_switched_to_sidepanel(manager_client, app):
+    r = manager_client.post("/settings", data={"layout": "sidepanel"})
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_layout("manager") == "sidepanel"
+    # The rendered page now uses the new sidebar design.
+    page = manager_client.get("/").data
+    assert b'data-layout="sidepanel"' in page
+    assert b"sp-sidebar" in page
+    assert b'sp-shell' in page
+    # The settings page reflects the saved choice.
+    r = manager_client.get("/settings")
+    assert b'name="layout"' in r.data
+    assert b'value="sidepanel" selected' in r.data
+
+
+def test_layout_survives_saving_theme_and_other_settings(manager_client, app):
+    manager_client.post("/settings", data={"layout": "sidepanel"})
+    r = manager_client.post("/settings", data={
+        "dark_mode": "on",
+        "recent_days": "3",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_layout("manager") == "sidepanel"
+        assert s.get_user_theme("manager") == "on"
+    assert b'data-layout="sidepanel"' in manager_client.get("/").data
+
+
+def test_layout_rejects_unknown_values(manager_client, app):
+    manager_client.post("/settings", data={"layout": "flying-dashboard"})
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_layout("manager") == "classic"
+
+
+def test_layout_is_per_user(client, manager_client, app):
+    """Manager, employee and driver each keep their own layout."""
+    manager_client.post("/settings", data={"layout": "sidepanel"})
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_layout("manager") == "sidepanel"
+        emp = Employee.query.filter_by(active=True).first()
+        assert s.get_user_layout("employee", emp.id) == "classic"
+    # The manager's choice never changes the employee's layout.
+    with app.app_context():
+        from app.services import settings as s
+        emp = Employee.query.filter_by(active=True).first()
+        assert s.get_user_layout("employee", emp.id) == "classic"
+    # Each role sees their own layout rendered.
+    assert b'data-layout="classic"' in client.get("/").data
+    assert b'data-layout="sidepanel"' in manager_client.get("/").data
+    assert b"sp-sidebar" in manager_client.get("/").data
+
+
+def test_driver_can_set_own_layout(app):
+    d = app.test_client()
+    d.post("/login", data={"username": "driver", "password": "driver"})
+    assert d.get("/settings").status_code == 200
+    r = d.post("/settings", data={"layout": "sidepanel"})
+    assert r.status_code == 302
+    assert b'data-layout="sidepanel"' in d.get("/driver").data
+    assert b"sp-sidebar" in d.get("/driver").data
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_layout("driver") == "sidepanel"
+        assert s.get_user_layout("manager") == "classic"
+
+
+def test_layout_chooser_is_in_settings_not_topbar(client, app):
+    html = client.get("/").data.decode()
+    assert 'name="layout"' not in html
+    html = client.get("/settings").data.decode()
+    assert 'name="layout"' in html
+    assert "Side Panel (new)" in html
+
+
 def test_categorized_checklist_setting_and_defaults(app):
     """Verify the default Inside/Outside split and that custom values stick."""
     from app.services import settings as s

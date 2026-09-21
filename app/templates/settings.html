@@ -4,7 +4,9 @@
 <h1>Settings</h1>
 <div class="card">
   <h2>Appearance</h2>
-  <p class="muted">Your theme choice only changes how the app looks for you.</p>
+  <p class="muted">Your theme and layout choices only change how the app looks for you.
+    <strong>Classic</strong> is the default design; <strong>Side Panel</strong> is the new
+    layout with a sidebar navigation.</p>
   <form method="post" action="{{ url_for('settings_page') }}">
     <label for="dark_mode">Theme</label>
     <select id="dark_mode" name="dark_mode">
@@ -14,8 +16,13 @@
       <option value="futuristic" {{ 'selected' if settings.dark_mode == 'futuristic' }}>Futuristic</option>
       <option value="halloween" {{ 'selected' if settings.dark_mode == 'halloween' }}>Halloween</option>
     </select>
+    <label for="layout">Layout</label>
+    <select id="layout" name="layout">
+      <option value="classic" {{ 'selected' if settings.layout == 'classic' }}>Classic (top bar)</option>
+      <option value="sidepanel" {{ 'selected' if settings.layout == 'sidepanel' }}>Side Panel (new)</option>
+    </select>
     <div style="margin-top:16px" class="flex">
-      <button type="submit" class="btn success">Save Theme</button>
+      <button type="submit" class="btn success">Save Appearance</button>
     </div>
   </form>
 </div>

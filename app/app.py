@@ -461,6 +461,28 @@ def build_schedule_view(sched):
     return rows
 
 
+def _nav_links(role):
+    """(endpoint, label, icon) tuples for the current role. Rendered by both
+    the classic top-bar layout and the new sidepanel layout."""
+    links = []
+    if role == "driver":
+        links.append(("driver_dashboard", "Finished", "✅"))
+        links.append(("settings_page", "Settings", "⚙️"))
+        return links
+    links.append(("dashboard", "Today", "📋"))
+    if role == "manager":
+        links.append(("vehicle_list", "Vehicles", "🚌"))
+    links.append(("import_report", "Import", "📥"))
+    links.append(("end_day", "End Day", "🏁"))
+    links.append(("history_days", "History", "🕓"))
+    links.append(("incidents_list", "Incidents", "⚠️"))
+    links.append(("trash_page", "Trash", "🗑️"))
+    if role == "manager":
+        links.append(("employees_page", "Staff", "👥"))
+    links.append(("settings_page", "Settings", "⚙️"))
+    return links
+
+
 def employees_list():
     return Employee.query.filter_by(active=True).all()
 
@@ -551,6 +573,8 @@ def register_routes(app):
                 "display") if user else None,
             "current_employee": emp,
             "dark_mode": resolved_dark_mode,
+            "layout": settings.get_user_layout(user, emp_id),
+            "nav_links": _nav_links(user if user in ROLE_ACCOUNTS else "employee"),
         }
 
     @app.before_request
@@ -1232,6 +1256,11 @@ def register_routes(app):
             dark_mode = request.form.get("dark_mode")
             if dark_mode in settings.THEME_CHOICES:
                 settings.set_user_theme(user, emp_id, dark_mode)
+            # Layout is another per-user appearance choice: classic (top bar,
+            # the default site design) or sidepanel (the new design).
+            layout = request.form.get("layout")
+            if layout in settings.LAYOUT_CHOICES:
+                settings.set_user_layout(user, emp_id, layout)
             # The remaining operational settings are manager-only.
             if user == "manager":
                 for key in ["recent_days", "due_soon_days", "location"]:
@@ -1278,6 +1307,7 @@ def register_routes(app):
             "checklist_inside": ", ".join(settings.get_checklist_inside()),
             "checklist_outside": ", ".join(settings.get_checklist_outside()),
             "dark_mode": settings.get_user_theme(user, emp_id),
+            "layout": settings.get_user_layout(user, emp_id),
         }, vehicle_types=vtypes)
 
     @app.route("/trash", methods=["GET", "POST"])
