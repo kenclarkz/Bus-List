@@ -1590,6 +1590,72 @@ def test_per_vehicle_type_checklist(app):
                       "Mop", "Seats", "Sweep", "Windows"]
 
 
+def test_stale_current_vehicle_cleared_on_dashboard_load(client, app):
+    """A 'now working' assignment left over from a previous day (employee
+    forgot to hit Done) is cleared automatically when the dashboard loads."""
+    from datetime import timedelta
+    from app.models import Employee
+    from app.services import schedule as ss
+    from app.services.vehicles import find_or_create_vehicle
+
+    with app.app_context():
+        loc = vehicles_loc(app)
+        emp = Employee(name="Alice Smith")
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+        v, _ = find_or_create_vehicle("731", location_id=loc.id)
+        sched = ss.get_or_create_schedule(location=loc)
+        entry = ss.ensure_entry(sched, v)
+        entry_id = entry.id
+        # Assign the employee today, then rewind the assignment to a prior day.
+        client.post("/start-work", data={
+            "employee_id": str(emp_id), "entry_id": str(entry_id)})
+        emp = Employee.query.get(emp_id)
+        assert emp.current_vehicle_id == v.id
+        emp.current_vehicle_set_on = date.today() - timedelta(days=1)
+        db.session.commit()
+        vehicle_id = v.id
+
+    html = client.get("/").data.decode()
+    assert '<div class="now-worker-name">Alice Smith</div>' not in html
+
+    with app.app_context():
+        assert Employee.query.get(emp_id).current_vehicle_id is None
+        assert Employee.query.get(emp_id).current_vehicle_set_on is None
+    assert vehicle_id is not None
+
+
+def test_todays_current_vehicle_kept_on_dashboard_load(client, app):
+    """Assignments made today survive a dashboard reload."""
+    from app.models import Employee
+    from app.services import schedule as ss
+    from app.services.vehicles import find_or_create_vehicle
+
+    with app.app_context():
+        loc = vehicles_loc(app)
+        emp = Employee(name="Brian Jones")
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+        v, _ = find_or_create_vehicle("732", location_id=loc.id)
+        sched = ss.get_or_create_schedule(location=loc)
+        entry = ss.ensure_entry(sched, v)
+        entry_id = entry.id
+        vehicle_id = v.id
+
+    client.post("/start-work", data={
+        "employee_id": str(emp_id), "entry_id": str(entry_id)})
+
+    html = client.get("/").data.decode()
+    assert '<div class="now-worker-name">Brian Jones</div>' in html
+
+    with app.app_context():
+        e = Employee.query.get(emp_id)
+        assert e.current_vehicle_id == vehicle_id
+        assert e.current_vehicle_set_on == date.today()
+
+
 def test_current_vehicle_cleared_when_vehicle_completed(client, app):
     """Once the last task is checked and a vehicle is complete, employees
     are no longer shown as currently working on it."""

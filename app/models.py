@@ -109,6 +109,7 @@ class Employee(db.Model):
     active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     current_vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicles.id"))
+    current_vehicle_set_on = db.Column(db.Date)
 
     location = db.relationship("Location", back_populates="employees")
     completed_tasks = db.relationship("TaskCompletion", back_populates="employee")

@@ -13,6 +13,26 @@ def today():
     return date.today()
 
 
+def clear_stale_current_vehicles():
+    """Clear 'now working' assignments for any employee whose current vehicle
+    was set on a previous day. Employees are expected to finish each vehicle the
+    same day they start it, so a leftover assignment after midnight is stale
+    (e.g. the employee forgot to hit Done) and must not linger on the board."""
+    from ..models import Employee
+
+    today_date = today()
+    changed = False
+    stale = Employee.query.filter(Employee.current_vehicle_id.isnot(None)).all()
+    for emp in stale:
+        on = emp.current_vehicle_set_on
+        if on is None or on < today_date:
+            emp.current_vehicle_id = None
+            emp.current_vehicle_set_on = None
+            changed = True
+    if changed:
+        db.session.commit()
+
+
 def get_or_create_schedule(d=None, location=None):
     d = d or today()
     loc = location or vehicles.default_location()
@@ -165,6 +185,7 @@ def toggle_task(entry_id, task_name, checked, employee_id=None):
         emp = Employee.query.get(employee_id)
         if emp:
             emp.current_vehicle_id = entry.vehicle_id
+            emp.current_vehicle_set_on = date.today()
     db.session.commit()
     # Record last washed / detailed in history when appropriate
     if checked:
