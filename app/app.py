@@ -178,6 +178,15 @@ def _migrate():
         if "current_vehicle_id" not in ecols:
             con.execute("ALTER TABLE employees ADD COLUMN current_vehicle_id INTEGER")
             con.commit()
+        if "current_vehicle_set_on" not in ecols:
+            con.execute("ALTER TABLE employees ADD COLUMN current_vehicle_set_on DATE")
+            con.commit()
+        # Backfill existing assigned vehicles so they start counting as "today" and
+        # get cleared automatically when the next day rolls around.
+        con.execute(
+            "UPDATE employees SET current_vehicle_set_on = date('now') "
+            "WHERE current_vehicle_id IS NOT NULL AND current_vehicle_set_on IS NULL")
+        con.commit()
         scols = {r[1] for r in con.execute("PRAGMA table_info(schedule_entries)")}
         if "skip_reason" not in scols:
             con.execute("ALTER TABLE schedule_entries ADD COLUMN skip_reason VARCHAR(255)")
@@ -638,6 +647,7 @@ def register_routes(app):
             emp = Employee.query.get(int(emp_id))
             if emp:
                 emp.current_vehicle_id = int(vehicle_id) if vehicle_id else None
+                emp.current_vehicle_set_on = date.today() if vehicle_id else None
                 db.session.commit()
         return redirect(request.referrer or url_for("dashboard"))
 
@@ -654,6 +664,7 @@ def register_routes(app):
         if not emp or not entry:
             return jsonify(ok=False, error="Invalid employee or entry"), 404
         emp.current_vehicle_id = entry.vehicle_id
+        emp.current_vehicle_set_on = date.today()
         if entry.status == "pending":
             entry.status = "in_progress"
         db.session.commit()
@@ -734,7 +745,10 @@ def register_routes(app):
         types = sorted({v.vehicle_type.name for v in Vehicle.query
                         if v.vehicle_type and v.vehicle_type.name})
 
-        # Build employee current vehicle map for active employees today
+        # Build employee current vehicle map for active employees today.
+        # Clear any assignments left over from a previous day (employees who
+        # forgot to hit Done) so the "Now Working" board doesn't go stale.
+        sched_svc.clear_stale_current_vehicles()
         active_employees = []
         for emp in Employee.query.filter_by(active=True).order_by(Employee.name).all():
             cv = emp.current_vehicle
