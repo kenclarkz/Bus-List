@@ -1,4 +1,5 @@
 """Application factory and route registration."""
+import atexit
 import os
 import re
 import json
@@ -150,6 +151,8 @@ def create_app(test_config=None):
         seed_defaults()
 
     register_routes(app)
+    if not (test_config or app.config.get("TESTING")):
+        _start_auto_end_day_scheduler(app)
     return app
 
 
@@ -468,6 +471,91 @@ def build_schedule_view(sched):
             "replaced_by": replacer.vehicle if replacer else None,
         })
     return rows
+
+
+def finalize_day(sched, at=None):
+    """Finalize a day's schedule: mark it finalized, record when, and store the
+    summary. Returns True if this call finalized it, False if it was already
+    finalized (no-op). Shared by the End My Day route and the automatic
+    11:50 PM end-of-day job so both produce identical summaries.
+    """
+    if sched.finalized:
+        return False
+    rows = build_schedule_view(sched)
+    total = len(rows)
+    completed = sum(1 for r in rows if r["is_complete"])
+    incomplete = total - completed
+    overall = round((sum(r["done"] for r in rows) /
+                    (sum(r["total"] for r in rows) or 1)) * 100) if rows else 0
+    sched.finalized = True
+    sched.finalized_at = at or datetime.utcnow()
+    sched.summary = json.dumps(dict(
+        total=total, completed=completed, incomplete=incomplete,
+        overall=overall))
+    db.session.commit()
+    return True
+
+
+def _auto_end_day_job(app):
+    """Finalize every schedule the employees left open for today. This is the
+    scheduled task body: at 11:50 PM each day, any day that wasn't ended by an
+    employee is ended automatically. Idempotent, so an employee who already
+    clicked End My Day is never touched."""
+    count = 0
+    with app.app_context():
+        unfinalized = DailySchedule.query.filter_by(
+            work_date=date.today(), finalized=False).all()
+        for sched in unfinalized:
+            if finalize_day(sched):
+                count += 1
+        if count:
+            app.logger.info("Auto end-of-day: finalized %s day(s)", count)
+    return count
+
+
+def _auto_end_time():
+    """Parse AUTO_END_DAY_TIME (HH:MM, default 23:50) into (hour, minute).
+    Invalid values fall back to 23:50."""
+    raw = os.environ.get("AUTO_END_DAY_TIME", "23:50").strip()
+    try:
+        hour, minute = (int(x) for x in raw.split(":", 1))
+    except (TypeError, ValueError):
+        hour, minute = 23, 50
+    return min(max(hour, 0), 23), min(max(minute, 0), 59)
+
+
+def _start_auto_end_day_scheduler(app):
+    """Start the daily 11:50 PM auto end-of-day job (in-process Background
+    Scheduler). Skipped while testing so test apps don't spawn threads.
+
+    Time comes from AUTO_END_DAY_TIME (HH:MM, default 23:50) so operators can
+    adjust the cutoff without code changes. Multiple admins/workers firing the
+    job at the same instant are harmless because finalize_day() is idempotent.
+    """
+    app.logger.info("Starting auto end-of-day scheduler")
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+
+    hour, minute = _auto_end_time()
+
+    scheduler = BackgroundScheduler(daemon=True)
+    scheduler.add_job(
+        _auto_end_day_job,
+        args=[app],
+        trigger=CronTrigger(hour=hour, minute=minute),
+        id="auto_end_day",
+        replace_existing=True,
+    )
+    scheduler.start()
+
+    def _shutdown_scheduler():
+        try:
+            scheduler.shutdown(wait=False)
+        except Exception:
+            pass
+
+    atexit.register(_shutdown_scheduler)
+    return scheduler
 
 
 def _nav_links(role):
@@ -1120,12 +1208,7 @@ def register_routes(app):
             completed_rows.append({**r, "employees": emp_tasks})
 
         if request.method == "POST" and request.form.get("confirm") == "yes":
-            sched.finalized = True
-            sched.finalized_at = datetime.utcnow()
-            sched.summary = json.dumps(dict(
-                total=total, completed=completed, incomplete=incomplete,
-                overall=overall))
-            db.session.commit()
+            finalize_day(sched)
             flash("Day finalized and saved to history", "success")
             return redirect(url_for("history_days"))
 
