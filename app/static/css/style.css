@@ -2159,6 +2159,706 @@ html[data-theme="holographic"] details.sect summary { color: var(--cyan); }
 }
 
 /* ---------------------------------- */
+/* Synthwave theme (retro outrun)      */
+/* ---------------------------------- */
+/* A neon 1980s "outrun" grid dream: deep purple dusk sky, a chrome sunset,
+   and a glowing perspective grid floor. Headings are extruded with stacked
+   3D offset shadows for a chunky retro-authentic look. */
+
+html[data-theme="synthwave"] {
+  color-scheme: dark;
+  --primary: #00f0ff;
+  --primary-dark: #b026ff;
+  --pink: #ff2bd6;
+  --sun: #ffd319;
+  --bg: #120a2e;
+  --card: #160d38;
+  --border: rgba(255, 43, 214, .4);
+  --text: #f7e6ff;
+  --muted: #a891d7;
+  --success: #00ffb3;
+  --success-bg: rgba(0, 255, 179, .12);
+  --warn: #ffd319;
+  --warn-bg: rgba(255, 211, 25, .14);
+  --danger: #ff4d6d;
+  --danger-bg: rgba(255, 77, 109, .16);
+  --info: #00f0ff;
+  --info-bg: rgba(0, 240, 255, .14);
+  --shadow: 0 0 20px rgba(255, 43, 214, .35), 0 12px 40px rgba(0, 0, 0, .55);
+}
+
+html[data-theme="synthwave"] body {
+  background:
+    radial-gradient(ellipse at 50% -10%, #512da8 0%, #2b1a5e 40%, #120a2e 78%, #0a0620 100%);
+  background-attachment: fixed;
+  color: var(--text);
+}
+
+/* retro chrome sunset */
+html[data-theme="synthwave"] body::before {
+  content: "";
+  position: fixed;
+  left: 50%;
+  top: 56px;
+  transform: translateX(-50%);
+  width: 560px;
+  height: 230px;
+  max-width: 92vw;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at center, var(--sun) 0%, #ff7b19 34%, #ff2bd6 62%, transparent 72%);
+  background-size: 100% auto;
+  opacity: .8;
+  z-index: 0;
+}
+
+/* receding grid floor */
+html[data-theme="synthwave"] body::after {
+  content: "";
+  position: fixed;
+  inset: auto 0 0 0;
+  height: 340px;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    repeating-linear-gradient(90deg,
+      rgba(0, 240, 255, .5) 0 2px, transparent 2px 90px),
+    repeating-linear-gradient(0deg,
+      rgba(255, 43, 214, .4) 0 2px, transparent 2px 44px);
+  transform: perspective(360px) rotateX(62deg);
+  transform-origin: bottom center;
+  -webkit-mask-image: linear-gradient(to top, rgba(0, 0, 0, .9), transparent);
+  mask-image: linear-gradient(to top, rgba(0, 0, 0, .9), transparent);
+}
+
+html[data-theme="synthwave"] .container,
+html[data-theme="synthwave"] .sp-container { position: relative; z-index: 1; }
+
+html[data-theme="synthwave"] h1,
+html[data-theme="synthwave"] h2 {
+  font-weight: 900;
+  letter-spacing: .02em;
+}
+/* extruded retro 3D chrome type */
+html[data-theme="synthwave"] h1, html[data-theme="synthwave"] h2 {
+  background: linear-gradient(180deg, #fff8e6 0%, #ffd319 45%, #ff2bd6 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 0 #7a1fa0)
+          drop-shadow(0 3px 0 #5b1378)
+          drop-shadow(0 5px 0 #2e0a45)
+          drop-shadow(0 10px 20px rgba(0, 240, 255, .45));
+}
+html[data-theme="synthwave"] .stat .num {
+  background: linear-gradient(180deg, #00f0ff 0%, #b026ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, .5))
+          drop-shadow(0 0 12px rgba(0, 240, 255, .6));
+}
+html[data-theme="synthwave"] h2 { font-size: 1.6rem; }
+html[data-theme="synthwave"] h1 { font-size: 2.4rem; }
+
+html[data-theme="synthwave"] h1::after,
+html[data-theme="synthwave"] h2::after {
+  content: "";
+  display: block;
+  height: 3px;
+  max-width: 320px;
+  margin: 10px 0;
+  background: linear-gradient(90deg, #ff2bd6, #b026ff 30%, #00f0ff);
+  box-shadow: 0 0 12px rgba(255, 43, 214, .8);
+}
+
+/* raised retina cards */
+html[data-theme="synthwave"] .card,
+html[data-theme="synthwave"] .stat,
+html[data-theme="synthwave"] table,
+html[data-theme="synthwave"] .vrow,
+html[data-theme="synthwave"] .now-worker,
+html[data-theme="synthwave"] .modal,
+html[data-theme="synthwave"] .hlist li,
+html[data-theme="synthwave"] .login-card,
+html[data-theme="synthwave"] fieldset.type-checklist-card {
+  background: var(--card);
+  border-color: var(--border);
+  box-shadow: var(--shadow);
+  border-top-color: rgba(255, 255, 255, .12);
+}
+
+html[data-theme="synthwave"] .topbar {
+  background: rgba(18, 10, 46, .82);
+  border-bottom: 2px solid var(--border);
+  box-shadow: 0 2px 22px rgba(255, 43, 214, .4);
+  backdrop-filter: blur(6px);
+}
+html[data-theme="synthwave"] .nav a { color: #ffd6f9; }
+html[data-theme="synthwave"] .nav a:hover { background: rgba(255, 43, 214, .16); color: #fff; }
+html[data-theme="synthwave"] .nav a.active {
+  background: linear-gradient(90deg, #ff2bd6, #b026ff);
+  color: #fff;
+  box-shadow: 0 0 16px rgba(255, 43, 214, .7);
+}
+html[data-theme="synthwave"] .role-btn { background: rgba(176, 38, 255, .16); color: #ffd6f9; border-color: var(--border); }
+html[data-theme="synthwave"] .role-btn.active,
+html[data-theme="synthwave"] .role-btn.no-click {
+  background: linear-gradient(90deg, #00ffb3, #00f0ff);
+  color: #0a0620;
+  border-color: #00ffb3;
+  box-shadow: 0 0 14px rgba(0, 255, 179, .7);
+}
+html[data-theme="synthwave"] .logout-form .btn { background: rgba(176, 38, 255, .16); color: #ffd6f9; }
+
+html[data-theme="synthwave"] .btn {
+  background: linear-gradient(90deg, #00f0ff, #b026ff);
+  color: #0a0620;
+  box-shadow: 0 0 14px rgba(0, 240, 255, .6);
+}
+html[data-theme="synthwave"] .btn:hover { filter: brightness(1.15); }
+html[data-theme="synthwave"] .btn.secondary { background: rgba(176, 38, 255, .18); color: #ffd6f9; box-shadow: none; }
+html[data-theme="synthwave"] .btn.success { background: linear-gradient(90deg, #00ffb3, #00f0ff); box-shadow: 0 0 14px rgba(0, 255, 179, .6); }
+html[data-theme="synthwave"] .btn.warn { background: linear-gradient(90deg, #ffd319, #ff7b19); }
+html[data-theme="synthwave"] .btn.danger { background: linear-gradient(90deg, #ff4d6d, #ff2bd6); box-shadow: 0 0 14px rgba(255, 77, 109, .6); }
+
+/* dark neon inputs */
+html[data-theme="synthwave"] input[type=text],
+html[data-theme="synthwave"] input[type=number],
+html[data-theme="synthwave"] input[type=date],
+html[data-theme="synthwave"] input[type=password],
+html[data-theme="synthwave"] select,
+html[data-theme="synthwave"] textarea {
+  background: #0e0726;
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 8px rgba(255, 43, 214, .18);
+}
+html[data-theme="synthwave"] input:focus,
+html[data-theme="synthwave"] select:focus,
+html[data-theme="synthwave"] textarea:focus {
+  outline: none;
+  border-color: #00f0ff;
+  box-shadow: 0 0 12px rgba(0, 240, 255, .8);
+}
+
+html[data-theme="synthwave"] .ck {
+  background: #10082b;
+  color: var(--text);
+  border-color: var(--border);
+  box-shadow: 0 0 8px rgba(176, 38, 255, .28);
+}
+html[data-theme="synthwave"] .ck:has(input:checked),
+html[data-theme="synthwave"] .ck.done {
+  background: rgba(0, 255, 179, .16);
+  border-color: #00ffb3;
+  color: #8fffdc;
+  box-shadow: 0 0 14px rgba(0, 255, 179, .55);
+}
+
+html[data-theme="synthwave"] tr:hover td { background: rgba(255, 43, 214, .08); }
+html[data-theme="synthwave"] .vrow.row-replaced { background: rgba(18, 10, 46, .5); border-color: #b026ff; opacity: .8; }
+html[data-theme="synthwave"] .vrow.row-replaced .vnum,
+html[data-theme="synthwave"] .vrow.row-replaced .vmeta,
+html[data-theme="synthwave"] .vrow.row-replaced .progress { color: var(--muted); }
+
+html[data-theme="synthwave"] .badge.muted { background: rgba(168, 145, 215, .15); color: #cdbbef; }
+html[data-theme="synthwave"] .badge.success { background: var(--success-bg); color: var(--success); box-shadow: 0 0 10px rgba(0,255,179,.4); }
+html[data-theme="synthwave"] .badge.warn { background: var(--warn-bg); color: var(--warn); box-shadow: 0 0 10px rgba(255,211,25,.4); }
+html[data-theme="synthwave"] .badge.danger { background: var(--danger-bg); color: var(--danger); box-shadow: 0 0 10px rgba(255,77,109,.4); }
+html[data-theme="synthwave"] .badge.info { background: var(--info-bg); color: var(--info); box-shadow: 0 0 10px rgba(0,240,255,.4); }
+
+html[data-theme="synthwave"] .flash-success { background: var(--success-bg); color: var(--success); }
+html[data-theme="synthwave"] .flash-error { background: var(--danger-bg); color: var(--danger); }
+html[data-theme="synthwave"] .flash-info { background: var(--info-bg); color: var(--info); }
+html[data-theme="synthwave"] .flash-warn { background: var(--warn-bg); color: var(--warn); }
+
+html[data-theme="synthwave"] code { background: #241152; color: #ffb3ee; }
+html[data-theme="synthwave"] .now-worker-avatar { background: linear-gradient(135deg, #ff2bd6, #00f0ff); box-shadow: 0 0 14px rgba(255, 43, 214, .7); }
+html[data-theme="synthwave"] .progress-fill { background: linear-gradient(90deg, #00f0ff, #ff2bd6); }
+
+html[data-theme="synthwave"] .modal-bg { background: rgba(6, 3, 18, .7); }
+
+/* Keep prints light and readable even in the synthwave theme. */
+@media print {
+  html[data-theme="synthwave"] {
+    color-scheme: light;
+    --bg: #fff;
+    --card: #fff;
+    --border: #ccc;
+    --text: #111;
+    --muted: #555;
+  }
+  html[data-theme="synthwave"] body { background: #fff !important; }
+  html[data-theme="synthwave"] body::before, html[data-theme="synthwave"] body::after { display: none !important; }
+  html[data-theme="synthwave"] table { background: #fff !important; }
+  html[data-theme="synthwave"] .vrow { background: #fff !important; }
+  html[data-theme="synthwave"] h1, html[data-theme="synthwave"] h2 {
+    background: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    color: #111;
+    filter: none;
+  }
+  html[data-theme="synthwave"] .stat .num { background: none; -webkit-background-clip: border-box; background-clip: border-box; color: #111; filter: none; }
+  html[data-theme="synthwave"] h1::after, html[data-theme="synthwave"] h2::after { display: none; }
+}
+
+/* ---------------------------------- */
+/* Deep Cosmos theme                   */
+/* ---------------------------------- */
+/* A holographic observatory: deep space with a purple/teal nebula, faint
+   stars and glossy glass cards. Headings float with layered 3D depth and a
+   soft parallax glow like a viewport into the galaxy. */
+
+html[data-theme="cosmos"] {
+  color-scheme: dark;
+  --primary: #7ee7ff;
+  --primary-dark: #a78bfa;
+  --nebula: #8b5cf6;
+  --aurora: #34d399;
+  --bg: #050a1c;
+  --card: rgba(13, 20, 44, .82);
+  --border: rgba(126, 231, 255, .3);
+  --text: #eef3ff;
+  --muted: #8fa3cc;
+  --success: #34d399;
+  --success-bg: rgba(52, 211, 153, .14);
+  --warn: #fbbf24;
+  --warn-bg: rgba(251, 191, 36, .14);
+  --danger: #fb7185;
+  --danger-bg: rgba(251, 113, 133, .16);
+  --info: #7ee7ff;
+  --info-bg: rgba(126, 231, 255, .14);
+  --shadow: 0 0 24px rgba(139, 92, 246, .4), 0 18px 50px rgba(0, 0, 0, .5);
+}
+
+html[data-theme="cosmos"] body {
+  background:
+    radial-gradient(ellipse at 20% 0%, rgba(139, 92, 246, .32), transparent 55%),
+    radial-gradient(ellipse at 85% 12%, rgba(52, 211, 153, .18), transparent 50%),
+    radial-gradient(ellipse at 60% 90%, rgba(56, 189, 248, .14), transparent 55%),
+    #050a1c;
+  background-attachment: fixed;
+  color: var(--text);
+}
+
+/* faint starfield */
+html[data-theme="cosmos"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    radial-gradient(1px 1px at 12% 22%, #fff, transparent),
+    radial-gradient(1px 1px at 28% 62%, #bcd3ff, transparent),
+    radial-gradient(1.5px 1.5px at 42% 12%, #fff, transparent),
+    radial-gradient(1px 1px at 58% 34%, #ffe9c9, transparent),
+    radial-gradient(1.5px 1.5px at 64% 78%, #fff, transparent),
+    radial-gradient(1px 1px at 76% 8%, #d9c9ff, transparent),
+    radial-gradient(1.5px 1.5px at 88% 46%, #fff, transparent),
+    radial-gradient(1px 1px at 8% 84%, #ffd7f2, transparent),
+    radial-gradient(1px 1px at 48% 92%, #c9f6ff, transparent),
+    radial-gradient(1.5px 1.5px at 94% 72%, #fff, transparent);
+  opacity: .7;
+}
+
+html[data-theme="cosmos"] .container,
+html[data-theme="cosmos"] .sp-container { position: relative; z-index: 1; }
+
+/* holographic glass cards */
+html[data-theme="cosmos"] .card,
+html[data-theme="cosmos"] .stat,
+html[data-theme="cosmos"] table,
+html[data-theme="cosmos"] .vrow,
+html[data-theme="cosmos"] .now-worker,
+html[data-theme="cosmos"] .modal,
+html[data-theme="cosmos"] .hlist li,
+html[data-theme="cosmos"] .login-card,
+html[data-theme="cosmos"] fieldset.type-checklist-card {
+  background: var(--card);
+  border-color: var(--border);
+  box-shadow: var(--shadow);
+  border-left: 2px solid rgba(126, 231, 255, .45);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+/* 3D depth-stacked headings */
+html[data-theme="cosmos"] h1,
+html[data-theme="cosmos"] h2 {
+  font-weight: 900;
+  letter-spacing: .01em;
+  background: linear-gradient(120deg, #ffffff 0%, #7ee7ff 40%, #a78bfa 80%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+html[data-theme="cosmos"] h1 {
+  font-size: 2.5rem;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, .25))
+          drop-shadow(0 2px 0 rgba(126, 231, 255, .4))
+          drop-shadow(0 4px 0 rgba(139, 92, 246, .5))
+          drop-shadow(0 0 24px rgba(126, 231, 255, .55));
+}
+html[data-theme="cosmos"] h2 { font-size: 1.7rem;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, .18))
+          drop-shadow(0 2px 0 rgba(126, 231, 255, .35))
+          drop-shadow(0 0 16px rgba(167, 139, 250, .5));
+}
+html[data-theme="cosmos"] .stat .num {
+  background: linear-gradient(120deg, #7ee7ff, #a78bfa);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 12px rgba(126, 231, 255, .55));
+}
+
+html[data-theme="cosmos"] h1::after,
+html[data-theme="cosmos"] h2::after {
+  content: "";
+  display: block;
+  height: 2px;
+  max-width: 320px;
+  margin: 10px 0;
+  background: linear-gradient(90deg, #7ee7ff, #a78bfa 55%, #34d399);
+  box-shadow: 0 0 14px rgba(126, 231, 255, .7);
+}
+
+html[data-theme="cosmos"] .topbar {
+  background: rgba(5, 10, 28, .8);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 0 22px rgba(139, 92, 246, .4);
+  backdrop-filter: blur(8px);
+}
+html[data-theme="cosmos"] .nav a { color: #c4d4ff; }
+html[data-theme="cosmos"] .nav a:hover { background: rgba(126, 231, 255, .14); color: #fff; }
+html[data-theme="cosmos"] .nav a.active {
+  background: linear-gradient(90deg, #7ee7ff, #a78bfa);
+  color: #050a1c;
+  box-shadow: 0 0 16px rgba(126, 231, 255, .6);
+}
+html[data-theme="cosmos"] .role-btn { background: rgba(139, 92, 246, .18); color: #c4d4ff; border-color: var(--border); }
+html[data-theme="cosmos"] .role-btn.active,
+html[data-theme="cosmos"] .role-btn.no-click {
+  background: linear-gradient(90deg, #34d399, #7ee7ff);
+  color: #050a1c;
+  border-color: #34d399;
+  box-shadow: 0 0 14px rgba(52, 211, 153, .6);
+}
+html[data-theme="cosmos"] .logout-form .btn { background: rgba(139, 92, 246, .18); color: #c4d4ff; }
+
+html[data-theme="cosmos"] .btn {
+  background: linear-gradient(90deg, #7ee7ff, #a78bfa);
+  color: #050a1c;
+  box-shadow: 0 0 14px rgba(126, 231, 255, .5);
+}
+html[data-theme="cosmos"] .btn:hover { filter: brightness(1.15); }
+html[data-theme="cosmos"] .btn.secondary { background: rgba(139, 92, 246, .2); color: #c4d4ff; box-shadow: none; }
+html[data-theme="cosmos"] .btn.success { background: linear-gradient(90deg, #34d399, #7ee7ff); box-shadow: 0 0 14px rgba(52, 211, 153, .55); }
+html[data-theme="cosmos"] .btn.warn { background: linear-gradient(90deg, #fbbf24, #fb7185); color: #1c1400; }
+html[data-theme="cosmos"] .btn.danger { background: linear-gradient(90deg, #fb7185, #a78bfa); box-shadow: 0 0 14px rgba(251, 113, 133, .55); }
+
+html[data-theme="cosmos"] input[type=text],
+html[data-theme="cosmos"] input[type=number],
+html[data-theme="cosmos"] input[type=date],
+html[data-theme="cosmos"] input[type=password],
+html[data-theme="cosmos"] select,
+html[data-theme="cosmos"] textarea {
+  background: rgba(8, 12, 30, .9);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 10px rgba(126, 231, 255, .12);
+}
+html[data-theme="cosmos"] input:focus,
+html[data-theme="cosmos"] select:focus,
+html[data-theme="cosmos"] textarea:focus {
+  outline: none;
+  border-color: #7ee7ff;
+  box-shadow: 0 0 14px rgba(126, 231, 255, .75);
+}
+
+html[data-theme="cosmos"] .ck {
+  background: rgba(10, 15, 34, .9);
+  color: var(--text);
+  border-color: var(--border);
+  box-shadow: 0 0 10px rgba(139, 92, 246, .3);
+}
+html[data-theme="cosmos"] .ck:has(input:checked),
+html[data-theme="cosmos"] .ck.done {
+  background: rgba(52, 211, 153, .16);
+  border-color: #34d399;
+  color: #8fffd0;
+  box-shadow: 0 0 14px rgba(52, 211, 153, .55);
+}
+
+html[data-theme="cosmos"] tr:hover td { background: rgba(126, 231, 255, .07); }
+html[data-theme="cosmos"] .vrow.row-replaced { background: rgba(8, 12, 30, .5); border-color: #a78bfa; opacity: .8; }
+html[data-theme="cosmos"] .vrow.row-replaced .vnum,
+html[data-theme="cosmos"] .vrow.row-replaced .vmeta,
+html[data-theme="cosmos"] .vrow.row-replaced .progress { color: var(--muted); }
+
+html[data-theme="cosmos"] .badge.muted { background: rgba(143, 163, 204, .15); color: #c2ceed; }
+html[data-theme="cosmos"] .badge.success { background: var(--success-bg); color: var(--success); box-shadow: 0 0 10px rgba(52,211,153,.4); }
+html[data-theme="cosmos"] .badge.warn { background: var(--warn-bg); color: var(--warn); box-shadow: 0 0 10px rgba(251,191,36,.4); }
+html[data-theme="cosmos"] .badge.danger { background: var(--danger-bg); color: var(--danger); box-shadow: 0 0 10px rgba(251,113,133,.4); }
+html[data-theme="cosmos"] .badge.info { background: var(--info-bg); color: var(--info); box-shadow: 0 0 10px rgba(126,231,255,.4); }
+
+html[data-theme="cosmos"] .flash-success { background: var(--success-bg); color: var(--success); }
+html[data-theme="cosmos"] .flash-error { background: var(--danger-bg); color: var(--danger); }
+html[data-theme="cosmos"] .flash-info { background: var(--info-bg); color: var(--info); }
+html[data-theme="cosmos"] .flash-warn { background: var(--warn-bg); color: var(--warn); }
+
+html[data-theme="cosmos"] code { background: rgba(139, 92, 246, .2); color: #b7e9ff; }
+html[data-theme="cosmos"] .now-worker-avatar { background: linear-gradient(135deg, #7ee7ff, #a78bfa); box-shadow: 0 0 14px rgba(126, 231, 255, .6); }
+html[data-theme="cosmos"] .progress-fill { background: linear-gradient(90deg, #7ee7ff, #a78bfa); }
+
+html[data-theme="cosmos"] .modal-bg { background: rgba(3, 6, 15, .72); }
+
+/* Keep prints light and readable even in the cosmos theme. */
+@media print {
+  html[data-theme="cosmos"] {
+    color-scheme: light;
+    --bg: #fff;
+    --card: #fff;
+    --border: #ccc;
+    --text: #111;
+    --muted: #555;
+  }
+  html[data-theme="cosmos"] body { background: #fff !important; }
+  html[data-theme="cosmos"] body::before { display: none !important; }
+  html[data-theme="cosmos"] table { background: #fff !important; }
+  html[data-theme="cosmos"] .vrow { background: #fff !important; }
+  html[data-theme="cosmos"] h1, html[data-theme="cosmos"] h2 {
+    background: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    color: #111;
+    filter: none;
+  }
+  html[data-theme="cosmos"] .stat .num { background: none; -webkit-background-clip: border-box; background-clip: border-box; color: #111; filter: none; }
+  html[data-theme="cosmos"] h1::after, html[data-theme="cosmos"] h2::after { display: none; }
+}
+
+/* ---------------------------------- */
+/* Cyberpunk theme (night city)        */
+/* ---------------------------------- */
+/* A dense night-city ops board: near-black blue, hard neon yellow/magenta/
+   cyan, chamfered panels and 3D glitch-stepped headings made of stacked
+   hard-offset shadows. */
+
+html[data-theme="cyberpunk"] {
+  color-scheme: dark;
+  --primary: #ffe600;
+  --primary-dark: #ff9d00;
+  --magenta: #ff2a6d;
+  --cyan: #05d9e8;
+  --bg: #080d14;
+  --card: #0c141d;
+  --border: rgba(255, 230, 0, .38);
+  --text: #e6f6ff;
+  --muted: #8aa3b8;
+  --success: #4dd94d;
+  --success-bg: rgba(77, 217, 77, .14);
+  --warn: #ffb020;
+  --warn-bg: rgba(255, 176, 32, .14);
+  --danger: #ff2a6d;
+  --danger-bg: rgba(255, 42, 109, .16);
+  --info: #05d9e8;
+  --info-bg: rgba(5, 217, 232, .14);
+  --shadow: 6px 6px 0 rgba(255, 230, 0, .14), 0 0 26px rgba(5, 217, 232, .25);
+}
+
+html[data-theme="cyberpunk"] body {
+  background:
+    linear-gradient(135deg, rgba(255, 230, 0, .05), transparent 40%),
+    linear-gradient(315deg, rgba(255, 42, 109, .07), transparent 45%),
+    #080d14;
+  background-attachment: fixed;
+  color: var(--text);
+}
+
+/* faint city grid */
+html[data-theme="cyberpunk"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    linear-gradient(rgba(255, 42, 109, .06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(5, 217, 232, .06) 1px, transparent 1px);
+  background-size: 42px 42px;
+  -webkit-mask-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,0,0,.7));
+  mask-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,0,0,.7));
+  opacity: .6;
+}
+
+html[data-theme="cyberpunk"] .container,
+html[data-theme="cyberpunk"] .sp-container { position: relative; z-index: 1; }
+
+/* hard-edged chamfered panels */
+html[data-theme="cyberpunk"] .card,
+html[data-theme="cyberpunk"] .stat,
+html[data-theme="cyberpunk"] table,
+html[data-theme="cyberpunk"] .vrow,
+html[data-theme="cyberpunk"] .now-worker,
+html[data-theme="cyberpunk"] .modal,
+html[data-theme="cyberpunk"] .hlist li,
+html[data-theme="cyberpunk"] .login-card,
+html[data-theme="cyberpunk"] fieldset.type-checklist-card {
+  background: var(--card);
+  border-color: var(--border);
+  box-shadow: var(--shadow);
+  border-radius: 2px;
+}
+
+/* glitchy 3D stacked headings */
+html[data-theme="cyberpunk"] h1,
+html[data-theme="cyberpunk"] h2 {
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: #f0f9ff;
+  text-shadow:
+    2px 2px 0 #ff2a6d,
+    4px 4px 0 #05d9e8,
+    6px 6px 0 rgba(255, 230, 0, .8);
+}
+html[data-theme="cyberpunk"] h1 { font-size: 2.2rem; }
+html[data-theme="cyberpunk"] h2 { font-size: 1.5rem; letter-spacing: .1em; }
+html[data-theme="cyberpunk"] .stat .num {
+  color: var(--text);
+  text-shadow:
+    2px 2px 0 #ff2a6d,
+    4px 4px 0 #05d9e8;
+}
+
+html[data-theme="cyberpunk"] h1::after,
+html[data-theme="cyberpunk"] h2::after {
+  content: "";
+  display: block;
+  height: 3px;
+  max-width: 320px;
+  margin: 10px 0;
+  background: repeating-linear-gradient(90deg, #ffe600 0 22px, #05d9e8 22px 44px, #ff2a6d 44px 66px);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, .6);
+}
+
+html[data-theme="cyberpunk"] .topbar {
+  background: rgba(8, 13, 20, .9);
+  border-bottom: 2px solid var(--border);
+  box-shadow: 0 4px 0 rgba(255, 230, 0, .1), 0 0 20px rgba(255, 42, 109, .35);
+}
+html[data-theme="cyberpunk"] .nav a { color: #a8d8ff; letter-spacing: .06em; }
+html[data-theme="cyberpunk"] .nav a:hover { background: rgba(255, 230, 0, .12); color: #fff; }
+html[data-theme="cyberpunk"] .nav a.active {
+  background: linear-gradient(90deg, #ffe600, #ff9d00);
+  color: #080d14;
+  box-shadow: 0 0 14px rgba(255, 230, 0, .55);
+}
+html[data-theme="cyberpunk"] .role-btn { background: rgba(255, 42, 109, .14); color: #a8d8ff; border-color: var(--border); }
+html[data-theme="cyberpunk"] .role-btn.active,
+html[data-theme="cyberpunk"] .role-btn.no-click {
+  background: linear-gradient(90deg, #4dd94d, #05d9e8);
+  color: #080d14;
+  border-color: #4dd94d;
+  box-shadow: 0 0 12px rgba(77, 217, 77, .55);
+}
+html[data-theme="cyberpunk"] .logout-form .btn { background: rgba(255, 42, 109, .14); color: #a8d8ff; }
+
+html[data-theme="cyberpunk"] .btn {
+  background: linear-gradient(90deg, #ffe600, #05d9e8);
+  color: #080d14;
+  box-shadow: 4px 4px 0 rgba(255, 42, 109, .5);
+}
+html[data-theme="cyberpunk"] .btn:hover { filter: brightness(1.12); }
+html[data-theme="cyberpunk"] .btn.secondary { background: rgba(5, 217, 232, .1); color: #a8d8ff; box-shadow: none; }
+html[data-theme="cyberpunk"] .btn.success { background: linear-gradient(90deg, #4dd94d, #05d9e8); box-shadow: 4px 4px 0 rgba(77, 217, 77, .4); }
+html[data-theme="cyberpunk"] .btn.warn { background: linear-gradient(90deg, #ffb020, #ff9d00); }
+html[data-theme="cyberpunk"] .btn.danger { background: linear-gradient(90deg, #ff2a6d, #ff5500); box-shadow: 4px 4px 0 rgba(255, 42, 109, .45); }
+
+html[data-theme="cyberpunk"] input[type=text],
+html[data-theme="cyberpunk"] input[type=number],
+html[data-theme="cyberpunk"] input[type=date],
+html[data-theme="cyberpunk"] input[type=password],
+html[data-theme="cyberpunk"] select,
+html[data-theme="cyberpunk"] textarea {
+  background: #0a1119;
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: inset 3px 3px 0 rgba(255, 230, 0, .08);
+}
+html[data-theme="cyberpunk"] input:focus,
+html[data-theme="cyberpunk"] select:focus,
+html[data-theme="cyberpunk"] textarea:focus {
+  outline: none;
+  border-color: #05d9e8;
+  box-shadow: 0 0 12px rgba(5, 217, 232, .8);
+}
+
+html[data-theme="cyberpunk"] .ck {
+  background: #0a1119;
+  color: var(--text);
+  border-color: var(--border);
+  box-shadow: 3px 3px 0 rgba(255, 42, 109, .25);
+  border-radius: 2px;
+}
+html[data-theme="cyberpunk"] .ck:has(input:checked),
+html[data-theme="cyberpunk"] .ck.done {
+  background: rgba(77, 217, 77, .16);
+  border-color: #4dd94d;
+  color: #a3f2a3;
+  box-shadow: 3px 3px 0 rgba(77, 217, 77, .4);
+}
+
+html[data-theme="cyberpunk"] tr:hover td { background: rgba(255, 230, 0, .06); }
+html[data-theme="cyberpunk"] .vrow.row-replaced { background: rgba(8, 13, 20, .5); border-color: #ff2a6d; opacity: .8; }
+html[data-theme="cyberpunk"] .vrow.row-replaced .vnum,
+html[data-theme="cyberpunk"] .vrow.row-replaced .vmeta,
+html[data-theme="cyberpunk"] .vrow.row-replaced .progress { color: var(--muted); }
+
+html[data-theme="cyberpunk"] .badge.muted { background: rgba(138, 163, 184, .16); color: #bcd2e4; }
+html[data-theme="cyberpunk"] .badge.success { background: var(--success-bg); color: var(--success); }
+html[data-theme="cyberpunk"] .badge.warn { background: var(--warn-bg); color: var(--warn); }
+html[data-theme="cyberpunk"] .badge.danger { background: var(--danger-bg); color: var(--danger); }
+html[data-theme="cyberpunk"] .badge.info { background: var(--info-bg); color: var(--info); }
+
+html[data-theme="cyberpunk"] .flash-success { background: var(--success-bg); color: var(--success); }
+html[data-theme="cyberpunk"] .flash-error { background: var(--danger-bg); color: var(--danger); }
+html[data-theme="cyberpunk"] .flash-info { background: var(--info-bg); color: var(--info); }
+html[data-theme="cyberpunk"] .flash-warn { background: var(--warn-bg); color: var(--warn); }
+
+html[data-theme="cyberpunk"] code { background: #131c26; color: #ffe600; }
+html[data-theme="cyberpunk"] .now-worker-avatar { background: linear-gradient(135deg, #ffe600, #ff2a6d); box-shadow: 4px 4px 0 rgba(0, 0, 0, .5); }
+html[data-theme="cyberpunk"] .progress-fill { background: linear-gradient(90deg, #ffe600, #05d9e8); }
+
+html[data-theme="cyberpunk"] .modal-bg { background: rgba(4, 7, 11, .72); }
+
+/* Keep prints light and readable even in the cyberpunk theme. */
+@media print {
+  html[data-theme="cyberpunk"] {
+    color-scheme: light;
+    --bg: #fff;
+    --card: #fff;
+    --border: #ccc;
+    --text: #111;
+    --muted: #555;
+  }
+  html[data-theme="cyberpunk"] body { background: #fff !important; }
+  html[data-theme="cyberpunk"] body::after { display: none !important; }
+  html[data-theme="cyberpunk"] table { background: #fff !important; }
+  html[data-theme="cyberpunk"] .vrow { background: #fff !important; }
+  html[data-theme="cyberpunk"] h1, html[data-theme="cyberpunk"] h2 {
+    color: #111;
+    text-shadow: none;
+  }
+  html[data-theme="cyberpunk"] .stat .num { color: #111; text-shadow: none; }
+  html[data-theme="cyberpunk"] h1::after, html[data-theme="cyberpunk"] h2::after { display: none; }
+}
+
+/* ---------------------------------- */
 /* Side Panel layout (new design)      */
 /* ---------------------------------- */
 /* The "classic" layout (`.topbar` + centered `.container`) stays the default.
@@ -2339,7 +3039,10 @@ html[data-layout="sidepanel"][data-theme="holographic"] .sp-topbar { background:
 html[data-layout="sidepanel"][data-theme="futuristic"] .sp-sidebar,
 html[data-layout="sidepanel"][data-theme="halloween"] .sp-sidebar,
 html[data-layout="sidepanel"][data-theme="dark"] .sp-sidebar,
-html[data-layout="sidepanel"][data-theme="bloomberg"] .sp-sidebar {
+html[data-layout="sidepanel"][data-theme="bloomberg"] .sp-sidebar,
+html[data-layout="sidepanel"][data-theme="synthwave"] .sp-sidebar,
+html[data-layout="sidepanel"][data-theme="cosmos"] .sp-sidebar,
+html[data-layout="sidepanel"][data-theme="cyberpunk"] .sp-sidebar {
   background: linear-gradient(180deg, #0b1220 0%, #16233b 100%);
 }
 html[data-layout="sidepanel"][data-theme="retro"] .sp-sidebar {
