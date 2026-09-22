@@ -566,9 +566,10 @@ def register_routes(app):
             emp_id = session["employee_id"]
             emp = Employee.query.get(emp_id)
         # Resolve the signed-in user's own stored theme ("on"|"off"|"system"|
-        # "futuristic"|"halloween") to the value used in the data-theme
-        # attribute. CSS defines dark styles for "dark" and "futuristic", so
-        # "on" must map to "dark"; "system" is resolved live by the browser.
+        # "futuristic"|"halloween"|"galaxy"|"arcade"|"lava") to the value used
+        # in the data-theme attribute. CSS defines dark styles for each named
+        # theme, so "on" must map to "dark"; "system" is resolved live by the
+        # browser.
         raw_dark_mode = settings.get_user_theme(user, emp_id)
         resolved_dark_mode = "dark" if raw_dark_mode == "on" else raw_dark_mode
         return {
