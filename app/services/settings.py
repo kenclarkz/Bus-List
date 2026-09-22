@@ -9,12 +9,13 @@ DEFAULTS = {
     "checklist": "Sweep,Mop,Windows,Seats,Bathroom,Dump,Bay Checked,Final Inspection",
     "checklist_inside": "Sweep,Mop,Windows,Seats,Bathroom",
     "checklist_outside": "Dump,Bay Checked,Final Inspection",
-    "dark_mode": "off",       # global fallback theme: off | on | system | futuristic | halloween | bloomberg
+    "dark_mode": "off",       # global fallback theme: off | on | system | futuristic | halloween | bloomberg | retro | holographic
     "layout": "classic",      # global fallback layout: classic | sidepanel
 }
 
 # Valid theme choices. Each user may store their own under a per-user key.
-THEME_CHOICES = ("off", "on", "system", "futuristic", "halloween", "bloomberg")
+THEME_CHOICES = ("off", "on", "system", "futuristic", "halloween", "bloomberg",
+                 "retro", "holographic")
 
 # Valid layout choices. Layout is how the site chrome is arranged (top bar vs
 # sidebar); it is independent of the color theme. Each user may store their
