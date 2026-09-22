@@ -50,6 +50,9 @@ report. It is not a static mockup.
    day, calculates completed/incomplete, shows unfinished checklist items,
    replacements, and notes, computes completion %, and generates a clean
    printable daily summary (Print / Save as PDF) and saves the day to history.
+   If no employee ends the day by **11:50 PM** local time, an automatic
+   end-of-day job finalizes it with the exact same summary (no work is ever
+   lost; the cutoff is configurable via `AUTO_END_DAY_TIME`).
 8. **History** — previous days, vehicle cleaning history, prep report imports,
    replacements, and (per-vehicle) completed checklists.
 9. **Data architecture** — real persistent database (SQLite via SQLAlchemy).
@@ -140,6 +143,7 @@ Database and secret are configured via environment variables (see
 | `SECRET_KEY` | `dev-secret-change-me` |
 | `DATABASE_URL` | `sqlite:///data/detail.db` |
 | `PORT` | `5000` |
+| `AUTO_END_DAY_TIME` | `23:50` (local time the auto end-of-day job runs) |
 
 Thresholds (Recently Washed / Due Soon), the task list — split into
 **Inside** and **Outside** categories — the color theme, and the site layout

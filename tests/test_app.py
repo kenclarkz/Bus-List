@@ -1200,6 +1200,101 @@ def test_print_report(client, app):
     assert r.status_code == 200
 
 
+def test_auto_end_day_job_finalizes_open_today(app):
+    """The 11:50 PM auto end-of-day job finalizes today's schedule when no
+    employee ended it, and computes the same summary as the End My Day route."""
+    from app.app import _auto_end_day_job
+    with app.app_context():
+        from app.services.vehicles import find_or_create_vehicle
+        loc = vehicles_loc(app)
+        sched = sched_svc.get_or_create_schedule(location=loc)
+        v, _ = find_or_create_vehicle("501", location_id=loc.id)
+        sched_svc.ensure_entry(sched, v)
+        assert sched.finalized is False
+
+    count = _auto_end_day_job(app)
+    assert count == 1
+
+    with app.app_context():
+        sched = DailySchedule.query.filter_by(work_date=date.today()).first()
+        assert sched.finalized is True
+        assert sched.finalized_at is not None
+        summary = json.loads(sched.summary)
+        assert summary["total"] == 1
+        assert summary["completed"] == 0
+        assert summary["incomplete"] == 1
+        # Running again is a no-op: already finalized means nothing to do.
+        assert _auto_end_day_job(app) == 0
+
+
+def test_auto_end_day_job_spares_days_employees_ended(app):
+    """A today schedule that an employee already finalized is left untouched."""
+    from app.app import _auto_end_day_job, finalize_day
+    with app.app_context():
+        from app.services.vehicles import find_or_create_vehicle
+        loc = vehicles_loc(app)
+        sched = sched_svc.get_or_create_schedule(location=loc)
+        v, _ = find_or_create_vehicle("502", location_id=loc.id)
+        sched_svc.ensure_entry(sched, v)
+        finalize_day(sched, at=datetime.utcnow())
+        finalized_at = sched.finalized_at
+
+        assert _auto_end_day_job(app) == 0
+        sched = DailySchedule.query.filter_by(work_date=date.today()).first()
+        assert sched.finalized is True
+        assert sched.finalized_at == finalized_at
+
+
+def test_auto_end_day_job_ignores_past_and_future_days(app):
+    """The job only closes today's open schedule; other days are untouched."""
+    from app.app import _auto_end_day_job
+    from datetime import timedelta
+    with app.app_context():
+        loc = vehicles_loc(app)
+        yesterday = sched_svc.get_or_create_schedule(
+            d=date.today() - timedelta(days=1), location=loc)
+        tomorrow = sched_svc.get_or_create_schedule(
+            d=date.today() + timedelta(days=1), location=loc)
+        assert yesterday.finalized is False
+        assert tomorrow.finalized is False
+
+        assert _auto_end_day_job(app) == 0
+        assert sched_svc.get_or_create_schedule(
+            d=date.today() - timedelta(days=1), location=loc).finalized is False
+        assert sched_svc.get_or_create_schedule(
+            d=date.today() + timedelta(days=1), location=loc).finalized is False
+
+
+def test_auto_end_day_time_helper_defaults_and_parses(monkeypatch):
+    """AUTO_END_DAY_TIME controls the daily cutoff; invalid input falls back
+    to the 11:50 PM default."""
+    from app.app import _auto_end_time
+    monkeypatch.delenv("AUTO_END_DAY_TIME", raising=False)
+    assert _auto_end_time() == (23, 50)
+    monkeypatch.setenv("AUTO_END_DAY_TIME", "11:50")
+    assert _auto_end_time() == (11, 50)
+    monkeypatch.setenv("AUTO_END_DAY_TIME", "not-a-time")
+    assert _auto_end_time() == (23, 50)
+    monkeypatch.setenv("AUTO_END_DAY_TIME", "27:99")
+    assert _auto_end_time() == (23, 59)
+
+
+def test_auto_end_day_scheduler_registers_daily_2350_job(app):
+    """Starting the scheduler wires a job named auto_end_day on a cron trigger
+    for the configured cutoff."""
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    from app.app import _start_auto_end_day_scheduler
+
+    scheduler = _start_auto_end_day_scheduler(app)
+    try:
+        job = scheduler.get_job("auto_end_day")
+        assert job is not None
+        assert isinstance(job.trigger, CronTrigger)
+    finally:
+        scheduler.shutdown(wait=False)
+
+
 # ---------------------------------------------------------------------------
 # Settings
 # ---------------------------------------------------------------------------
