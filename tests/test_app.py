@@ -1371,6 +1371,111 @@ def test_bloomberg_theme_survives_saving_other_settings(manager_client, app):
     assert b'data-theme="bloomberg"' in manager_client.get("/settings").data
 
 
+def test_synthwave_theme_can_be_turned_on(manager_client, app):
+    r = manager_client.post("/settings", data={
+        "dark_mode": "synthwave",
+        "recent_days": "2",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_theme("manager") == "synthwave"
+    assert b'data-theme="synthwave"' in manager_client.get("/").data
+    assert b'data-theme="synthwave"' in manager_client.get("/settings").data
+    assert "Synthwave" in manager_client.get("/settings").data.decode()
+
+
+def test_synthwave_theme_survives_saving_other_settings(manager_client, app):
+    manager_client.post("/settings", data={"dark_mode": "synthwave"})
+    r = manager_client.post("/settings", data={
+        "recent_days": "3",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_theme("manager") == "synthwave"
+    assert b'data-theme="synthwave"' in manager_client.get("/").data
+    assert b'data-theme="synthwave"' in manager_client.get("/settings").data
+
+
+def test_cosmos_theme_can_be_turned_on(manager_client, app):
+    r = manager_client.post("/settings", data={
+        "dark_mode": "cosmos",
+        "recent_days": "2",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_theme("manager") == "cosmos"
+    assert b'data-theme="cosmos"' in manager_client.get("/").data
+    assert b'data-theme="cosmos"' in manager_client.get("/settings").data
+    assert "Deep Cosmos" in manager_client.get("/settings").data.decode()
+
+
+def test_cosmos_theme_survives_saving_other_settings(manager_client, app):
+    manager_client.post("/settings", data={"dark_mode": "cosmos"})
+    r = manager_client.post("/settings", data={
+        "recent_days": "3",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_theme("manager") == "cosmos"
+    assert b'data-theme="cosmos"' in manager_client.get("/").data
+    assert b'data-theme="cosmos"' in manager_client.get("/settings").data
+
+
+def test_cyberpunk_theme_can_be_turned_on(manager_client, app):
+    r = manager_client.post("/settings", data={
+        "dark_mode": "cyberpunk",
+        "recent_days": "2",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_theme("manager") == "cyberpunk"
+    assert b'data-theme="cyberpunk"' in manager_client.get("/").data
+    assert b'data-theme="cyberpunk"' in manager_client.get("/settings").data
+    assert "Cyberpunk" in manager_client.get("/settings").data.decode()
+
+
+def test_cyberpunk_theme_survives_saving_other_settings(manager_client, app):
+    manager_client.post("/settings", data={"dark_mode": "cyberpunk"})
+    r = manager_client.post("/settings", data={
+        "recent_days": "3",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_theme("manager") == "cyberpunk"
+    assert b'data-theme="cyberpunk"' in manager_client.get("/").data
+    assert b'data-theme="cyberpunk"' in manager_client.get("/settings").data
+
+
 def test_theme_is_per_user(client, manager_client, app):
     """Manager, employee and driver each keep their own theme, and a change by
     one never affects the others."""
