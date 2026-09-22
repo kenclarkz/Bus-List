@@ -356,6 +356,8 @@ html[data-theme="dark"] .photo-item { background: #000; }
 html[data-theme="futuristic"] .photo-item { background: #05050a; border-color: var(--border); box-shadow: var(--shadow); }
 html[data-theme="halloween"] .photo-item { background: #120d1e; border-color: var(--border); box-shadow: var(--shadow); }
 html[data-theme="bloomberg"] .photo-item { background: #050505; border-color: var(--border); border-radius: 0; }
+html[data-theme="retro"] .photo-item { background: #020d02; border-color: var(--border); border-radius: 0; box-shadow: var(--retro-bevel, none); }
+html[data-theme="holographic"] .photo-item { background: rgba(255, 255, 255, .06); border-color: var(--border); box-shadow: var(--shadow); }
 
 @media (max-width: 600px) {
   .photo-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
@@ -1368,6 +1370,779 @@ html[data-theme="bloomberg"] .photo-preview { background: #050505; border-color:
   html[data-theme="bloomberg"] body::after { display: none; }
 }
 
+/* ---------------------------------- */
+/* Retro 90s theme                     */
+/* ---------------------------------- */
+/* A CRT monitor / old-school computer look: green-phosphor & amber colors,
+   pixel-style monospace type, scanlines, and beveled "physical" buttons.
+   Works with both the classic top-bar and Side Panel layouts. */
+
+html[data-theme="retro"] {
+  color-scheme: dark;
+  --primary: #45ff45;
+  --primary-dark: #22dd22;
+  --amber: #ffb000;
+  --phos: #7dff7d;
+  --bg: #000200;
+  --card: #020d02;
+  --border: #1f4d1f;
+  --text: #bafeba;
+  --muted: #5f8a5f;
+  --success: #45ff45;
+  --success-bg: rgba(69, 255, 69, .14);
+  --warn: var(--amber);
+  --warn-bg: rgba(255, 176, 0, .14);
+  --danger: #ff5545;
+  --danger-bg: rgba(255, 85, 69, .16);
+  --info: #ffb000;
+  --info-bg: rgba(255, 176, 0, .14);
+  --radius: 0px;
+  --shadow: none;
+  --retro-bevel: inset 1px 1px 0 #4dff4d, inset -1px -1px 0 #0a3d0a, 0 0 0 rgba(0, 0, 0, 0);
+  --retro-btn-bevel: inset 2px 2px 0 #7dff7d, inset -2px -2px 0 #053305;
+  --font-mono: "Liberation Mono", "DejaVu Sans Mono", "Courier New",
+    ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+html[data-theme="retro"] body {
+  background: #000200;
+  background-image:
+    radial-gradient(ellipse at 50% 0%, #041a04 0%, #000200 55%),
+    repeating-linear-gradient(0deg, rgba(69, 255, 69, .04) 0 1px, transparent 1px 3px);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+
+/* CRT scanlines + rounded tube vignette overlaying everything */
+html[data-theme="retro"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, .22) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse at center, transparent 58%, rgba(0, 0, 0, .5) 100%);
+  mix-blend-mode: multiply;
+}
+
+/* the whole page gets a faint phosphor flicker */
+@keyframes retro-flicker {
+  0% { opacity: .985; }
+  50% { opacity: 1; }
+  100% { opacity: .99; }
+}
+html[data-theme="retro"] body {
+  animation: retro-flicker 4s linear infinite;
+}
+
+html[data-theme="retro"] h1,
+html[data-theme="retro"] h2,
+html[data-theme="retro"] h3,
+html[data-theme="retro"] .num,
+html[data-theme="retro"] .lbl,
+html[data-theme="retro"] .stat,
+html[data-theme="retro"] .btn,
+html[data-theme="retro"] .badge,
+html[data-theme="retro"] .vmeta,
+html[data-theme="retro"] th,
+html[data-theme="retro"] td,
+html[data-theme="retro"] .ck,
+html[data-theme="retro"] input[type=text],
+html[data-theme="retro"] input[type=number],
+html[data-theme="retro"] input[type=date],
+html[data-theme="retro"] input[type=password],
+html[data-theme="retro"] select,
+html[data-theme="retro"] textarea,
+html[data-theme="retro"] .progress {
+  font-family: var(--font-mono);
+}
+
+/* pixel-ish headings: chunky letters, green glow, blocky underline */
+html[data-theme="retro"] h1 {
+  color: var(--primary);
+  font-size: 1.5rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  text-shadow: 0 0 6px rgba(69, 255, 69, .75), 1px 1px 0 #002200;
+}
+html[data-theme="retro"] h2 {
+  color: var(--amber);
+  font-size: 1.1rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  text-shadow: 0 0 6px rgba(255, 176, 0, .6);
+}
+html[data-theme="retro"] h1::after,
+html[data-theme="retro"] h2::after {
+  content: "";
+  display: block;
+  height: 2px;
+  max-width: 340px;
+  margin: 10px 0;
+  background: linear-gradient(90deg, var(--primary), var(--amber));
+  box-shadow: 0 0 8px rgba(69, 255, 69, .6);
+}
+
+/* blinking block cursor like an old status readout */
+html[data-theme="retro"] h1::before {
+  content: "▮ ";
+  color: var(--amber);
+  animation: retro-blink 1s steps(2, start) infinite;
+}
+@keyframes retro-blink { to { visibility: hidden; } }
+
+/* cards, stats, panels look like beveled monitor screens */
+html[data-theme="retro"] .card,
+html[data-theme="retro"] .stat,
+html[data-theme="retro"] table,
+html[data-theme="retro"] .vrow,
+html[data-theme="retro"] .now-worker,
+html[data-theme="retro"] .modal,
+html[data-theme="retro"] .hlist li,
+html[data-theme="retro"] .login-card,
+html[data-theme="retro"] fieldset.type-checklist-card {
+  background: var(--card);
+  border-color: var(--border);
+  border-radius: 0;
+  box-shadow: var(--retro-bevel);
+}
+
+/* status readout strip on the top bar */
+html[data-theme="retro"] .topbar {
+  background: #000602;
+  color: var(--text);
+  border-bottom: 2px solid var(--border);
+  box-shadow: 0 0 18px rgba(69, 255, 69, .25);
+}
+html[data-theme="retro"] .topbar::after {
+  content: "▶ SYSTEM ONLINE · CTR DETAILING v1.2";
+  position: absolute;
+  right: 10px;
+  bottom: 1px;
+  font-size: .55rem;
+  letter-spacing: .12em;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  pointer-events: none;
+}
+html[data-theme="retro"] .brand-name { color: var(--primary); letter-spacing: .06em; }
+html[data-theme="retro"] .nav a {
+  color: var(--phos);
+  border-radius: 0;
+  font-size: .82rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+html[data-theme="retro"] .nav a:hover { background: rgba(69, 255, 69, .12); color: #fff; }
+html[data-theme="retro"] .nav a.active {
+  background: var(--primary);
+  color: #001100;
+  box-shadow: none;
+}
+html[data-theme="retro"] .role-btn {
+  background: #021202;
+  color: var(--phos);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  font-family: var(--font-mono);
+}
+html[data-theme="retro"] .role-btn.active,
+html[data-theme="retro"] .role-btn.no-click {
+  background: var(--primary);
+  color: #001100;
+  border-color: var(--primary);
+  box-shadow: 0 0 10px rgba(69, 255, 69, .6);
+}
+html[data-theme="retro"] .logout-form .btn,
+html[data-theme="retro"] .btn.secondary {
+  background: #021202;
+  color: var(--phos);
+  border: 1px solid #1f4d1f;
+  border-radius: 0;
+}
+
+/* beveled push buttons, old-school keyboard key style */
+html[data-theme="retro"] .btn {
+  background: #062806;
+  color: var(--primary);
+  border: 1px solid #2a6a2a;
+  border-radius: 0;
+  box-shadow: var(--retro-btn-bevel);
+  text-transform: uppercase;
+  font-size: .78rem;
+  letter-spacing: .06em;
+}
+html[data-theme="retro"] .btn:hover { background: #0a3a0a; color: #d0ffd0; }
+html[data-theme="retro"] .btn:active { box-shadow: inset 2px 2px 0 #002200; transform: translateY(1px); }
+html[data-theme="retro"] .btn.success { background: var(--primary); color: #001100; border-color: var(--primary); box-shadow: var(--retro-btn-bevel); }
+html[data-theme="retro"] .btn.warn { background: var(--amber); color: #1a0e00; border-color: var(--amber); }
+html[data-theme="retro"] .btn.danger { background: #5a100a; color: #ff8070; border-color: #a03020; }
+html[data-theme="retro"] .btn.big { font-family: var(--font-mono); }
+
+/* hard-edged CRT inputs */
+html[data-theme="retro"] input[type=text],
+html[data-theme="retro"] input[type=number],
+html[data-theme="retro"] input[type=date],
+html[data-theme="retro"] input[type=password],
+html[data-theme="retro"] select,
+html[data-theme="retro"] textarea {
+  background: #000a00;
+  color: var(--phos);
+  border: 1px solid #2a6a2a;
+  border-radius: 0;
+  box-shadow: inset 2px 2px 0 #001400;
+}
+html[data-theme="retro"] input:focus,
+html[data-theme="retro"] select:focus,
+html[data-theme="retro"] textarea:focus {
+  outline: none;
+  border-color: var(--amber);
+  box-shadow: inset 2px 2px 0 #001400, 0 0 0 1px var(--amber);
+}
+html[data-theme="retro"] label { color: var(--amber); text-transform: uppercase; letter-spacing: .06em; font-size: .72rem; }
+
+/* checklist: bordered terminal chips */
+html[data-theme="retro"] .ck {
+  background: #000a00;
+  border: 1px solid #2a6a2a;
+  border-radius: 0;
+  color: var(--text);
+  padding: 7px 10px;
+}
+html[data-theme="retro"] .ck input { accent-color: var(--success); }
+html[data-theme="retro"] .ck:has(input:checked),
+html[data-theme="retro"] .ck.done {
+  background: rgba(69, 255, 69, .1);
+  border-color: var(--success);
+  color: var(--success);
+  box-shadow: 0 0 10px rgba(69, 255, 69, .4);
+}
+
+html[data-theme="retro"] .checklist-group-label {
+  color: var(--amber);
+  font-size: .66rem;
+  letter-spacing: .1em;
+}
+
+/* blocky progress bar */
+html[data-theme="retro"] .progress-bar {
+  height: 10px;
+  background: #001400;
+  border: 1px solid #2a6a2a;
+  border-radius: 0;
+  overflow: hidden;
+}
+html[data-theme="retro"] .progress-fill { border-radius: 0; background: var(--success); }
+html[data-theme="retro"] .progress-fill.fill-warn { background: var(--amber); }
+html[data-theme="retro"] .progress .pct { color: var(--phos); letter-spacing: .02em; }
+
+/* squared, uppercase tags */
+html[data-theme="retro"] .badge {
+  border-radius: 0;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-size: .66rem;
+  border: 1px solid transparent;
+}
+html[data-theme="retro"] .badge.success { background: var(--success-bg); color: var(--success); border-color: rgba(69, 255, 69, .5); }
+html[data-theme="retro"] .badge.warn { background: var(--warn-bg); color: var(--warn); border-color: rgba(255, 176, 0, .5); }
+html[data-theme="retro"] .badge.danger { background: var(--danger-bg); color: var(--danger); border-color: rgba(255, 85, 69, .5); }
+html[data-theme="retro"] .badge.info { background: var(--info-bg); color: var(--info); border-color: rgba(255, 176, 0, .5); }
+html[data-theme="retro"] .badge.muted { background: #021202; color: var(--muted); border-color: #1f4d1f; }
+
+html[data-theme="retro"] tr:hover td { background: rgba(69, 255, 69, .07); }
+html[data-theme="retro"] th {
+  background: #031603;
+  color: var(--amber);
+  font-size: .66rem;
+  letter-spacing: .1em;
+  border-bottom: 1px solid #1f4d1f;
+}
+html[data-theme="retro"] td { border-bottom: 1px solid #0c2a0c; }
+
+html[data-theme="retro"] .flash {
+  border-radius: 0;
+  border-left: 3px solid;
+  font-family: var(--font-mono);
+}
+html[data-theme="retro"] .flash-success { background: var(--success-bg); color: var(--success); border-color: var(--success); }
+html[data-theme="retro"] .flash-error { background: var(--danger-bg); color: var(--danger); border-color: var(--danger); }
+html[data-theme="retro"] .flash-info { background: var(--info-bg); color: var(--info); border-color: var(--info); }
+html[data-theme="retro"] .flash-warn { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
+
+html[data-theme="retro"] .status-recent { color: var(--success); }
+html[data-theme="retro"] .status-due { color: var(--warn); }
+html[data-theme="retro"] .status-overdue { color: var(--danger); }
+html[data-theme="retro"] .status-unknown { color: var(--muted); }
+
+html[data-theme="retro"] .vrow {
+  border-left: 3px solid var(--success);
+  padding: 12px;
+}
+html[data-theme="retro"] .vrow.row-replacement { border-left-color: var(--amber); }
+html[data-theme="retro"] .vrow.row-replaced {
+  background: #01080100;
+  border-left-color: #1f3d1f;
+  opacity: .55;
+}
+html[data-theme="retro"] .vnum {
+  color: var(--primary);
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  padding: 1px 8px;
+  background: rgba(69, 255, 69, .08);
+  border: 1px solid rgba(69, 255, 69, .55);
+}
+html[data-theme="retro"] .vnum::before { content: "▶ "; color: var(--amber); }
+html[data-theme="retro"] .vmeta { color: var(--muted); font-size: .78rem; letter-spacing: .02em; }
+html[data-theme="retro"] .driver-code {
+  color: var(--amber);
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  padding: 1px 8px;
+  background: rgba(255, 176, 0, .1);
+  border: 1px solid rgba(255, 176, 0, .45);
+}
+html[data-theme="retro"] .vnote {
+  background: #021102;
+  border-left-color: var(--amber);
+  border-radius: 0;
+  font-family: var(--font-mono);
+  color: #cfefcf;
+}
+
+html[data-theme="retro"] .now-worker { background: var(--card); }
+html[data-theme="retro"] .now-worker-avatar {
+  border-radius: 0;
+  background: var(--primary);
+  color: #001100;
+  font-family: var(--font-mono);
+}
+html[data-theme="retro"] .now-worker-name { color: var(--text); font-family: var(--font-mono); }
+html[data-theme="retro"] .now-worker-unit { color: var(--amber); font-family: var(--font-mono); }
+
+html[data-theme="retro"] code {
+  background: #021102;
+  color: var(--amber);
+  border: 1px solid #1f4d1f;
+  font-family: var(--font-mono);
+  border-radius: 0;
+}
+
+html[data-theme="retro"] .modal {
+  background: #020d02;
+  color: var(--text);
+  border: 1px solid #1f4d1f;
+  border-radius: 0;
+  font-family: var(--font-mono);
+  box-shadow: var(--retro-bevel);
+}
+html[data-theme="retro"] .modal-bg { background: rgba(0, 0, 0, .8); }
+html[data-theme="retro"] .modal h3 { color: var(--primary); }
+
+html[data-theme="retro"] .login-body { background: #000200; }
+html[data-theme="retro"] .login-card {
+  background: #020d02;
+  color: var(--text);
+  border: 1px solid #1f4d1f;
+  border-radius: 0;
+  box-shadow: var(--retro-bevel);
+}
+
+html[data-theme="retro"] details.sect summary { color: var(--primary); font-family: var(--font-mono); }
+html[data-theme="retro"] details.sect[open] summary { border-bottom-color: var(--border); }
+
+/* keep prints light and readable even in the retro theme. */
+@media print {
+  html[data-theme="retro"] {
+    color-scheme: light;
+    --bg: #fff;
+    --card: #fff;
+    --border: #ccc;
+    --text: #111;
+    --muted: #555;
+    --success: #15803d;
+    --warn: #b45309;
+    --danger: #b91c1c;
+    --info: #0369a1;
+  }
+  html[data-theme="retro"] body { background: #fff !important; background-image: none; color: #111 !important; animation: none; }
+  html[data-theme="retro"] table { background: #fff !important; }
+  html[data-theme="retro"] th { background: #fff !important; color: #111 !important; }
+  html[data-theme="retro"] .vrow { background: #fff !important; }
+  html[data-theme="retro"] .vnum { color: #111; background: none; border-color: #ccc; }
+  html[data-theme="retro"] h1, html[data-theme="retro"] h2 { color: #111; text-shadow: none; }
+  html[data-theme="retro"] h1::before, html[data-theme="retro"] h1::after,
+  html[data-theme="retro"] h2::after, html[data-theme="retro"] .topbar::after,
+  html[data-theme="retro"] .vnum::before { content: none; }
+  html[data-theme="retro"] body::after { display: none; }
+}
+
+/* ---------------------------------- */
+/* Holographic theme                   */
+/* ---------------------------------- */
+/* A transparent sci-fi command center: glass panels, cyan/purple holographic
+   glow, floating elements and flowing animated data streams. Works with both
+   the classic top-bar and Side Panel layouts. */
+
+html[data-theme="holographic"] {
+  color-scheme: dark;
+  --primary: #22d3ee;
+  --primary-dark: #7c3aed;
+  --cyan: #22d3ee;
+  --purple: #a78bfa;
+  --holo-pink: #f472b6;
+  --bg: #05060f;
+  --card: rgba(148, 163, 255, .07);
+  --border: rgba(140, 175, 255, .28);
+  --text: #e6ecff;
+  --muted: #8b93c7;
+  --success: #4ade80;
+  --success-bg: rgba(74, 222, 128, .14);
+  --warn: #fbbf24;
+  --warn-bg: rgba(251, 191, 36, .14);
+  --danger: #fb7185;
+  --danger-bg: rgba(251, 113, 133, .16);
+  --info: #22d3ee;
+  --info-bg: rgba(34, 211, 238, .15);
+  --radius: 14px;
+  --shadow: 0 0 24px rgba(34, 211, 238, .18), 0 0 60px rgba(124, 58, 237, .14);
+}
+
+html[data-theme="holographic"] body {
+  background: #05060f;
+  background-image:
+    radial-gradient(ellipse at 20% 0%, #17203f 0%, #05060f 50%),
+    radial-gradient(ellipse at 85% 10%, rgba(124, 58, 237, .22), transparent 45%),
+    radial-gradient(ellipse at 50% 100%, rgba(34, 211, 238, .14), transparent 60%);
+  background-attachment: fixed;
+  color: var(--text);
+}
+
+/* flowing animated data streams sweeping down the page */
+@keyframes holo-streams {
+  0% { background-position-x: -400%, -300%, -200%; }
+  100% { background-position-x: 400%, 300%, 200%; }
+}
+html[data-theme="holographic"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    repeating-linear-gradient(180deg, transparent 0 38px, rgba(34, 211, 238, .05) 38px 39px),
+    repeating-linear-gradient(180deg, transparent 0 52px, rgba(167, 139, 250, .05) 52px 53px),
+    repeating-linear-gradient(180deg, transparent 0 71px, rgba(244, 114, 182, .04) 71px 72px);
+  animation: holo-streams 26s linear infinite;
+}
+
+/* subtle holographic grid */
+@keyframes holo-grid-pan {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 60px; }
+}
+html[data-theme="holographic"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(34, 211, 238, .05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34, 211, 238, .05) 1px, transparent 1px);
+  background-size: 60px 60px;
+  animation: holo-grid-pan 12s linear infinite;
+}
+
+/* keep interactive content above the decorative overlays */
+html[data-theme="holographic"] body > * { position: relative; z-index: 1; }
+
+html[data-theme="holographic"] h1,
+html[data-theme="holographic"] h2 {
+  letter-spacing: .02em;
+}
+html[data-theme="holographic"] h1 {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #f0f6ff;
+  text-shadow: 0 0 18px rgba(34, 211, 238, .55), 0 0 40px rgba(124, 58, 237, .4);
+}
+html[data-theme="holographic"] h2 {
+  color: var(--cyan);
+  text-shadow: 0 0 14px rgba(34, 211, 238, .5);
+}
+@keyframes holo-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+html[data-theme="holographic"] h1::after,
+html[data-theme="holographic"] h2::after {
+  content: "";
+  display: block;
+  height: 2px;
+  max-width: 340px;
+  margin: 10px 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--cyan), var(--purple), var(--holo-pink), transparent);
+  background-size: 200% 100%;
+  animation: holo-shimmer 4s linear infinite;
+}
+
+/* translucent glass panels */
+html[data-theme="holographic"] .card,
+html[data-theme="holographic"] .stat,
+html[data-theme="holographic"] table,
+html[data-theme="holographic"] .vrow,
+html[data-theme="holographic"] .now-worker,
+html[data-theme="holographic"] .modal,
+html[data-theme="holographic"] .hlist li,
+html[data-theme="holographic"] .login-card,
+html[data-theme="holographic"] fieldset.type-checklist-card {
+  background: var(--card);
+  border-color: var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* glassy command-center top bar */
+html[data-theme="holographic"] .topbar {
+  background: rgba(10, 14, 30, .65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 0 30px rgba(34, 211, 238, .18);
+}
+html[data-theme="holographic"] .topbar::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--cyan), var(--purple), var(--holo-pink), transparent);
+  box-shadow: 0 0 12px rgba(34, 211, 238, .7);
+}
+html[data-theme="holographic"] .brand-name { color: #eaf6ff; letter-spacing: .03em; }
+html[data-theme="holographic"] .nav a {
+  color: #a5deff;
+  border-radius: 10px;
+}
+html[data-theme="holographic"] .nav a:hover { background: rgba(34, 211, 238, .14); color: #fff; box-shadow: 0 0 14px rgba(34, 211, 238, .4); }
+html[data-theme="holographic"] .nav a.active {
+  background: linear-gradient(90deg, rgba(34, 211, 238, .85), rgba(124, 58, 237, .85));
+  color: #fff;
+  box-shadow: 0 0 18px rgba(34, 211, 238, .6);
+}
+html[data-theme="holographic"] .role-btn {
+  background: rgba(34, 211, 238, .08);
+  color: var(--cyan);
+  border: 1px solid var(--border);
+}
+html[data-theme="holographic"] .role-btn.active,
+html[data-theme="holographic"] .role-btn.no-click {
+  background: linear-gradient(90deg, var(--cyan), var(--purple));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 0 14px rgba(34, 211, 238, .6);
+}
+
+/* holographic buttons */
+html[data-theme="holographic"] .btn {
+  background: linear-gradient(90deg, rgba(34, 211, 238, .8), rgba(124, 58, 237, .8));
+  color: #fff;
+  border: 1px solid rgba(140, 175, 255, .4);
+  box-shadow: 0 0 16px rgba(34, 211, 238, .45);
+}
+html[data-theme="holographic"] .btn:hover { filter: brightness(1.2); }
+html[data-theme="holographic"] .btn.secondary { background: rgba(140, 175, 255, .1); color: #c7d7ff; box-shadow: none; }
+html[data-theme="holographic"] .btn.success { background: linear-gradient(90deg, #4ade80, #22d3ee); box-shadow: 0 0 16px rgba(74, 222, 128, .45); }
+html[data-theme="holographic"] .btn.warn { background: linear-gradient(90deg, #fbbf24, #f472b6); box-shadow: 0 0 16px rgba(251, 191, 36, .4); }
+html[data-theme="holographic"] .btn.danger { background: linear-gradient(90deg, #fb7185, #a78bfa); box-shadow: 0 0 16px rgba(251, 113, 133, .45); }
+
+/* frosted inputs */
+html[data-theme="holographic"] input[type=text],
+html[data-theme="holographic"] input[type=number],
+html[data-theme="holographic"] input[type=date],
+html[data-theme="holographic"] input[type=password],
+html[data-theme="holographic"] select,
+html[data-theme="holographic"] textarea {
+  background: rgba(10, 16, 34, .55);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 12px rgba(34, 211, 238, .12);
+}
+html[data-theme="holographic"] input:focus,
+html[data-theme="holographic"] select:focus,
+html[data-theme="holographic"] textarea:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 14px rgba(34, 211, 238, .7);
+}
+
+/* glassy checklist chips */
+html[data-theme="holographic"] .ck {
+  background: rgba(140, 175, 255, .08);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: 0 0 10px rgba(34, 211, 238, .18);
+}
+html[data-theme="holographic"] .ck input { accent-color: var(--success); }
+html[data-theme="holographic"] .ck:has(input:checked),
+html[data-theme="holographic"] .ck.done {
+  background: rgba(74, 222, 128, .15);
+  border-color: var(--success);
+  color: #a7f3c8;
+  box-shadow: 0 0 16px rgba(74, 222, 128, .55);
+}
+
+html[data-theme="holographic"] .checklist-group-label { color: var(--muted); }
+
+html[data-theme="holographic"] tr:hover td { background: rgba(34, 211, 238, .07); }
+html[data-theme="holographic"] th {
+  background: rgba(10, 16, 34, .6);
+  color: var(--cyan);
+  border-bottom: 1px solid var(--border);
+}
+html[data-theme="holographic"] td { border-bottom: 1px solid rgba(140, 175, 255, .12); }
+
+html[data-theme="holographic"] .vrow {
+  border-left: 3px solid var(--cyan);
+}
+html[data-theme="holographic"] .vrow.row-replacement { border-left-color: var(--purple); }
+html[data-theme="holographic"] .vrow.row-replaced {
+  background: rgba(10, 12, 26, .4);
+  border-left-color: rgba(140, 175, 255, .3);
+  opacity: .65;
+}
+html[data-theme="holographic"] .vnum {
+  color: var(--cyan);
+  text-shadow: 0 0 12px rgba(34, 211, 238, .65);
+  font-size: 1.3rem;
+}
+html[data-theme="holographic"] .vmeta { color: var(--muted); }
+html[data-theme="holographic"] .driver-code {
+  color: var(--purple);
+  text-shadow: 0 0 12px rgba(167, 139, 250, .7);
+}
+html[data-theme="holographic"] .vnote {
+  background: rgba(34, 211, 238, .08);
+  border-left-color: var(--cyan);
+  color: var(--text);
+}
+
+/* glowing progress */
+html[data-theme="holographic"] .progress-bar {
+  height: 10px;
+  background: rgba(140, 175, 255, .15);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+html[data-theme="holographic"] .progress-fill {
+  background: linear-gradient(90deg, var(--cyan), var(--purple));
+  box-shadow: 0 0 12px rgba(34, 211, 238, .6);
+}
+html[data-theme="holographic"] .progress-fill.fill-warn { background: linear-gradient(90deg, #fbbf24, #fb7185); box-shadow: 0 0 12px rgba(251, 191, 36, .6); }
+
+html[data-theme="holographic"] .badge {
+  border: 1px solid transparent;
+}
+html[data-theme="holographic"] .badge.success { background: var(--success-bg); color: var(--success); border-color: rgba(74, 222, 128, .4); }
+html[data-theme="holographic"] .badge.warn { background: var(--warn-bg); color: var(--warn); border-color: rgba(251, 191, 36, .4); }
+html[data-theme="holographic"] .badge.danger { background: var(--danger-bg); color: var(--danger); border-color: rgba(251, 113, 133, .4); }
+html[data-theme="holographic"] .badge.info { background: var(--info-bg); color: var(--info); border-color: rgba(34, 211, 238, .4); }
+html[data-theme="holographic"] .badge.muted { background: rgba(140, 175, 255, .1); color: #aab6e6; border-color: rgba(140, 175, 255, .3); }
+
+html[data-theme="holographic"] .flash {
+  border-left: 3px solid;
+}
+html[data-theme="holographic"] .flash-success { background: var(--success-bg); color: var(--success); border-color: var(--success); }
+html[data-theme="holographic"] .flash-error { background: var(--danger-bg); color: var(--danger); border-color: var(--danger); }
+html[data-theme="holographic"] .flash-info { background: var(--info-bg); color: var(--info); border-color: var(--info); }
+html[data-theme="holographic"] .flash-warn { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
+
+html[data-theme="holographic"] .status-recent { color: var(--success); }
+html[data-theme="holographic"] .status-due { color: var(--warn); }
+html[data-theme="holographic"] .status-overdue { color: var(--danger); }
+html[data-theme="holographic"] .status-unknown { color: var(--muted); }
+
+/* floating now-working chips */
+@keyframes holo-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+html[data-theme="holographic"] .now-worker {
+  animation: holo-float 4s ease-in-out infinite;
+}
+html[data-theme="holographic"] .now-worker-avatar {
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  box-shadow: 0 0 18px rgba(34, 211, 238, .65);
+}
+html[data-theme="holographic"] .now-worker-unit {
+  color: var(--cyan);
+  text-shadow: 0 0 14px rgba(34, 211, 238, .7);
+}
+
+html[data-theme="holographic"] code {
+  background: rgba(34, 211, 238, .1);
+  color: #a5f3fc;
+  box-shadow: 0 0 10px rgba(34, 211, 238, .3);
+}
+
+html[data-theme="holographic"] .modal {
+  background: rgba(10, 16, 34, .8);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+html[data-theme="holographic"] .modal-bg { background: rgba(3, 5, 12, .7); }
+html[data-theme="holographic"] .modal h3 { color: var(--cyan); }
+
+html[data-theme="holographic"] .login-body { background: #05060f; }
+html[data-theme="holographic"] .login-card {
+  background: rgba(10, 16, 34, .6);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+html[data-theme="holographic"] details.sect summary { color: var(--cyan); }
+
+/* keep prints light and readable even in the holographic theme. */
+@media print {
+  html[data-theme="holographic"] {
+    color-scheme: light;
+    --bg: #fff;
+    --card: #fff;
+    --border: #ccc;
+    --text: #111;
+    --muted: #555;
+    --success: #15803d;
+    --warn: #b45309;
+    --danger: #b91c1c;
+    --info: #0369a1;
+  }
+  html[data-theme="holographic"] body {
+    background: #fff !important; background-image: none; color: #111 !important;
+  }
+  html[data-theme="holographic"] table { background: #fff !important; }
+  html[data-theme="holographic"] th { background: #fff !important; color: #111 !important; }
+  html[data-theme="holographic"] .vrow { background: #fff !important; animation: none; }
+  html[data-theme="holographic"] .now-worker { animation: none; }
+  html[data-theme="holographic"] h1, html[data-theme="holographic"] h2 { color: #111; text-shadow: none; }
+  html[data-theme="holographic"] h1::after, html[data-theme="holographic"] h2::after,
+  html[data-theme="holographic"] .topbar::after { content: none; animation: none; }
+  html[data-theme="holographic"] body::before, html[data-theme="holographic"] body::after { display: none; }
+  html[data-theme="holographic"] .card, html[data-theme="holographic"] .stat,
+  html[data-theme="holographic"] .vrow, html[data-theme="holographic"] .now-worker {
+    background: #fff !important;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
 /* Print always renders light so dark mode doesn't ink out reports. */
 @media print {
   html[data-theme="dark"] {
@@ -1556,6 +2331,9 @@ html[data-layout="sidepanel"][data-theme="dark"] .sp-topbar { background: rgba(1
 html[data-layout="sidepanel"][data-theme="futuristic"] .sp-topbar { background: rgba(0, 0, 0, .8); }
 html[data-layout="sidepanel"][data-theme="halloween"] .sp-topbar { background: rgba(18, 13, 30, .85); }
 html[data-layout="sidepanel"][data-theme="bloomberg"] .sp-topbar { background: rgba(0, 0, 0, .92); border-bottom-color: var(--border); }
+html[data-layout="sidepanel"][data-theme="retro"] .sp-topbar { background: rgba(0, 6, 2, .85); border-bottom-color: var(--border); }
+html[data-layout="sidepanel"][data-theme="retro"] .sp-topbar-date { font-family: var(--font-mono); color: var(--phos); }
+html[data-layout="sidepanel"][data-theme="holographic"] .sp-topbar { background: rgba(10, 14, 30, .72); border-bottom-color: var(--border); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 
 /* keep the sidebar brand constant across color themes */
 html[data-layout="sidepanel"][data-theme="futuristic"] .sp-sidebar,
@@ -1563,6 +2341,40 @@ html[data-layout="sidepanel"][data-theme="halloween"] .sp-sidebar,
 html[data-layout="sidepanel"][data-theme="dark"] .sp-sidebar,
 html[data-layout="sidepanel"][data-theme="bloomberg"] .sp-sidebar {
   background: linear-gradient(180deg, #0b1220 0%, #16233b 100%);
+}
+html[data-layout="sidepanel"][data-theme="retro"] .sp-sidebar {
+  background: linear-gradient(180deg, #020a02 0%, #041604 100%);
+  box-shadow: inset -1px 0 0 rgba(69, 255, 69, .3);
+  font-family: var(--font-mono);
+}
+html[data-layout="sidepanel"][data-theme="retro"] .sp-logo,
+html[data-layout="sidepanel"][data-theme="retro"] .sp-logout-btn {
+  border-radius: 0;
+  background: var(--primary);
+  box-shadow: var(--retro-btn-bevel);
+}
+html[data-layout="sidepanel"][data-theme="retro"] .sp-nav a {
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  border-radius: 0;
+}
+html[data-layout="sidepanel"][data-theme="retro"] .sp-nav a.active {
+  background: rgba(69, 255, 69, .18);
+  border-left-color: var(--primary);
+  box-shadow: none;
+}
+html[data-layout="sidepanel"][data-theme="holographic"] .sp-sidebar {
+  background: linear-gradient(180deg, #0a0f22 0%, #141a38 100%);
+  box-shadow: inset -1px 0 0 rgba(140, 175, 255, .3);
+}
+html[data-layout="sidepanel"][data-theme="holographic"] .sp-logo {
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  box-shadow: 0 0 18px rgba(34, 211, 238, .55);
+}
+html[data-layout="sidepanel"][data-theme="holographic"] .sp-nav a.active {
+  background: linear-gradient(90deg, rgba(34, 211, 238, .3), rgba(124, 58, 237, .1));
+  border-left-color: var(--cyan);
+  box-shadow: inset 0 0 0 1px rgba(34, 211, 238, .3);
 }
 html[data-layout="sidepanel"][data-theme="bloomberg"] .sp-sidebar {
   background: linear-gradient(180deg, #060606 0%, #0e0e0e 100%);

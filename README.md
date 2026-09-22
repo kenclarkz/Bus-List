@@ -65,7 +65,7 @@ report. It is not a static mockup.
     default design) and **Side Panel** (a new design with a fixed sidebar
     navigation, sticky toolbar and wider content column). Layouts are
 independent of the color themes (Light / Dark / System / Futuristic /
-     Halloween / Bloomberg Terminal).
+     Halloween / Bloomberg Terminal / Retro 90s / Holographic).
 11. **Incident Reports** — a dedicated tab where anyone can report an issue
     for any vehicle: type (Mechanical / Interior / Exterior / Damage /
     Safety / Other), severity, location, description, date/time, and employee,

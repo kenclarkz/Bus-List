@@ -1371,6 +1371,76 @@ def test_bloomberg_theme_survives_saving_other_settings(manager_client, app):
     assert b'data-theme="bloomberg"' in manager_client.get("/settings").data
 
 
+def test_retro_theme_can_be_turned_on(manager_client, app):
+    r = manager_client.post("/settings", data={
+        "dark_mode": "retro",
+        "recent_days": "2",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_theme("manager") == "retro"
+    assert b'data-theme="retro"' in manager_client.get("/").data
+    assert b'data-theme="retro"' in manager_client.get("/settings").data
+    assert "Retro 90s" in manager_client.get("/settings").data.decode()
+
+
+def test_retro_theme_survives_saving_other_settings(manager_client, app):
+    manager_client.post("/settings", data={"dark_mode": "retro"})
+    r = manager_client.post("/settings", data={
+        "recent_days": "3",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_theme("manager") == "retro"
+    assert b'data-theme="retro"' in manager_client.get("/").data
+    assert b'data-theme="retro"' in manager_client.get("/settings").data
+
+
+def test_holographic_theme_can_be_turned_on(manager_client, app):
+    r = manager_client.post("/settings", data={
+        "dark_mode": "holographic",
+        "recent_days": "2",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_theme("manager") == "holographic"
+    assert b'data-theme="holographic"' in manager_client.get("/").data
+    assert b'data-theme="holographic"' in manager_client.get("/settings").data
+    assert "Holographic" in manager_client.get("/settings").data.decode()
+
+
+def test_holographic_theme_survives_saving_other_settings(manager_client, app):
+    manager_client.post("/settings", data={"dark_mode": "holographic"})
+    r = manager_client.post("/settings", data={
+        "recent_days": "3",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_theme("manager") == "holographic"
+    assert b'data-theme="holographic"' in manager_client.get("/").data
+    assert b'data-theme="holographic"' in manager_client.get("/settings").data
+
+
 def test_theme_is_per_user(client, manager_client, app):
     """Manager, employee and driver each keep their own theme, and a change by
     one never affects the others."""
