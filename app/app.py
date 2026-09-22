@@ -531,10 +531,22 @@ def _start_auto_end_day_scheduler(app):
     Time comes from AUTO_END_DAY_TIME (HH:MM, default 23:50) so operators can
     adjust the cutoff without code changes. Multiple admins/workers firing the
     job at the same instant are harmless because finalize_day() is idempotent.
+
+    The scheduler is an optional add-on: if APScheduler isn't installed the
+    site keeps serving normally and the auto end-of-day job is simply disabled
+    (a warning is logged) instead of the whole app failing to boot.
     """
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+    except ImportError:
+        app.logger.warning(
+            "APScheduler is not installed; the automatic "
+            "end-of-day job is disabled. Run `pip install -r "
+            "requirements.txt` to enable it.")
+        return None
+
     app.logger.info("Starting auto end-of-day scheduler")
-    from apscheduler.schedulers.background import BackgroundScheduler
-    from apscheduler.triggers.cron import CronTrigger
 
     hour, minute = _auto_end_time()
 

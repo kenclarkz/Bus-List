@@ -1295,6 +1295,21 @@ def test_auto_end_day_scheduler_registers_daily_2350_job(app):
         scheduler.shutdown(wait=False)
 
 
+def test_auto_end_day_scheduler_graceful_without_apscheduler(monkeypatch, app):
+    """The site must still boot when APScheduler isn't installed: the
+    scheduler startup degrades (returns None) instead of crashing the app."""
+    import sys
+
+    import app.app as app_module
+
+    for key in [k for k in sys.modules if k == "apscheduler"
+                or k.startswith("apscheduler.")]:
+        monkeypatch.setitem(sys.modules, key, None)
+    with app.app_context():
+        scheduler = app_module._start_auto_end_day_scheduler(app)
+        assert scheduler is None
+
+
 # ---------------------------------------------------------------------------
 # Settings
 # ---------------------------------------------------------------------------
