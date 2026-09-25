@@ -39,9 +39,10 @@ report. It is not a static mockup.
    daily prep requirements to the replacement while preserving completed work
    and historical records. Replacements are clearly displayed on the board and
    recorded in history.
-5. **Smart Status / Last Washed** — Last Washed auto-updates when the sweep
-   (wash) task completes; Last Detailed updates on the final inspection.
-   Configurable visual indicators: Recently Washed / Due Soon / Overdue.
+5. **Smart Status / Last Washed** — Last Washed auto-updates when all Outside
+   tasks for the vehicle are complete; Inside tasks do not count as a wash.
+   Last Detailed updates on the final inspection. Configurable visual
+   indicators: Recently Washed / Due Soon / Overdue.
 6. **Dashboard** — today's totals: total, completed, in progress, remaining,
    overdue, replacements, worst overall completion %. Search & filter by unit
    number, type, route, and status. Each vehicle row shows its report (prep)
