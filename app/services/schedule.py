@@ -172,8 +172,8 @@ def set_entry_skipped(entry, skipped=True, reason=""):
     """Mark a vehicle as skipped or un-skip it.
 
     Manual skips never count toward completion: the entry keeps its own progress
-    and is reported separately as skipped. Transit auto-skips are accounted for
-    by the schedule view as completed for the day.
+    and is reported separately as skipped. Transit auto-skips are also reported
+    separately and excluded from the day's work totals.
     """
     if skipped:
         entry.status = "skipped"
@@ -474,8 +474,8 @@ def apply_import(preview, location=None, employee_id=None, source="import",
                              pickup_time=item.get("pickup_time"),
                              driver_code=item.get("driver_code"))
         # Transit buses are not washed in this bay, so they are imported onto
-        # the board but skipped (they count toward completion). Work already
-        # done on the entry, or a manual skip, is never overwritten.
+        # the board but skipped and excluded from the day's work totals. Work
+        # already done on the entry, or a manual skip, is never overwritten.
         if entry.status not in ("completed", "skipped") and (
                 vehicles.is_transit_type(item.get("type"))
                 or vehicles.is_transit_vehicle(vehicle)):

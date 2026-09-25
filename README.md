@@ -205,10 +205,10 @@ data/                    # SQLite database (created at runtime)
 - Vehicles that disappear from a report are **deactivated**, not deleted, so
   their history remains.
 - Transit buses (type `TRANSITB`, `TRANSIT BUS`, `TRANSIT`) are auto-skipped
-  when they arrive on a report: they count toward completion, are never marked
-  as washed, and are shown in the board's Transit Buses dropdown instead of the
-  main work list. Work already done on them (or a manual skip) is never
-  overwritten by a re-import.
+  when they arrive on a report: they are excluded from today's work totals and
+  completion, are never marked as washed, and are shown in the board's Transit
+  Buses dropdown instead of the main work list. Work already done on them (or a
+  manual skip) is never overwritten by a re-import.
 - When a vehicle is replaced, its completed tasks and timestamps are carried
   forward onto the replacement entry; the original entry and its completed work
   are preserved as historical records, and a `Replacement` row is written with
