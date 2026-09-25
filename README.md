@@ -28,7 +28,10 @@ report. It is not a static mockup.
    board. Shows an **Import Preview** (new / updated / removed / route
    changes / replacements / uncertain) and requires clicking **Apply
    Updates** before anything touches the database. Multiple imports per day
-   are allowed and historical data is never deleted.
+   are allowed and historical data is never deleted. Vehicles whose type is
+   **TRANSITB** (transit buses) are imported and shown, but skipped
+   automatically — they are washed by another crew — and are collected in
+   their own dropdown at the bottom of the board.
 3. **Daily Detailing Board** — after import, today's work list is created
    automatically. Each vehicle shows number, type, route, status, last washed,
    and progress. The task list is broken into two categories — **Inside**
@@ -47,6 +50,9 @@ report. It is not a static mockup.
    overdue, replacements, worst overall completion %. Search & filter by unit
    number, type, route, and status. Each vehicle row shows its report (prep)
    time, pickup time, and driver code when the wash report supplied them.
+   **Transit buses** (TRANSITB) are pulled out of the main work list into a
+   **Transit Buses** dropdown at the bottom of the board, so they stay visible
+   without crowding the list; un-skip one to work it here.
 7. **End My Day** — prominent button. Requires confirmation. Finalizes the
    day, calculates completed/incomplete, shows unfinished checklist items,
    replacements, and notes, computes completion %, and generates a clean
@@ -198,6 +204,11 @@ data/                    # SQLite database (created at runtime)
   days.
 - Vehicles that disappear from a report are **deactivated**, not deleted, so
   their history remains.
+- Transit buses (type `TRANSITB`, `TRANSIT BUS`, `TRANSIT`) are auto-skipped
+  when they arrive on a report: they count toward completion, are never marked
+  as washed, and are shown in the board's Transit Buses dropdown instead of the
+  main work list. Work already done on them (or a manual skip) is never
+  overwritten by a re-import.
 - When a vehicle is replaced, its completed tasks and timestamps are carried
   forward onto the replacement entry; the original entry and its completed work
   are preserved as historical records, and a `Replacement` row is written with

@@ -304,6 +304,14 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   });
 
+  // The transit dropdown is collapsed by default. Open it when the page is
+  // loaded with a row anchor inside it (e.g. right after an un-skip).
+  if (window.location.hash && window.location.hash.length > 1) {
+    var anchored = document.getElementById(window.location.hash.slice(1));
+    var section = anchored && anchored.closest ? anchored.closest('details') : null;
+    if (section) section.open = true;
+  }
+
   // photo viewer (incident report photos)
   var photos = document.querySelectorAll('.photo-grid .photo-item img[data-photo-viewer]');
   if (photos.length) {

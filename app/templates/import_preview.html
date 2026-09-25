@@ -66,6 +66,23 @@
 </div>
 
 <div class="card">
+  <h2>Transit Buses (skipped automatically) <span class="badge info">{{ preview.transit|length }}</span></h2>
+  {% if preview.transit %}
+  <p class="muted">These are still imported and shown on the board, but they are
+    skipped on arrival and moved to the Transit Buses dropdown at the bottom of the
+    board, because they are washed by another crew.</p>
+  <div class="table-wrap">
+  <table>
+    <tr><th>Unit</th><th>Type</th><th>Route</th><th>Report</th></tr>
+    {% for v in preview.transit %}
+    <tr><td><strong>{{ v.unit }}</strong></td><td>{{ v.type or '—' }}</td><td>{{ v.route or '—' }}</td><td>{{ v.prep_time or '—' }}</td></tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}<p class="muted">No transit buses on this report.</p>{% endif %}
+</div>
+
+<div class="card">
   <h2>Vehicle Replacements <span class="badge warn">{{ preview.replacements|length }}</span></h2>
   {% if preview.replacements %}
   <div class="table-wrap">

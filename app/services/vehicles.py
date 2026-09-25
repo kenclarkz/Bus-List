@@ -1,6 +1,7 @@
 """Vehicle and entity helpers."""
 import json
 import os
+import re
 from datetime import datetime
 
 from app.models import (
@@ -8,6 +9,34 @@ from app.models import (
     ServiceRecord, Replacement, PrepReportImport,
 )
 from app.services import settings
+
+# Vehicle-type codes (as they appear on ECHO reports) that belong to the
+# transit fleet. Transit buses are washed by their own crew, so anything with
+# one of these types is skipped instead of being handed to the detail bay.
+TRANSIT_TYPE_CODES = {"transitb", "transitbus", "transit"}
+
+# Reason recorded on transit entries that the importer auto-skipped.
+TRANSIT_SKIP_REASON = "Transit — auto-skipped on import"
+
+
+def is_transit_type(name):
+    """True when a vehicle-type name from a report denotes a transit bus.
+
+    Matching ignores case, spaces, dashes and underscores so 'TRANSITB',
+    'TRANSIT BUS' and 'transit_bus' all count. Only the vehicle *type* is
+    considered: a Ford Transit van (type 'Van.') is not a transit bus.
+    """
+    if not name:
+        return False
+    return re.sub(r"[^a-z0-9]", "", str(name).lower()) in TRANSIT_TYPE_CODES
+
+
+def is_transit_vehicle(vehicle):
+    """True when the vehicle's stored type is a transit type."""
+    if vehicle is None:
+        return False
+    vtype = getattr(vehicle, "vehicle_type", None)
+    return is_transit_type(vtype.name if vtype else None)
 
 
 class Savable:
