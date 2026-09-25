@@ -2187,6 +2187,17 @@ def test_skip_keeps_partial_progress_incomplete(client, app):
         assert counts["overall"] < 100
 
 
+def test_skip_reason_dropdown_includes_didnt_get_to_it(client, app):
+    with app.app_context():
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        v, _ = find_or_create_vehicle("765", location_id=vehicles_loc(app).id)
+        ss.ensure_entry(ss.get_or_create_schedule(location=vehicles_loc(app)), v)
+
+    html = client.get("/").data.decode()
+    assert '<option value="Didn’t Get To It">Didn’t Get To It</option>' in html
+
+
 def test_skip_does_not_record_cleaning_and_stores_reason(client, app):
     """Skipping a vehicle must NOT mark it as cleaned (still needs cleaning),
     and the skip reason is stored and rendered."""
