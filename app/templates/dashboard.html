@@ -141,10 +141,10 @@
 
 {% if transit_rows %}
 <details class="card sect transit-board" id="transit-board">
-  <summary>Transit Buses ({{ transit_rows|length }}) — skipped</summary>
+  <summary>Transit Buses ({{ transit_rows|length }}) — skipped and excluded from totals</summary>
   <p class="muted small">Transit buses come in on the prep report but are washed by
-    another crew, so the importer skips them. They are listed here instead of in the
-    main work list — un-skip one to work it here.</p>
+    another crew, so the importer skips them and excludes them from today's work totals.
+    They are listed here instead of in the main work list — un-skip one to work it here.</p>
   <div class="board">
     {% for r in transit_rows %}
     {{ vehicle_row(r) }}

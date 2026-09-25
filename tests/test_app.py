@@ -2383,15 +2383,56 @@ def test_import_skips_transit_vehicles(client, app):
         view = build_schedule_view(sched)
         rows = {r["vehicle"].unit_number: r for r in view}
         assert rows["100"]["is_auto_skipped"] is True
-        assert rows["100"]["is_complete"] is True
-        assert rows["300"]["is_complete"] is True
+        assert rows["100"]["is_complete"] is False
+        assert rows["300"]["is_complete"] is False
         assert rows["200"]["is_auto_skipped"] is False
         counts = schedule_counters(view)
-        assert counts["total"] == 3
-        assert counts["completed"] == 2
+        assert counts["total"] == 1
+        assert counts["completed"] == 0
         assert counts["skipped"] == 2
         assert counts["remaining"] == 1
         assert counts["incomplete"] == 1
+        assert counts["overall"] == 0
+
+
+def test_auto_skipped_transit_is_excluded_from_day_totals(client, app):
+    from app.app import build_schedule_view, finalize_day, schedule_counters
+    from app.services import schedule as ss
+    from app.services.vehicles import TRANSIT_SKIP_REASON, find_or_create_vehicle
+
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        bus, _ = find_or_create_vehicle("4401", vehicle_type="TRANSITB",
+                                        location_id=loc.id)
+        bus_entry = ss.ensure_entry(sched, bus)
+        ss.set_entry_skipped(bus_entry, skipped=True,
+                             reason=TRANSIT_SKIP_REASON)
+        van, _ = find_or_create_vehicle("4402", vehicle_type="Van",
+                                        location_id=loc.id)
+        van_entry = ss.ensure_entry(sched, van)
+        for task in list(van_entry.tasks):
+            ss.toggle_task(van_entry.id, task.task_name, True)
+
+        counts = schedule_counters(build_schedule_view(sched))
+        assert counts["total"] == 1
+        assert counts["completed"] == 1
+        assert counts["skipped"] == 1
+        assert counts["remaining"] == 0
+        assert counts["incomplete"] == 0
+        assert counts["overall"] == 100
+
+        finalize_day(sched)
+        summary = json.loads(sched.summary)
+        assert summary["total"] == 1
+        assert summary["completed"] == 1
+        assert summary["incomplete"] == 0
+        assert summary["skipped"] == 1
+        assert summary["overall"] == 100
+
+    html = client.get("/end").data.decode()
+    assert "4401" not in html
+    assert "4402" in html
 
 
 def test_import_keeps_completed_transit_vehicle_untouched(client, app):
@@ -2527,7 +2568,10 @@ def test_unskip_transit_vehicle_lets_it_be_worked(client, app):
         ss.set_entry_skipped(entry, skipped=True,
                              reason="Transit — auto-skipped on import")
         eid = entry.id
-        assert schedule_counters(build_schedule_view(sched))["remaining"] == 0
+        counts = schedule_counters(build_schedule_view(sched))
+        assert counts["total"] == 0
+        assert counts["remaining"] == 0
+        assert counts["skipped"] == 1
 
     html = client.get("/").data.decode()
     assert f'id="row-{eid}"' in html
@@ -2538,6 +2582,7 @@ def test_unskip_transit_vehicle_lets_it_be_worked(client, app):
         assert ScheduleEntry.query.get(eid).status == "pending"
         sched = DailySchedule.query.filter_by(work_date=date.today()).first()
         counts = schedule_counters(build_schedule_view(sched))
+        assert counts["total"] == 1
         assert counts["remaining"] == 1
         assert counts["completed"] == 0
 

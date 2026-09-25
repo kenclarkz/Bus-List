@@ -451,17 +451,16 @@ def build_schedule_view(sched):
         original = entries_by_id.get(entry.replacement_of_entry_id) \
             if entry.is_replacement else None
         replacer = replaced_by.get(entry.id)
-        # A replaced vehicle's prep is fulfilled by its replacement, so it
-        # counts toward completion. Auto-skipped transit vehicles also count,
-        # while manual skips remain incomplete.
         if replacer is not None:
             done, total, pct = total, total, 100
         skipped = entry.status == "skipped"
         auto_skipped = (
             skipped and entry.skip_reason == vehicles.TRANSIT_SKIP_REASON
         )
-        complete = auto_skipped or (
-            not skipped and (entry.status == "completed" or replacer is not None)
+        complete = (
+            not auto_skipped
+            and not skipped
+            and (entry.status == "completed" or replacer is not None)
         )
         rows.append({
             "entry": entry,
@@ -490,12 +489,15 @@ def build_schedule_view(sched):
 def schedule_counters(rows):
     """Day totals for a list of schedule view rows.
 
-    Transit vehicles auto-skipped on import count toward completion. Manual
-    skips remain incomplete and stay in the remaining count.
+    Transit vehicles auto-skipped on import stay in the skipped count but are
+    excluded from the day's work totals. Manual skips remain incomplete and stay
+    in the remaining count.
     """
-    total = len(rows)
-    completed = sum(1 for r in rows if r["is_complete"])
-    in_progress = sum(1 for r in rows if r["entry"].status == "in_progress"
+    applicable_rows = [r for r in rows if not r["is_auto_skipped"]]
+    total = len(applicable_rows)
+    completed = sum(1 for r in applicable_rows if r["is_complete"])
+    in_progress = sum(1 for r in applicable_rows
+                      if r["entry"].status == "in_progress"
                       and not r["replaced_by"])
     skipped = sum(1 for r in rows if r["is_skipped"])
     return dict(
@@ -505,9 +507,11 @@ def schedule_counters(rows):
         skipped=skipped,
         remaining=total - completed - in_progress,
         incomplete=total - completed,
-        overdue=sum(1 for r in rows if r["indicator"][0] == "Overdue"),
-        overall=round((sum(r["done"] for r in rows) /
-                       (sum(r["total"] for r in rows) or 1)) * 100) if rows else 0,
+        overdue=sum(1 for r in applicable_rows
+                    if r["indicator"][0] == "Overdue"),
+        overall=round((sum(r["done"] for r in applicable_rows) /
+                       (sum(r["total"] for r in applicable_rows) or 1)) * 100)
+        if applicable_rows else 0,
     )
 
 
@@ -519,18 +523,13 @@ def finalize_day(sched, at=None):
     """
     if sched.finalized:
         return False
-    rows = build_schedule_view(sched)
-    total = len(rows)
-    completed = sum(1 for r in rows if r["is_complete"])
-    skipped = sum(1 for r in rows if r["is_skipped"])
-    incomplete = total - completed
-    overall = round((sum(r["done"] for r in rows) /
-                    (sum(r["total"] for r in rows) or 1)) * 100) if rows else 0
+    counts = schedule_counters(build_schedule_view(sched))
     sched.finalized = True
     sched.finalized_at = at or datetime.utcnow()
     sched.summary = json.dumps(dict(
-        total=total, completed=completed, incomplete=incomplete,
-        skipped=skipped, overall=overall))
+        total=counts["total"], completed=counts["completed"],
+        incomplete=counts["incomplete"], skipped=counts["skipped"],
+        overall=counts["overall"]))
     db.session.commit()
     return True
 
@@ -1261,9 +1260,10 @@ def register_routes(app):
         skipped = counts["skipped"]
         incomplete = counts["incomplete"]
         overall = counts["overall"]
-        incomplete_rows = [r for r in rows if not r["is_complete"]]
+        applicable_rows = [r for r in rows if not r["is_auto_skipped"]]
+        incomplete_rows = [r for r in applicable_rows if not r["is_complete"]]
         completed_rows = []
-        for r in rows:
+        for r in applicable_rows:
             if not r["is_complete"]:
                 continue
             emp_tasks = {}
@@ -1291,7 +1291,7 @@ def register_routes(app):
         # Per-employee stats
         emp_done = {}
         total_tasks = 0
-        for r in rows:
+        for r in applicable_rows:
             for t in r["entry"].tasks:
                 total_tasks += 1
                 if t.completed and t.employee:
@@ -1327,10 +1327,11 @@ def register_routes(app):
         completed = counts["completed"]
         skipped = counts["skipped"]
         overall = counts["overall"]
+        applicable_rows = [r for r in rows if not r["is_auto_skipped"]]
         # Per-employee stats
         emp_done = {}
         total_tasks = 0
-        for r in rows:
+        for r in applicable_rows:
             for t in r["entry"].tasks:
                 total_tasks += 1
                 if t.completed and t.employee:

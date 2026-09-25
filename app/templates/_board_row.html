@@ -106,7 +106,7 @@
   {% endif %}
   {% else %}
   {% if entry.status == 'skipped' %}
-  <p class="muted small" style="margin:12px 0 4px">Skipped — {% if r.is_auto_skipped %}counts toward completion{% else %}does not count toward completion{% endif %}.{% if entry.skip_reason %} <strong>Reason:</strong> {{ entry.skip_reason }}{% endif %} Un-skip to work this vehicle.</p>
+  <p class="muted small" style="margin:12px 0 4px">Skipped — {% if r.is_auto_skipped %}excluded from today's work totals{% else %}does not count toward completion{% endif %}.{% if entry.skip_reason %} <strong>Reason:</strong> {{ entry.skip_reason }}{% endif %} Un-skip to work this vehicle.</p>
   {% elif r.replaced_by %}
   <p class="muted small" style="margin:12px 0 4px">Replaced by {{ r.replaced_by.unit_number }} — work has moved to the replacement vehicle.</p>
   {% endif %}
