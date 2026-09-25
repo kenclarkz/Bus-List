@@ -94,6 +94,22 @@ def _entry_checklist(entry):
     return settings.get_type_checklist(vtype)
 
 
+def _outside_tasks_complete(entry):
+    vehicle = entry.vehicle
+    if vehicle is None:
+        return False
+    outside = settings.get_type_categorized_checklist(
+        vehicle.vehicle_type)["outside"]
+    if not outside:
+        return False
+    completed = {
+        task.task_name.strip().casefold()
+        for task in entry.tasks
+        if task.completed
+    }
+    return all(name.strip().casefold() in completed for name in outside)
+
+
 def create_task_rows(entry):
     for tname in _entry_checklist(entry):
         if not any(t.task_name == tname for t in entry.tasks):
@@ -105,16 +121,18 @@ def create_task_rows(entry):
 
 
 def entry_progress(entry):
+    """Return (done, total, pct) for an entry.
+
+    A skipped vehicle does NOT count toward completion, so its progress stays at
+    whatever was actually done (usually nothing) and it never reads as 100%.
+    """
     tasks = entry.tasks
     if not tasks:
         done, total = 0, 0
     else:
         done = sum(1 for t in tasks if t.completed)
         total = len(tasks)
-    # A skipped vehicle counts as fully complete.
-    if getattr(entry, "status", None) == "skipped":
-        done = total
-    pct = round(done / total * 100) if total else (100 if entry.status == "skipped" else 0)
+    pct = round(done / total * 100) if total else 0
     return done, total, pct
 
 
@@ -151,7 +169,11 @@ def complete_entry(entry, employee_id=None):
 
 
 def set_entry_skipped(entry, skipped=True, reason=""):
-    """Mark a vehicle as skipped (counts toward completion) or un-skip it."""
+    """Mark a vehicle as skipped or un-skip it.
+
+    Skipping never counts toward completion: the entry keeps its own progress
+    (a skipped vehicle stays incomplete) and is reported separately as skipped.
+    """
     if skipped:
         entry.status = "skipped"
         entry.skip_reason = (reason or "").strip()[:255] or None
@@ -172,6 +194,7 @@ def toggle_task(entry_id, task_name, checked, employee_id=None):
     entry = ScheduleEntry.query.get(entry_id)
     if not entry:
         return None
+    was_outside_complete = _outside_tasks_complete(entry)
     task = next((t for t in entry.tasks if t.task_name == task_name), None)
     if not task:
         task = TaskCompletion(entry_id=entry.id, task_name=task_name)
@@ -189,11 +212,13 @@ def toggle_task(entry_id, task_name, checked, employee_id=None):
     db.session.commit()
     # Record last washed / detailed in history when appropriate
     if checked:
-        if task_name.lower() == "sweep":
+        if (not was_outside_complete
+                and _outside_tasks_complete(entry)):
             vehicles.add_service_record(
                 entry.vehicle, service_type="wash",
                 employee_id=employee_id, source="checklist",
                 at=datetime.utcnow())
+        if task_name.lower() == "sweep":
             vehicle = entry.vehicle
             vehicle.cleanings_since_dump = (vehicle.cleanings_since_dump or 0) + 1
             db.session.commit()

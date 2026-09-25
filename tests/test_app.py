@@ -1041,7 +1041,48 @@ def test_checklist_toggle(client, app):
         sweep = next(t for t in e.tasks if t.task_name == "Sweep")
         assert sweep.completed is True
         assert sweep.completed_at is not None
-        assert v_last_washed(app, "300") is not None
+        assert v_last_washed(app, "300") is None
+
+
+def test_wash_requires_all_outside_tasks(client, app):
+    from app.models import ServiceRecord
+
+    with app.app_context():
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        v, _ = find_or_create_vehicle("301", location_id=loc.id)
+        entry = ss.ensure_entry(sched, v)
+        entry_id = entry.id
+        vehicle_id = v.id
+
+    for task_name in ("Sweep", "Mop", "Windows", "Seats", "Bathroom",
+                      "Dump", "Bay Checked"):
+        response = client.post(f"/task/{entry_id}/{task_name}",
+                               data={"checked": "true"})
+        assert response.status_code == 200
+
+    with app.app_context():
+        vehicle = Vehicle.query.get(vehicle_id)
+        assert vehicle.last_washed is None
+        assert ServiceRecord.query.filter_by(
+            vehicle_id=vehicle_id, service_type="wash").count() == 0
+
+    response = client.post(f"/task/{entry_id}/Final%20Inspection",
+                           data={"checked": "true"})
+    assert response.status_code == 200
+
+    with app.app_context():
+        vehicle = Vehicle.query.get(vehicle_id)
+        assert vehicle.last_washed is not None
+        assert ServiceRecord.query.filter_by(
+            vehicle_id=vehicle_id, service_type="wash").count() == 1
+
+    client.post(f"/task/{entry_id}/Sweep", data={"checked": "true"})
+    with app.app_context():
+        assert ServiceRecord.query.filter_by(
+            vehicle_id=vehicle_id, service_type="wash").count() == 1
 
 
 def vehicles_loc(app):
@@ -2053,15 +2094,19 @@ def test_current_vehicle_cleared_when_vehicle_completed(client, app):
         assert Employee.query.get(emp_id).current_vehicle_id is None
 
 
-def test_skip_vehicle_counts_as_complete(client, app):
-    """Skipping a vehicle counts it toward completion and it can be un-skipped."""
+def test_skip_vehicle_does_not_count_as_complete(client, app):
+    """Skipping a vehicle does NOT count it toward completion: the entry keeps
+    its real progress, stays incomplete/remaining, and is reported as skipped.
+    It can still be un-skipped."""
     with app.app_context():
         from app.services import schedule as ss
         from app.services.vehicles import find_or_create_vehicle
+        from app.app import build_schedule_view, schedule_counters
         v, _ = find_or_create_vehicle("740", location_id=vehicles_loc(app).id)
         sched = ss.get_or_create_schedule(location=vehicles_loc(app))
         entry = ss.ensure_entry(sched, v)
         ea = entry.id
+        sched_id = sched.id
         assert entry.status == "pending"
 
     # Skip it
@@ -2070,15 +2115,33 @@ def test_skip_vehicle_counts_as_complete(client, app):
     with app.app_context():
         e = ScheduleEntry.query.get(ea)
         assert e.status == "skipped"
+        # Skipping never marks the work as done.
         done, total, pct = sched_svc.entry_progress(e)
-        assert done == total
-        assert pct == 100
+        assert total > 0
+        assert done == 0
+        assert pct == 0
 
-    # Dashboard counts it toward completed and shows skipped stat
-    import re
+        view = build_schedule_view(DailySchedule.query.get(sched_id))
+        row = next(r for r in view if r["entry"].id == ea)
+        assert row["is_skipped"] is True
+        assert row["is_complete"] is False
+        assert row["pct"] == 0
+
+        # Day totals: still one vehicle, zero completed, one skipped and the
+        # skipped vehicle is still counted as remaining work.
+        counts = schedule_counters(view)
+        assert counts["total"] == 1
+        assert counts["completed"] == 0
+        assert counts["skipped"] == 1
+        assert counts["remaining"] == 1
+        assert counts["incomplete"] == 1
+        assert counts["overall"] == 0
+
+    # Dashboard shows the skipped stat and says it does not count as completed
     html = client.get("/").data.decode()
     assert "Skipped" in html
     assert '"skipped"' in html
+    assert "does not count toward completion" in html
 
     # Un-skip restores to pending (no tasks done)
     r = client.post(f"/entry/{ea}/unskip")
@@ -2086,6 +2149,42 @@ def test_skip_vehicle_counts_as_complete(client, app):
     with app.app_context():
         e = ScheduleEntry.query.get(ea)
         assert e.status == "pending"
+        view = build_schedule_view(DailySchedule.query.get(sched_id))
+        assert schedule_counters(view)["skipped"] == 0
+
+
+def test_skip_keeps_partial_progress_incomplete(client, app):
+    """A vehicle that was partially worked and then skipped keeps its real
+    progress and is still not counted as completed."""
+    with app.app_context():
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        from app.app import build_schedule_view, schedule_counters
+        v, _ = find_or_create_vehicle("741", location_id=vehicles_loc(app).id)
+        sched = ss.get_or_create_schedule(location=vehicles_loc(app))
+        entry = ss.ensure_entry(sched, v)
+        ea = entry.id
+        sched_id = sched.id
+        ss.toggle_task(ea, "Sweep", True)
+        done, total, _ = sched_svc.entry_progress(entry)
+        assert done == 1 and total > 1
+
+    assert client.post(f"/entry/{ea}/skip", data={"reason": "Maintenance"}).status_code == 302
+
+    with app.app_context():
+        e = ScheduleEntry.query.get(ea)
+        assert e.status == "skipped"
+        # The one completed task is still counted, but the entry is not complete.
+        assert sched_svc.entry_progress(e)[:2] == (1, total)
+        view = build_schedule_view(DailySchedule.query.get(sched_id))
+        row = next(r for r in view if r["entry"].id == ea)
+        assert row["is_skipped"] is True
+        assert row["is_complete"] is False
+        counts = schedule_counters(view)
+        assert counts["completed"] == 0
+        assert counts["skipped"] == 1
+        assert counts["remaining"] == 1
+        assert counts["overall"] < 100
 
 
 def test_skip_does_not_record_cleaning_and_stores_reason(client, app):
@@ -2125,7 +2224,8 @@ def test_skip_does_not_record_cleaning_and_stores_reason(client, app):
 
 def test_skip_json_and_unskip_fragment(client, app):
     """The skip endpoint answers JSON for AJAX (so the page doesn't reload and
-    lose scroll position), and un-skip redirects back to the same row."""
+    lose scroll position) and hands back recalculated day totals (a skip does
+    not bump completed), and un-skip redirects back to the same row."""
     with app.app_context():
         from app.services.vehicles import find_or_create_vehicle
         from app.services import schedule as ss
@@ -2141,6 +2241,11 @@ def test_skip_json_and_unskip_fragment(client, app):
     assert payload["ok"] is True
     assert payload["unit"] == "760"
     assert payload["reason"] == "Maintenance"
+    # The AJAX path updates the stat tiles, so they must not claim completion.
+    counters = payload["counters"]
+    assert counters["skipped"] == 1
+    assert counters["completed"] == 0
+    assert counters["remaining"] == 1
 
     with app.app_context():
         assert ScheduleEntry.query.get(ea).status == "skipped"
@@ -2151,6 +2256,30 @@ def test_skip_json_and_unskip_fragment(client, app):
 
     with app.app_context():
         assert ScheduleEntry.query.get(ea).status == "pending"
+
+
+def test_finalized_day_summary_counts_skipped_as_incomplete(client, app):
+    """Ending a day with a skipped vehicle records it as skipped and still
+    incomplete, so the day never looks finished on the strength of a skip."""
+    with app.app_context():
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        loc = vehicles_loc(app)
+        v, _ = find_or_create_vehicle("780", location_id=loc.id)
+        sched = ss.get_or_create_schedule(location=loc)
+        entry = ss.ensure_entry(sched, v)
+        sched_svc.set_entry_skipped(entry, skipped=True, reason="Maintenance")
+
+    assert client.post("/end", data={"confirm": "yes"}).status_code == 302
+
+    with app.app_context():
+        summary = json.loads(sched_svc.get_or_create_schedule(
+            location=vehicles_loc(app)).summary)
+        assert summary["total"] == 1
+        assert summary["completed"] == 0
+        assert summary["skipped"] == 1
+        assert summary["incomplete"] == 1
+        assert summary["overall"] == 0
 
 
 # ---------------------------------------------------------------------------

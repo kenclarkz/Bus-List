@@ -123,6 +123,12 @@ h2 { font-size: 1.2rem; margin: 1rem 0 .6rem; }
 .stat.danger .num { color: var(--danger); }
 .stat.info .num { color: var(--info); }
 
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
 /* buttons */
 .btn {
   display: inline-flex;
