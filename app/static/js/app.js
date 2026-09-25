@@ -126,6 +126,15 @@ function completeWork(btn) {
   });
 }
 
+function updateStats(counters) {
+  if (!counters) return;
+  Object.keys(counters).forEach(function (key) {
+    var el = document.querySelector('[data-stat="' + key + '"]');
+    if (!el) return;
+    el.textContent = key === 'overall' ? counters[key] + '%' : counters[key];
+  });
+}
+
 function markSkipped(row, entryId, reason, unskipUrl) {
   var ck = row.querySelector('.checklist');
   if (ck) ck.remove();
@@ -146,7 +155,7 @@ function markSkipped(row, entryId, reason, unskipUrl) {
       row.appendChild(note);
     }
   }
-  note.textContent = 'Skipped — counts toward completion.';
+  note.textContent = 'Skipped — does not count toward completion.';
   if (reason) {
     var strong = document.createElement('strong');
     strong.textContent = 'Reason: ' + reason;
@@ -212,6 +221,9 @@ function skipWork(form) {
         var reason = data.reason || body.get('reason') || '';
         markSkipped(row, entryId, reason, unskipUrl);
       }
+      // Skipping does not complete a vehicle, so refresh the day totals
+      // (completed stays put; remaining and completion % change).
+      updateStats(data.counters);
       var modal = document.getElementById('modal-skip-' + entryId);
       if (modal) modal.classList.remove('open');
     });

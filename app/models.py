@@ -159,7 +159,7 @@ class ScheduleEntry(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     schedule_id = db.Column(db.Integer, db.ForeignKey("daily_schedules.id"), nullable=False)
     vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicles.id"), nullable=False)
-    status = db.Column(db.String(40), default="pending")  # pending/in_progress/completed
+    status = db.Column(db.String(40), default="pending")  # pending/in_progress/completed/skipped
     is_replacement = db.Column(db.Boolean, default=False)
     replacement_of_entry_id = db.Column(db.Integer)
     order_index = db.Column(db.Integer, default=0)
