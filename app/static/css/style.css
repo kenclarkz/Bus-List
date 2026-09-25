@@ -339,6 +339,55 @@ tr.row-inactive td { color: var(--muted); }
 
 .row-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
 
+/* prep timer: Start -> Pause -> Resume -> Done */
+.prep {
+  display: flex; flex-direction: column; gap: 6px;
+  margin: 12px 0 4px; padding: 10px 12px;
+  background: rgba(127, 127, 127, .08); border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 8px;
+}
+.prep-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.prep-label {
+  font-size: .7rem; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted);
+}
+.prep-clock {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  line-height: 1.1; color: var(--text);
+}
+.prep-meta { font-size: .8rem; color: var(--muted); }
+.prep-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.prep-hint { flex: 1 1 240px; }
+.prep-running { border-left-color: var(--success); background: var(--success-bg); }
+.prep-running .prep-clock { color: var(--success); }
+.prep-paused { border-left-color: var(--warn); background: var(--warn-bg); }
+.prep-paused .prep-clock { color: var(--warn); }
+.prep-finished { border-left-color: var(--success); }
+.prep-finished .prep-clock { color: var(--success); }
+.prep-skipped, .prep-none { border-left-color: var(--border); }
+.prep-skipped .prep-clock, .prep-none .prep-clock { color: var(--muted); }
+.prep-history { font-size: .8rem; }
+.prep-history summary { cursor: pointer; color: var(--muted); }
+.prep-events { list-style: none; margin: 6px 0 0; padding: 0; }
+.prep-events li {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 2px 0;
+}
+.prep-event { font-weight: 700; }
+.prep-event-start { color: var(--success); }
+.prep-event-pause { color: var(--warn); }
+.prep-event-resume { color: var(--info); }
+.prep-event-done { color: var(--success); }
+.prep-event-time { font-variant-numeric: tabular-nums; }
+/* the crew reads the clock from across the bay: make it unmistakable */
+.prep-running .prep-clock { animation: prep-pulse 2s ease-in-out infinite; }
+@keyframes prep-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .65; } }
+@media (prefers-reduced-motion: reduce) {
+  .prep-running .prep-clock { animation: none; }
+}
+
 .muted { color: var(--muted); }
 .small { font-size: .85rem; }
 

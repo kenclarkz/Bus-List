@@ -174,6 +174,84 @@ class ScheduleEntry(db.Model):
         "TaskCompletion", back_populates="entry",
         cascade="all, delete-orphan"
     )
+    prep_session = db.relationship(
+        "PrepSession", back_populates="entry",
+        cascade="all, delete-orphan", uselist=False
+    )
+
+
+class PrepSession(db.Model):
+    """The prep (wash/detail) timer for one vehicle on one day's board.
+
+    Workflow: **Start -> Pause -> Resume -> Done**.
+
+    - ``Start`` records ``started_at`` and the first ``start`` event, so the
+      timer begins the moment the employee presses Start.
+    - ``Pause`` banks the seconds worked so far into ``total_seconds`` and
+      records a ``pause`` event; ``Resume`` opens a new segment and records a
+      ``resume`` event, so no previous work time is ever lost.
+    - ``Done`` banks the last segment, records ``finished_at`` plus a ``done``
+      event and freezes ``total_seconds`` as the vehicle's total active prep
+      time.
+
+    Timestamps are stored as ISO-8601 strings that carry their Eastern Time
+    offset (see ``services/timeutils.py``) so they stay unambiguous across
+    daylight-saving changes and are displayed as 12-hour AM/PM Eastern time.
+    """
+    __tablename__ = "prep_sessions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    # One timer per vehicle per day (a vehicle appears once on a day's board).
+    entry_id = db.Column(db.Integer, db.ForeignKey("schedule_entries.id"),
+                         nullable=False, unique=True, index=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicles.id"), nullable=False)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"))
+    status = db.Column(db.String(20), default="running", nullable=False)
+    # running / paused / finished
+    started_at = db.Column(db.String(32), nullable=False)     # ISO 8601 + offset
+    last_event_at = db.Column(db.String(32), nullable=False)   # current segment
+    finished_at = db.Column(db.String(32))
+    total_seconds = db.Column(db.Integer, default=0, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    entry = db.relationship("ScheduleEntry", back_populates="prep_session")
+    vehicle = db.relationship("Vehicle")
+    employee = db.relationship("Employee")
+    events = db.relationship(
+        "PrepSessionEvent", back_populates="session",
+        # Events are only ever appended in order, so the id is the exact
+        # chronological order (and immune to ISO string/offset differences).
+        cascade="all, delete-orphan", order_by="PrepSessionEvent.id"
+    )
+
+    @property
+    def is_running(self):
+        return self.status == "running"
+
+    @property
+    def is_paused(self):
+        return self.status == "paused"
+
+    @property
+    def is_finished(self):
+        return self.status == "finished"
+
+
+class PrepSessionEvent(db.Model):
+    """One Start / Pause / Resume / Done step of a prep session."""
+    __tablename__ = "prep_session_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.Integer, db.ForeignKey("prep_sessions.id"),
+                           nullable=False, index=True)
+    event_type = db.Column(db.String(20), nullable=False)  # start/pause/resume/done
+    occurred_at = db.Column(db.String(32), nullable=False)  # ISO 8601 + offset
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"))
+    total_seconds = db.Column(db.Integer, default=0, nullable=False)
+
+    session = db.relationship("PrepSession", back_populates="events")
+    employee = db.relationship("Employee")
 
 
 class TaskCompletion(db.Model):

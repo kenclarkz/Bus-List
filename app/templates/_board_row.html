@@ -1,11 +1,12 @@
 {# One vehicle card on the detailing board, plus its skip/replace modals.
    Rendered twice by dashboard.html: once for the main work list and once
    inside the transit dropdown. Expects a row dict from
-   build_schedule_view() as `r`, and the page context for the role/employee
-   badges. #}
+   build_schedule_view() as `r` (including its prep-timer state in `r.prep`),
+   and the page context for the role/employee badges. #}
 {% macro vehicle_row(r) %}
 {% set entry = r.entry %}
 {% set v = r.vehicle %}
+{% set prep = r.prep %}
 <div class="vrow {{ 'row-replacement' if entry.is_replacement }}{{ ' row-replaced' if r.replaced_by }}{{ ' row-transit' if r.is_transit }}" id="row-{{ entry.id }}">
   <div class="vrow-header">
     <span class="vnum">{{ v.unit_number }}</span>
@@ -23,8 +24,8 @@
     <div class="vmeta">
       {{ v.vehicle_type.name if v.vehicle_type else '—' }}
       {% if v.route %} · Route {{ v.route }}{% endif %}
-      {% if entry.prep_time %} · Report {{ entry.prep_time }}{% endif %}
-      {% if entry.pickup_time %} · Pickup {{ entry.pickup_time }}{% endif %}
+      {% if entry.prep_time %} · Report {{ entry.prep_time|prep_time }}{% endif %}
+      {% if entry.pickup_time %} · Pickup {{ entry.pickup_time|prep_time }}{% endif %}
     </div>
     {% if entry.driver_code %}
     <span class="driver-code">Driver {{ entry.driver_code }}</span>
@@ -41,7 +42,7 @@
     <span class="spacer"></span>
     <span class="{{ r.indicator[1] }}">{{ r.indicator[0] }}</span>
     {% if v.last_washed %}
-      <span class="muted small">Last washed {{ v.last_washed.strftime('%b %d %H:%M') }}</span>
+      <span class="muted small">Last washed {{ v.last_washed|et_datetime }}</span>
     {% else %}
       <span class="muted small">Never washed</span>
     {% endif %}
@@ -61,8 +62,75 @@
   <div class="vnote">{{ notes }}</div>
   {% endif %}
 
+  {# ---- Prep timer: Start -> Pause -> Resume -> Done -------------------- #}
+  <div class="prep prep-{{ prep.status }}" id="prep-{{ entry.id }}"
+       data-prep-entry="{{ entry.id }}">
+    <div class="prep-head">
+      <span class="prep-label">Prep Time</span>
+      <span class="prep-clock prep-timer"
+            data-prep-timer
+            data-entry="{{ entry.id }}"
+            data-status="{{ prep.status }}"
+            data-base-seconds="{{ prep.base_seconds }}"
+            {% if prep.segment_epoch %}data-segment-epoch="{{ prep.segment_epoch }}"{% endif %}
+            data-server-epoch="{{ prep.server_epoch }}">{{ prep.clock_label }}</span>
+      <span class="badge prep-status {{ 'success' if prep.status == 'finished' else ('info' if prep.status == 'running' else ('warn' if prep.status == 'paused' else 'muted')) }}">
+        {{ prep.status_label }}
+      </span>
+    </div>
+    <div class="prep-meta">
+      {% if prep.employee %}<span class="badge info">{{ prep.initials }}</span> {{ prep.employee }}{% else %}<span class="muted">No employee recorded</span>{% endif %}
+      {% if prep.started %} · Started {{ prep.started }}{% endif %}
+      {% if prep.finished %} · Done {{ prep.finished }}{% endif %}
+      {% if prep.status == 'finished' %} · <strong>Total prep {{ prep.total_label }}</strong>{% endif %}
+      {% if prep.status == 'paused' %} · <span class="muted">timer paused at {{ prep.total_label }}</span>{% endif %}
+    </div>
+    {% if entry.status != 'skipped' and not r.replaced_by %}
+    <div class="prep-actions">
+      {% if prep.status == 'none' %}
+      <button type="button" class="btn success start-btn" data-prep-action="start"
+              data-entry="{{ entry.id }}" data-vehicle="{{ v.unit_number }}"
+              {{ 'disabled' if current_role == 'manager' }}>Start</button>
+      {% elif prep.status == 'running' %}
+      <button type="button" class="btn warn pause-btn" data-prep-action="pause"
+              data-entry="{{ entry.id }}"
+              {{ 'disabled' if current_role == 'manager' }}>Pause</button>
+      {% endif %}
+      {% if prep.status == 'paused' %}
+      <button type="button" class="btn resume-btn" data-prep-action="resume"
+              data-entry="{{ entry.id }}"
+              {{ 'disabled' if current_role == 'manager' }}>Resume</button>
+      {% endif %}
+      {% if prep.status in ('running', 'paused') %}
+      <button type="button" class="btn success done-btn" data-prep-action="done"
+              data-entry="{{ entry.id }}"
+              {{ 'disabled' if current_role == 'manager' }}>Done</button>
+      {% endif %}
+      <span class="muted small prep-hint">
+        {% if prep.status == 'none' %}Press <strong>Start</strong> to begin the clock on this vehicle.
+        {% elif prep.status == 'running' %}Clock is running — the prep time keeps counting if you close the page.
+        {% elif prep.status == 'paused' %}Paused: paused time is not added to the prep total.
+        {% else %}Prep complete — total active prep time {{ prep.total_label }}.{% endif %}
+      </span>
+    </div>
+    {% endif %}
+    {% if prep.events %}
+    <details class="prep-history">
+      <summary>Prep history ({{ prep.events|length }})</summary>
+      <ul class="prep-events">
+        {% for e in prep.events %}
+        <li><span class="prep-event prep-event-{{ e.type }}">{{ e.label }}</span>
+          <span class="prep-event-time">{{ e.at }}</span>
+          {% if e.employee %}<span class="muted small">{{ e.employee }}</span>{% endif %}
+          <span class="muted small">· running total {{ e.elapsed }}</span></li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+  </div>
+
   {% if entry.status != 'skipped' and not r.replaced_by %}
-  <div class="checklist" data-tasks-hidden="{{ 'true' if entry.status in ('pending', 'in_progress') else 'false' }}">
+  <div class="checklist" data-tasks-hidden="{{ 'false' if prep.started or entry.status in ('in_progress', 'completed') else 'true' }}">
     <div class="checklist-group">
       <span class="checklist-group-label">Inside</span>
       <div class="checklist-group-items">
@@ -72,7 +140,7 @@
                {{ 'checked' if t.completed }}
                {{ 'disabled' if current_role == 'manager' }}>
         {{ t.task_name }}
-        {% if t.completed_at %}<span class="small muted">· {{ t.completed_at.strftime('%H:%M') }}</span>{% endif %}
+        {% if t.completed_at %}<span class="small muted">· {{ t.completed_at|et_time }}</span>{% endif %}
         {% if t.completed and t.employee %}<span class="badge info" style="font-size:.6rem;padding:1px 5px;margin-left:4px">{{ t.employee.initials }}</span>{% endif %}
       </label>
       {% endfor %}
@@ -87,23 +155,13 @@
                {{ 'checked' if t.completed }}
                {{ 'disabled' if current_role == 'manager' }}>
         {{ t.task_name }}
-        {% if t.completed_at %}<span class="small muted">· {{ t.completed_at.strftime('%H:%M') }}</span>{% endif %}
+        {% if t.completed_at %}<span class="small muted">· {{ t.completed_at|et_time }}</span>{% endif %}
         {% if t.completed and t.employee %}<span class="badge info" style="font-size:.6rem;padding:1px 5px;margin-left:4px">{{ t.employee.initials }}</span>{% endif %}
       </label>
       {% endfor %}
       </div>
     </div>
   </div>
-
-  {% if entry.status in ('pending', 'in_progress') and not r.replaced_by %}
-  <div class="row-start" data-tasks-hidden="true">
-    <button type="button" class="btn success start-btn" data-entry="{{ entry.id }}"
-            data-vehicle="{{ v.unit_number }}"
-            {{ 'disabled' if current_role == 'manager' }}>Start</button>
-    <span class="muted small">Click <strong>Start</strong> to begin working this vehicle. That marks it as
-      &quot;Currently Working&quot; and opens up the task list.</span>
-  </div>
-  {% endif %}
   {% else %}
   {% if entry.status == 'skipped' %}
   <p class="muted small" style="margin:12px 0 4px">Skipped — {% if r.is_auto_skipped %}excluded from today's work totals{% else %}does not count toward completion{% endif %}.{% if entry.skip_reason %} <strong>Reason:</strong> {{ entry.skip_reason }}{% endif %} Un-skip to work this vehicle.</p>
@@ -118,10 +176,6 @@
   </div>
 
   <div class="row-actions">
-    {% if entry.status == 'in_progress' and not r.replaced_by %}
-    <button class="btn success done-btn" data-entry="{{ entry.id }}"
-            {{ 'disabled' if current_role == 'manager' }}>Done</button>
-    {% endif %}
     {% if entry.status not in ('completed', 'skipped') and not r.replaced_by %}
     <button class="btn small secondary" data-modal-target="modal-replace-{{ entry.id }}">Replace Vehicle</button>
     {% endif %}

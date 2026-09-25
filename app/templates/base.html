@@ -18,7 +18,8 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   {% block head %}{% endblock %}
 </head>
-<body data-employee-id="{{ current_employee.id if current_employee else '' }}">
+<body data-employee-id="{{ current_employee.id if current_employee else '' }}"
+      data-server-epoch="{{ server_epoch }}">
 {% macro content_block() %}
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}

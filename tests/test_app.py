@@ -1,7 +1,7 @@
 """Tests for the Detailing Operations Dashboard."""
 import io
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -9,6 +9,7 @@ from app import create_app
 from app.models import db, Vehicle, Employee, ScheduleEntry, TaskCompletion, \
     Replacement, DailySchedule
 from app.services.vehicles import find_or_create_vehicle
+from app.services import timeutils
 from app.services.pdf_parser import normalize_unit
 from app.services.pdf_parser import parse_prep_report
 from app.services import schedule as sched_svc
@@ -273,12 +274,19 @@ def test_wash_import_end_to_end_and_dashboard(client, app):
         assert fields.get("7101") == ("05:00", "07:15", "LEOJEREZ")
 
     html = client.get("/").data.decode()
-    assert "Report 04:30" in html
-    assert "Pickup 05:00" in html
+    # The report's 24-hour times are displayed as Eastern 12-hour AM/PM...
+    assert "Report 4:30 AM" in html
+    assert "Pickup 5:00 AM" in html
     assert "Driver 291486*50" in html
-    assert "Report 05:00" in html
-    assert "Pickup 07:15" in html
+    assert "Report 5:00 AM" in html
+    assert "Pickup 7:15 AM" in html
     assert "Driver LEOJEREZ" in html
+    # ...while the stored value keeps the exact timestamp from the report.
+    with app.app_context():
+        entry = (ScheduleEntry.query
+                 .filter(ScheduleEntry.prep_time == "04:30").first())
+        assert entry is not None
+        assert entry.pickup_time == "05:00"
     assert "Res # 295185*1" not in html
 
 
@@ -3069,3 +3077,426 @@ def test_import_apply_tracks_who_imported(app, client):
     html = e.get("/history").data.decode()
     assert emp_name in html
     assert f">{emp_name}</td>" in html
+
+
+# ---------------------------------------------------------------------------
+# Prep timers: Start -> Pause -> Resume -> Done
+# ---------------------------------------------------------------------------
+
+def prep_entry(app, unit, prep_time=None, vehicle_type="Coach"):
+    """A vehicle on today's board, ready to be worked on."""
+    from app.services import schedule as ss
+    from app.services.vehicles import find_or_create_vehicle
+    loc = vehicles_loc(app)
+    v, _ = find_or_create_vehicle(unit, vehicle_type=vehicle_type,
+                                 location_id=loc.id)
+    sched = ss.get_or_create_schedule(location=loc)
+    entry = ss.ensure_entry(sched, v, prep_time=prep_time)
+    db.session.commit()
+    return entry.id, v.id
+
+
+def add_employee(app, name="Dana Timer"):
+    emp = Employee(name=name)
+    db.session.add(emp)
+    db.session.commit()
+    return emp.id
+
+
+def test_prep_start_records_eastern_timestamp_and_employee(client, app):
+    """Start begins the clock, records the employee, and stores an Eastern
+    timestamp that carries its UTC offset (so it is unambiguous later)."""
+    from app.models import PrepSession, PrepSessionEvent
+    from app.services import timeutils
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "900")
+        emp_id = add_employee(app)
+
+    r = client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(emp_id)})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["ok"] is True
+    assert body["state"]["status"] == "running"
+    assert body["state"]["employee"] == "Dana Timer"
+
+    with app.app_context():
+        sess = PrepSession.query.filter_by(entry_id=entry_id).first()
+        assert sess.status == "running"
+        assert sess.total_seconds == 0
+        # Stored timezone-aware: the ISO string ends in an Eastern offset.
+        assert sess.started_at == timeutils.store_ts(
+            timeutils.load_ts(sess.started_at))
+        offset = timeutils.load_ts(sess.started_at).strftime("%z")
+        assert offset in ("-0400", "-0500")  # EDT or EST
+        assert [e.event_type for e in sess.events] == ["start"]
+        assert sess.events[0].employee_id == emp_id
+        # Started also marks the vehicle in progress and the employee busy.
+        entry = ScheduleEntry.query.get(entry_id)
+        assert entry.status == "in_progress"
+        assert Employee.query.get(emp_id).current_vehicle_id == entry.vehicle_id
+
+
+def test_prep_workflow_start_pause_resume_done(client, app):
+    """The full workflow: Start -> Pause -> Resume -> Done, with the total
+    active prep time being the sum of the active segments only."""
+    from app.models import PrepSession
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "901")
+        emp_id = add_employee(app)
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        # Drive the service directly so the elapsed totals are exact.
+        entry = ScheduleEntry.query.get(entry_id)
+        prep_timer.start(entry, emp_id, at=t0)
+        prep_timer.pause(entry, emp_id, at=t0 + timedelta(minutes=10))
+        assert prep_timer.elapsed_seconds(
+            prep_timer.session_for(entry), at=t0 + timedelta(minutes=25)) == 600
+        prep_timer.resume(entry, emp_id, at=t0 + timedelta(minutes=25))
+        prep_timer.finish(entry, emp_id, at=t0 + timedelta(minutes=40))
+        sess = prep_timer.session_for(entry)
+        assert sess.status == "finished"
+        # 10 minutes before the pause, then 15 more after the resume; the
+        # 15 paused minutes in between are never billed.
+        assert sess.total_seconds == 25 * 60
+        assert [e.event_type for e in sess.events] == [
+            "start", "pause", "resume", "done"]
+        assert sess.events[1].total_seconds == 600
+        assert sess.events[3].total_seconds == 1500
+        # Every event carries an Eastern 12-hour label for the report.
+        labels = [e["label"] for e in prep_timer.state(entry, at=sess and None)["events"]]
+        assert labels == ["Started", "Paused", "Resumed", "Done"]
+
+    # The board buttons drive the same workflow over HTTP.
+    r = client.post(f"/entry/{entry_id}/prep/pause",
+                    data={"employee_id": str(emp_id)})
+    assert r.status_code == 409
+    assert "already finished" in r.get_json()["error"]
+
+
+def test_prep_resume_keeps_previous_work_time(client, app):
+    """Resume never loses the time already worked."""
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "902")
+        emp_id = add_employee(app)
+        entry = ScheduleEntry.query.get(entry_id)
+
+    client.post(f"/entry/{entry_id}/prep/start",
+                data={"employee_id": str(emp_id)})
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        prep_timer.pause(entry, emp_id, at=timeutils.now_eastern())
+    with app.app_context():
+        sess = prep_timer.session_for(ScheduleEntry.query.get(entry_id))
+        banked = int(sess.total_seconds or 0)
+    r = client.post(f"/entry/{entry_id}/prep/resume",
+                    data={"employee_id": str(emp_id)})
+    assert r.get_json()["state"]["status"] == "running"
+    with app.app_context():
+        sess = prep_timer.session_for(ScheduleEntry.query.get(entry_id))
+        assert sess.total_seconds == banked  # previous work kept
+        assert sess.status == "running"
+        elapsed = prep_timer.elapsed_seconds(sess)
+        assert elapsed >= banked
+
+
+def test_prep_done_stops_timer_marks_vehicle_and_reports_total(client, app):
+    from app.models import PrepSession
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "903")
+        emp_id = add_employee(app)
+        entry = ScheduleEntry.query.get(entry_id)
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        prep_timer.start(entry, emp_id, at=t0)
+
+    r = client.post(f"/entry/{entry_id}/prep/done",
+                    data={"employee_id": str(emp_id)})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["state"]["status"] == "finished"
+    assert body["state"]["finished"]           # 12-hour Eastern finish time
+    assert body["state"]["total_label"]
+    assert body["counters"]["completed"] == 1
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        assert entry.status == "completed"
+        sess = PrepSession.query.filter_by(entry_id=entry_id).first()
+        assert sess.status == "finished"
+        assert sess.finished_at is not None
+        # No timer keeps running after Done.
+        assert prep_timer.elapsed_seconds(sess) == sess.total_seconds
+        assert Employee.query.get(emp_id).current_vehicle_id is None
+
+
+def test_prep_invalid_actions_are_rejected(client, app):
+    """Starting a running vehicle, pausing/resuming in the wrong state, and
+    finishing a vehicle that was never started are all refused."""
+    with app.app_context():
+        running_id, _ = prep_entry(app, "904")
+        fresh_id, _ = prep_entry(app, "905")
+        emp_id = add_employee(app)
+
+    # Never started: pause, resume and done are all invalid.
+    for action in ("pause", "resume", "done"):
+        r = client.post(f"/entry/{fresh_id}/prep/{action}",
+                        data={"employee_id": str(emp_id)})
+        assert r.status_code == 409
+        assert "never started" in r.get_json()["error"]
+
+    # Start, then start again: the second start is refused.
+    assert client.post(f"/entry/{running_id}/prep/start",
+                       data={"employee_id": str(emp_id)}).status_code == 200
+    r = client.post(f"/entry/{running_id}/prep/start",
+                    data={"employee_id": str(emp_id)})
+    assert r.status_code == 409
+    assert "already started" in r.get_json()["error"]
+    assert r.get_json()["state"]["status"] == "running"
+
+    # Resume while running is refused; pause twice is refused.
+    r = client.post(f"/entry/{running_id}/prep/resume",
+                    data={"employee_id": str(emp_id)})
+    assert r.status_code == 409
+    assert "already running" in r.get_json()["error"]
+    assert client.post(f"/entry/{running_id}/prep/pause",
+                       data={"employee_id": str(emp_id)}).status_code == 200
+    r = client.post(f"/entry/{running_id}/prep/pause",
+                    data={"employee_id": str(emp_id)})
+    assert r.status_code == 409
+    assert "already paused" in r.get_json()["error"]
+
+    # Done twice: the second is refused.
+    assert client.post(f"/entry/{running_id}/prep/done",
+                       data={"employee_id": str(emp_id)}).status_code == 200
+    r = client.post(f"/entry/{running_id}/prep/done",
+                    data={"employee_id": str(emp_id)})
+    assert r.status_code == 409
+    assert "already finished" in r.get_json()["error"]
+
+
+def test_prep_timers_are_independent_per_vehicle(client, app):
+    """Several vehicles are worked on at the same time, each with its own
+    clock, employee and total."""
+    from app.services import prep_timer
+
+    with app.app_context():
+        first_id, _ = prep_entry(app, "906")
+        second_id, _ = prep_entry(app, "907")
+        emp_a = add_employee(app, "Ann Alpha")
+        emp_b = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        prep_timer.start(ScheduleEntry.query.get(first_id), emp_a, at=t0)
+        prep_timer.start(ScheduleEntry.query.get(second_id), emp_b,
+                         at=t0 + timedelta(minutes=2))
+        prep_timer.pause(ScheduleEntry.query.get(first_id), emp_a,
+                         at=t0 + timedelta(minutes=12))
+        prep_timer.finish(ScheduleEntry.query.get(second_id), emp_b,
+                          at=t0 + timedelta(minutes=22))
+        a = prep_timer.session_for(ScheduleEntry.query.get(first_id))
+        b = prep_timer.session_for(ScheduleEntry.query.get(second_id))
+        assert a.total_seconds == 12 * 60
+        assert b.total_seconds == 20 * 60
+        assert a.employee.name == "Ann Alpha"
+        assert b.employee.name == "Bob Beta"
+        # Total for the day is the sum of both vehicles' active prep time.
+        assert prep_timer.total_active_seconds(a.entry.schedule) == 32 * 60
+
+
+def test_prep_timer_keeps_counting_after_a_reload(client, app):
+    """A refresh re-reads the clock from the server, so time keeps counting
+    (and the board's live timer is handed the data it needs to tick)."""
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "908")
+        emp_id = add_employee(app)
+        t0 = timeutils.now_eastern().replace(microsecond=0) - timedelta(minutes=5)
+        prep_timer.start(ScheduleEntry.query.get(entry_id), emp_id, at=t0)
+
+    html = client.get("/").data.decode()
+    # The rendered row carries the running state plus the segment timestamp
+    # the browser adds to its own clock.
+    assert 'data-status="running"' in html
+    assert "data-segment-epoch=" in html
+    assert "Timer running" in html
+    # Five minutes of work are already on the clock.
+    assert "05:00" in html
+
+    state = client.get(f"/prep/active").get_json()
+    assert state["ok"] is True
+    row = state["sessions"][str(entry_id)]
+    assert row["status"] == "running"
+    assert 290 <= row["elapsed"] <= 400
+    assert row["segment_epoch"] is not None
+    assert row["base_seconds"] == 0
+
+
+def test_prep_board_shows_buttons_for_the_current_state(client, app):
+    """Start before work, Pause while running, Resume while paused, Done to
+    finish, and a final total afterwards."""
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "909")
+        emp_id = add_employee(app)
+
+    def row_html():
+        html = client.get("/").data.decode()
+        start = html.index(f'id="prep-{entry_id}"')
+        return html[start:html.index('class="progress"', start)]
+
+    assert 'data-prep-action="start"' in row_html()
+    assert 'data-prep-action="done"' not in row_html()
+
+    client.post(f"/entry/{entry_id}/prep/start",
+                data={"employee_id": str(emp_id)})
+    html = row_html()
+    assert 'data-prep-action="pause"' in html
+    assert 'data-prep-action="done"' in html
+    assert 'data-prep-action="start"' not in html
+
+    client.post(f"/entry/{entry_id}/prep/pause",
+                data={"employee_id": str(emp_id)})
+    html = row_html()
+    assert 'data-prep-action="resume"' in html
+    assert "Paused" in html
+
+    client.post(f"/entry/{entry_id}/prep/resume",
+                data={"employee_id": str(emp_id)})
+    assert 'data-prep-action="pause"' in row_html()
+
+    client.post(f"/entry/{entry_id}/prep/done",
+                data={"employee_id": str(emp_id)})
+    html = row_html()
+    assert "Completed" in html
+    assert "Prep history (4)" in html          # start, pause, resume, done
+    assert "Started" in html and "Resumed" in html
+
+
+def test_prep_report_shows_history_and_total(client, app):
+    """The prep report lists the Start/Pause/Resume/Done history and the total
+    active prep time, and shows report times as Eastern 12-hour AM/PM."""
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "910", prep_time="04:30")
+        emp_id = add_employee(app, "Kim Prep")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        entry = ScheduleEntry.query.get(entry_id)
+        prep_timer.start(entry, emp_id, at=t0)
+        prep_timer.pause(entry, emp_id, at=t0 + timedelta(minutes=5))
+        prep_timer.resume(entry, emp_id, at=t0 + timedelta(minutes=20))
+        prep_timer.finish(entry, emp_id, at=t0 + timedelta(minutes=35))
+        db.session.commit()
+
+    html = client.get(f"/print/{date.today().isoformat()}").data.decode()
+    assert "Prep Time Log" in html
+    assert "Prep Event Detail" in html
+    assert "Kim Prep" in html
+    assert "Paused" in html and "Resumed" in html and "Done" in html
+    assert "20m 00s" in html                    # 5 + 15 minutes of active work
+    assert "total active prep time" in html
+    # The 24-hour report time is displayed as Eastern 12-hour AM/PM.
+    assert "4:30 AM" in html
+    assert "04:30" not in html
+
+    # The end-of-day summary carries the same totals.
+    end_html = client.get("/end").data.decode()
+    assert "Prep Time Log" in end_html
+    assert "20m 00s" in end_html
+
+
+def test_prep_history_kept_on_vehicle_page(manager_client, app):
+    """Every run is permanent history on the vehicle, not just today's board."""
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, vehicle_id = prep_entry(app, "911")
+        emp_id = add_employee(app, "Lee Historian")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        prep_timer.start(ScheduleEntry.query.get(entry_id), emp_id, at=t0)
+        prep_timer.finish(ScheduleEntry.query.get(entry_id), emp_id,
+                          at=t0 + timedelta(minutes=7))
+
+    html = manager_client.get(f"/vehicles/{vehicle_id}").data.decode()
+    assert "Prep Time History" in html
+    assert "Lee Historian" in html
+    assert "7m 00s" in html
+
+
+def test_completing_a_vehicle_stops_its_timer(client, app):
+    """Finishing a vehicle any other way (full checklist, /complete) also stops
+    the clock instead of leaving it running forever."""
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "912")
+        emp_id = add_employee(app)
+        client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(emp_id)})
+
+    # Every checklist item checked -> the entry completes itself.
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        for t in entry.tasks:
+            t.completed = True
+        db.session.commit()
+    client.post(f"/task/{entry_id}/Sweep", data={"checked": "true",
+                                                 "employee_id": str(emp_id)})
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        assert entry.status == "completed"
+    r = client.post(f"/entry/{entry_id}/complete")
+    assert r.status_code == 200
+    with app.app_context():
+        sess = prep_timer.session_for(ScheduleEntry.query.get(entry_id))
+        assert sess is not None
+        assert sess.status == "finished"
+        assert sess.finished_at is not None
+
+
+def test_manager_cannot_use_prep_timers(manager_client, app):
+    """Timers are read-only for the Manager account."""
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "913")
+        emp_id = add_employee(app)
+    for action in ("start", "pause", "resume", "done"):
+        r = manager_client.post(f"/entry/{entry_id}/prep/{action}",
+                                data={"employee_id": str(emp_id)})
+        assert r.status_code == 403
+    r = manager_client.post("/start-work", data={
+        "employee_id": str(emp_id), "entry_id": str(entry_id)})
+    assert r.status_code == 403
+    with app.app_context():
+        from app.models import PrepSession
+        assert PrepSession.query.count() == 0
+
+
+def test_prep_time_labels_are_12_hour_eastern():
+    """Report times are shown 12-hour AM/PM without touching what is stored."""
+    from app.services import timeutils
+    assert timeutils.prep_time_label("04:30") == "4:30 AM"
+    assert timeutils.prep_time_label("13:45") == "1:45 PM"
+    assert timeutils.prep_time_label("16:05") == "4:05 PM"
+    assert timeutils.prep_time_label("4:05 PM") == "4:05 PM"
+    assert timeutils.prep_time_label("0430") == "4:30 AM"
+    assert timeutils.prep_time_label("as directed") == "as directed"
+    assert timeutils.prep_time_label(None) == "—"
+    # A full timestamp is converted into Eastern time for display.
+    assert timeutils.prep_time_label("2026-01-15T20:05:00+00:00") == "3:05 PM"
+
+
+def test_prep_timestamps_are_timezone_aware():
+    """Everything the timer records is Eastern Time, and reads back the same
+    instant no matter which offset was in force."""
+    from app.services import timeutils
+    stamp = timeutils.store_ts(datetime(2026, 1, 15, 12, 0))   # EST
+    summer = timeutils.store_ts(datetime(2026, 7, 15, 12, 0))   # EDT
+    assert stamp.endswith("-05:00")
+    assert summer.endswith("-04:00")
+    assert timeutils.fmt_time(stamp) == "12:00 PM"
+    assert timeutils.fmt_time(summer) == "12:00 PM"
+    assert timeutils.to_eastern("2026-07-15T16:05:00Z").hour == 12

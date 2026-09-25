@@ -30,6 +30,40 @@
   <div class="stat danger"><div class="num">{{ incomplete }}</div><div class="lbl">Incomplete</div></div>
   <div class="stat warn"><div class="num">{{ replacements }}</div><div class="lbl">Replacements</div></div>
   <div class="stat"><div class="num">{{ overall }}%</div><div class="lbl">Completion</div></div>
+  <div class="stat"><div class="num">{{ prep_total_label }}</div><div class="lbl">Active Prep Time</div></div>
+  <div class="stat info"><div class="num">{{ prep_timed }}</div><div class="lbl">Prepped &amp; Timed</div></div>
+</div>
+
+<div class="card">
+  <h2>Prep Time Log <span class="muted small">Eastern Time</span></h2>
+  {% set timed = prep_states|selectattr('events')|list %}
+  {% if timed %}
+  <p class="muted small">
+    {{ prep_running }} timer{{ '' if prep_running == 1 else 's' }} still running ·
+    total active prep time <strong>{{ prep_total_label }}</strong> ·
+    paused time is not counted.
+  </p>
+  <div class="table-wrap">
+  <table>
+    <tr><th>Unit</th><th>Employee</th><th>Status</th><th>Start</th><th>Pause / Resume</th><th>Finish</th><th>Total Active Prep</th></tr>
+    {% for p in timed %}
+    <tr>
+      <td><strong>{{ p.vehicle }}</strong></td>
+      <td>{{ p.employee or '—' }}</td>
+      <td>{{ p.status_label }}</td>
+      <td>{{ p.started or '—' }}</td>
+      <td>
+        {% set stops = p.events|selectattr('type', 'in', ['pause', 'resume'])|list %}
+        {% for e in stops %}{{ e.label }} {{ e.at }}{% if not loop.last %} · {% endif %}{% endfor %}
+        {% if not stops %}—{% endif %}
+      </td>
+      <td>{{ p.finished or '—' }}</td>
+      <td><strong>{{ p.total_label }}</strong></td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}<p class="muted">No prep timers were started today.</p>{% endif %}
 </div>
 
 {% if employee_stats %}

@@ -26,7 +26,11 @@
       <div><strong>Incomplete:</strong> {{ total - completed }}</div>
       <div><strong>Completion:</strong> {{ overall }}%</div>
       <div><strong>Replacements:</strong> {{ replacements }}</div>
+      <div><strong>Active Prep Time:</strong> {{ prep_total_label }}</div>
     </div>
+    <p style="font-size:11px;margin:-8px 0 16px">
+      All times shown are Eastern Time ({{ eastern_tz }}).
+    </p>
 
     <h2>Daily Work List</h2>
     <table>
@@ -36,8 +40,8 @@
         <td><strong>{{ r.vehicle.unit_number }}</strong>{% if r.entry.is_replacement and r.replacement_of %} <span style="font-size:10px;background:#fef3c7;padding:1px 4px;border-radius:3px">replaces {{ r.replacement_of.unit_number }}</span>{% elif r.replaced_by %} <span style="font-size:10px;background:#f1f5f9;padding:1px 4px;border-radius:3px">replaced by {{ r.replaced_by.unit_number }}</span>{% endif %}</td>
         <td>{{ r.vehicle.vehicle_type.name if r.vehicle.vehicle_type else '—' }}</td>
         <td>{{ r.vehicle.route or '—' }}</td>
-        <td>{{ r.entry.prep_time or '—' }}</td>
-        <td>{{ r.entry.pickup_time or '—' }}</td>
+        <td>{{ r.entry.prep_time|prep_time }}</td>
+        <td>{{ r.entry.pickup_time|prep_time }}</td>
         <td>{{ r.entry.driver_code or '—' }}</td>
         <td>{{ r.entry.status }}{% if r.entry.status == 'skipped' and r.entry.skip_reason %} — {{ r.entry.skip_reason }}{% endif %}</td>
         <td>
@@ -58,6 +62,52 @@
       </tr>
       {% endfor %}
     </table>
+
+    <h2>Prep Time Log</h2>
+    <p style="font-size:12px">
+      {{ prep_timed }} vehicle{{ '' if prep_timed == 1 else 's' }} prepped and timed ·
+      total active prep time <strong>{{ prep_total_label }}</strong>.
+      Paused time is not counted as active prep time.
+    </p>
+    <table>
+      <tr><th>Unit</th><th>Employee</th><th>Status</th><th>Start</th><th>Pause / Resume</th><th>Finish</th><th>Total Active Prep</th></tr>
+      {% for p in prep_states %}
+      <tr>
+        <td><strong>{{ p.vehicle }}</strong></td>
+        <td>{{ p.employee or '—' }}</td>
+        <td>{{ p.status_label }}</td>
+        <td>{{ p.started or '—' }}</td>
+        <td>
+          {% set stops = p.events|selectattr('type', 'in', ['pause', 'resume'])|list %}
+          {% for e in stops %}{{ e.label }} {{ e.at }}{% if not loop.last %} · {% endif %}{% endfor %}
+          {% if not stops %}—{% endif %}
+        </td>
+        <td>{{ p.finished or '—' }}</td>
+        <td><strong>{{ p.total_label if p.status != 'none' else '—' }}</strong></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" style="color:#666">No vehicles on this day's board.</td></tr>
+      {% endfor %}
+    </table>
+
+    <h2 style="margin-top:18px">Prep Event Detail</h2>
+    {% set logged = prep_states|selectattr('events')|list %}
+    {% if logged %}
+    <table>
+      <tr><th>Unit</th><th>Employee</th><th>Event</th><th>Time</th><th>Running Total</th></tr>
+      {% for p in prep_states if p.events %}
+      {% for e in p.events %}
+      <tr>
+        <td><strong>{{ p.vehicle }}</strong></td>
+        <td>{{ e.employee or '—' }}</td>
+        <td>{{ e.label }}</td>
+        <td>{{ e.at }}</td>
+        <td>{{ e.elapsed }}</td>
+      </tr>
+      {% endfor %}
+      {% endfor %}
+    </table>
+    {% else %}<p>No prep timers were started on this day.</p>{% endif %}
 
     {% if employee_stats %}
     <h2>Employee Completion</h2>
