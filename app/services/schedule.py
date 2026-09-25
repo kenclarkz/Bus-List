@@ -105,16 +105,18 @@ def create_task_rows(entry):
 
 
 def entry_progress(entry):
+    """Return (done, total, pct) for an entry.
+
+    A skipped vehicle does NOT count toward completion, so its progress stays at
+    whatever was actually done (usually nothing) and it never reads as 100%.
+    """
     tasks = entry.tasks
     if not tasks:
         done, total = 0, 0
     else:
         done = sum(1 for t in tasks if t.completed)
         total = len(tasks)
-    # A skipped vehicle counts as fully complete.
-    if getattr(entry, "status", None) == "skipped":
-        done = total
-    pct = round(done / total * 100) if total else (100 if entry.status == "skipped" else 0)
+    pct = round(done / total * 100) if total else 0
     return done, total, pct
 
 
@@ -151,7 +153,11 @@ def complete_entry(entry, employee_id=None):
 
 
 def set_entry_skipped(entry, skipped=True, reason=""):
-    """Mark a vehicle as skipped (counts toward completion) or un-skip it."""
+    """Mark a vehicle as skipped or un-skip it.
+
+    Skipping never counts toward completion: the entry keeps its own progress
+    (a skipped vehicle stays incomplete) and is reported separately as skipped.
+    """
     if skipped:
         entry.status = "skipped"
         entry.skip_reason = (reason or "").strip()[:255] or None
