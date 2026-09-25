@@ -171,8 +171,9 @@ def complete_entry(entry, employee_id=None):
 def set_entry_skipped(entry, skipped=True, reason=""):
     """Mark a vehicle as skipped or un-skip it.
 
-    Skipping never counts toward completion: the entry keeps its own progress
-    (a skipped vehicle stays incomplete) and is reported separately as skipped.
+    Manual skips never count toward completion: the entry keeps its own progress
+    and is reported separately as skipped. Transit auto-skips are accounted for
+    by the schedule view as completed for the day.
     """
     if skipped:
         entry.status = "skipped"

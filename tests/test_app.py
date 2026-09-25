@@ -2369,19 +2369,35 @@ def test_import_skips_transit_vehicles(client, app):
     assert r.status_code == 302
 
     with app.app_context():
-        statuses = {}
-        for e in DailySchedule.query.filter_by(
-                work_date=date.today()).first().entries:
-            statuses[e.vehicle.unit_number] = (e.status, e.skip_reason)
+        from app.app import build_schedule_view, schedule_counters
+        sched = DailySchedule.query.filter_by(work_date=date.today()).first()
+        statuses = {
+            e.vehicle.unit_number: (e.status, e.skip_reason)
+            for e in sched.entries
+        }
         assert len(statuses) == 3
         assert statuses["100"] == ("skipped", "Transit — auto-skipped on import")
         assert statuses["300"] == ("skipped", "Transit — auto-skipped on import")
         assert statuses["200"] == ("pending", None)
 
+        view = build_schedule_view(sched)
+        rows = {r["vehicle"].unit_number: r for r in view}
+        assert rows["100"]["is_auto_skipped"] is True
+        assert rows["100"]["is_complete"] is True
+        assert rows["300"]["is_complete"] is True
+        assert rows["200"]["is_auto_skipped"] is False
+        counts = schedule_counters(view)
+        assert counts["total"] == 3
+        assert counts["completed"] == 2
+        assert counts["skipped"] == 2
+        assert counts["remaining"] == 1
+        assert counts["incomplete"] == 1
+
 
 def test_import_keeps_completed_transit_vehicle_untouched(client, app):
     """Re-importing a report never overwrites work already done on a transit
     vehicle, and never replaces a manual skip reason."""
+    from app.app import build_schedule_view, schedule_counters
     from app.services import schedule as ss
     from app.services.vehicles import find_or_create_vehicle
     from app.services.vehicles import TRANSIT_SKIP_REASON
@@ -2420,6 +2436,14 @@ def test_import_keeps_completed_transit_vehicle_untouched(client, app):
         assert by_unit["411"].status == "skipped"
         assert by_unit["411"].skip_reason == "Maintenance"
         assert TRANSIT_SKIP_REASON not in {e.skip_reason for e in sched.entries}
+
+        view = build_schedule_view(sched)
+        manual_row = next(r for r in view if r["vehicle"].unit_number == "411")
+        assert manual_row["is_auto_skipped"] is False
+        assert manual_row["is_complete"] is False
+        counts = schedule_counters(view)
+        assert counts["completed"] == 1
+        assert counts["remaining"] == 1
 
 
 def test_transit_vehicles_in_own_dropdown_on_dashboard(client, app):
@@ -2490,6 +2514,7 @@ def test_report_type_transit_wins_over_stored_type(client, app):
 
 def test_unskip_transit_vehicle_lets_it_be_worked(client, app):
     """A transit bus can be un-skipped and worked like any other vehicle."""
+    from app.app import build_schedule_view, schedule_counters
     from app.services import schedule as ss
     from app.services.vehicles import find_or_create_vehicle
 
@@ -2502,6 +2527,7 @@ def test_unskip_transit_vehicle_lets_it_be_worked(client, app):
         ss.set_entry_skipped(entry, skipped=True,
                              reason="Transit — auto-skipped on import")
         eid = entry.id
+        assert schedule_counters(build_schedule_view(sched))["remaining"] == 0
 
     html = client.get("/").data.decode()
     assert f'id="row-{eid}"' in html
@@ -2510,6 +2536,10 @@ def test_unskip_transit_vehicle_lets_it_be_worked(client, app):
     assert client.post(f"/entry/{eid}/unskip").status_code == 302
     with app.app_context():
         assert ScheduleEntry.query.get(eid).status == "pending"
+        sched = DailySchedule.query.filter_by(work_date=date.today()).first()
+        counts = schedule_counters(build_schedule_view(sched))
+        assert counts["remaining"] == 1
+        assert counts["completed"] == 0
 
     # It now offers the normal work actions.
     html = client.get("/").data.decode()

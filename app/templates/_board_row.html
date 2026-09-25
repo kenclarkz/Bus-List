@@ -106,7 +106,7 @@
   {% endif %}
   {% else %}
   {% if entry.status == 'skipped' %}
-  <p class="muted small" style="margin:12px 0 4px">Skipped — counts toward completion.{% if entry.skip_reason %} <strong>Reason:</strong> {{ entry.skip_reason }}{% endif %} Un-skip to work this vehicle.</p>
+  <p class="muted small" style="margin:12px 0 4px">Skipped — {% if r.is_auto_skipped %}counts toward completion{% else %}does not count toward completion{% endif %}.{% if entry.skip_reason %} <strong>Reason:</strong> {{ entry.skip_reason }}{% endif %} Un-skip to work this vehicle.</p>
   {% elif r.replaced_by %}
   <p class="muted small" style="margin:12px 0 4px">Replaced by {{ r.replaced_by.unit_number }} — work has moved to the replacement vehicle.</p>
   {% endif %}
@@ -151,8 +151,8 @@
 <div class="modal-bg" id="modal-skip-{{ entry.id }}">
   <div class="modal">
     <h3>Skip Vehicle {{ v.unit_number }}</h3>
-    <p class="muted small">Skipping counts this vehicle toward completion without
-      cleaning it. It will still need to be cleaned.</p>
+    <p class="muted small">Skipping this vehicle does not count it toward completion.
+      It will still need to be cleaned.</p>
     <form class="skip-form" method="post"
           data-skip-entry="{{ entry.id }}"
           data-unskip-url="{{ url_for('entry_unskip', entry_id=entry.id) }}"
