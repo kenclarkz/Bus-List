@@ -452,12 +452,17 @@ def build_schedule_view(sched):
             if entry.is_replacement else None
         replacer = replaced_by.get(entry.id)
         # A replaced vehicle's prep is fulfilled by its replacement, so it
-        # counts toward completion. A skipped vehicle does NOT: skipping only
-        # sets the status, it never marks the work as done.
+        # counts toward completion. Auto-skipped transit vehicles also count,
+        # while manual skips remain incomplete.
         if replacer is not None:
             done, total, pct = total, total, 100
         skipped = entry.status == "skipped"
-        complete = not skipped and (entry.status == "completed" or replacer is not None)
+        auto_skipped = (
+            skipped and entry.skip_reason == vehicles.TRANSIT_SKIP_REASON
+        )
+        complete = auto_skipped or (
+            not skipped and (entry.status == "completed" or replacer is not None)
+        )
         rows.append({
             "entry": entry,
             "vehicle": entry.vehicle,
@@ -465,8 +470,8 @@ def build_schedule_view(sched):
             "total": total,
             "pct": pct,
             "is_complete": complete,
-            # Skipped rows are tracked on their own so they never inflate the
-            # completed/remaining totals.
+            "is_auto_skipped": auto_skipped,
+            # Skipped rows are reported separately from other work.
             "is_skipped": skipped and replacer is None,
             "indicator": status_indicator(entry.vehicle.last_washed),
             # Transit buses get their own dropdown at the bottom of the board.
@@ -485,9 +490,8 @@ def build_schedule_view(sched):
 def schedule_counters(rows):
     """Day totals for a list of schedule view rows.
 
-    A skipped vehicle is never "completed": it is reported on its own as
-    skipped and stays in the incomplete/remaining count, so skipping can never
-    make a day look finished.
+    Transit vehicles auto-skipped on import count toward completion. Manual
+    skips remain incomplete and stay in the remaining count.
     """
     total = len(rows)
     completed = sum(1 for r in rows if r["is_complete"])
@@ -499,7 +503,6 @@ def schedule_counters(rows):
         completed=completed,
         in_progress=in_progress,
         skipped=skipped,
-        # Skipped vehicles are never completed, so they stay in remaining.
         remaining=total - completed - in_progress,
         incomplete=total - completed,
         overdue=sum(1 for r in rows if r["indicator"][0] == "Overdue"),
@@ -520,7 +523,6 @@ def finalize_day(sched, at=None):
     total = len(rows)
     completed = sum(1 for r in rows if r["is_complete"])
     skipped = sum(1 for r in rows if r["is_skipped"])
-    # Skipped vehicles are not completed, so they stay in the incomplete count.
     incomplete = total - completed
     overall = round((sum(r["done"] for r in rows) /
                     (sum(r["total"] for r in rows) or 1)) * 100) if rows else 0
@@ -1257,7 +1259,6 @@ def register_routes(app):
         total = counts["total"]
         completed = counts["completed"]
         skipped = counts["skipped"]
-        # Skipped vehicles are not completed, so they stay in the incomplete count.
         incomplete = counts["incomplete"]
         overall = counts["overall"]
         incomplete_rows = [r for r in rows if not r["is_complete"]]
