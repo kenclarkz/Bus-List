@@ -1041,7 +1041,48 @@ def test_checklist_toggle(client, app):
         sweep = next(t for t in e.tasks if t.task_name == "Sweep")
         assert sweep.completed is True
         assert sweep.completed_at is not None
-        assert v_last_washed(app, "300") is not None
+        assert v_last_washed(app, "300") is None
+
+
+def test_wash_requires_all_outside_tasks(client, app):
+    from app.models import ServiceRecord
+
+    with app.app_context():
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        v, _ = find_or_create_vehicle("301", location_id=loc.id)
+        entry = ss.ensure_entry(sched, v)
+        entry_id = entry.id
+        vehicle_id = v.id
+
+    for task_name in ("Sweep", "Mop", "Windows", "Seats", "Bathroom",
+                      "Dump", "Bay Checked"):
+        response = client.post(f"/task/{entry_id}/{task_name}",
+                               data={"checked": "true"})
+        assert response.status_code == 200
+
+    with app.app_context():
+        vehicle = Vehicle.query.get(vehicle_id)
+        assert vehicle.last_washed is None
+        assert ServiceRecord.query.filter_by(
+            vehicle_id=vehicle_id, service_type="wash").count() == 0
+
+    response = client.post(f"/task/{entry_id}/Final%20Inspection",
+                           data={"checked": "true"})
+    assert response.status_code == 200
+
+    with app.app_context():
+        vehicle = Vehicle.query.get(vehicle_id)
+        assert vehicle.last_washed is not None
+        assert ServiceRecord.query.filter_by(
+            vehicle_id=vehicle_id, service_type="wash").count() == 1
+
+    client.post(f"/task/{entry_id}/Sweep", data={"checked": "true"})
+    with app.app_context():
+        assert ServiceRecord.query.filter_by(
+            vehicle_id=vehicle_id, service_type="wash").count() == 1
 
 
 def vehicles_loc(app):
