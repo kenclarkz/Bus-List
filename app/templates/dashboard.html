@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_board_row.html" import vehicle_row with context %}
 {% block title %}Today's Board — {{ app_name }}{% endblock %}
 
 {% block content %}
@@ -116,12 +117,12 @@
       </select>
       <button class="btn small" type="submit">Filter</button>
       <a class="btn small secondary" href="{{ url_for('dashboard', date=view_date.isoformat()) }}">Clear</a>
-      <span class="muted small">Showing {{ rows|length }} of {{ all_rows|length }}</span>
+      <span class="muted small">Showing {{ rows|length + transit_rows|length }} of {{ all_rows|length }}</span>
     </form>
   </div>
 </div>
 
-{% if not rows %}
+{% if not rows and not transit_rows %}
   <div class="card">
     <h2>No vehicles on {{ view_date.strftime('%B %d') }}'s board</h2>
     <p class="muted">Import a prep report to build the work list, add a vehicle manually, or no vehicles match the current filters.</p>
@@ -134,191 +135,21 @@
 
 <div class="board">
   {% for r in rows %}
-  {% set entry = r.entry %}
-  {% set v = r.vehicle %}
-  <div class="vrow {{ 'row-replacement' if entry.is_replacement }}{{ ' row-replaced' if r.replaced_by }}" id="row-{{ entry.id }}">
-    <div class="vrow-header">
-      <span class="vnum">{{ v.unit_number }}</span>
-      {% if entry.is_replacement and r.replacement_of %}
-      <span class="badge warn">Replacement for {{ r.replacement_of.unit_number }}</span>
-      {% elif entry.is_replacement %}
-      <span class="badge warn">Replacement</span>
-      {% endif %}
-      {% if r.replaced_by %}
-      <span class="badge muted">Replaced by {{ r.replaced_by.unit_number }}</span>
-      {% endif %}
-      <div class="vmeta">
-        {{ v.vehicle_type.name if v.vehicle_type else '—' }}
-        {% if v.route %} · Route {{ v.route }}{% endif %}
-        {% if entry.prep_time %} · Report {{ entry.prep_time }}{% endif %}
-        {% if entry.pickup_time %} · Pickup {{ entry.pickup_time }}{% endif %}
-      </div>
-      {% if entry.driver_code %}
-      <span class="driver-code">Driver {{ entry.driver_code }}</span>
-      {% endif %}
-      <span class="badge entry-status {{ 'warn' if entry.status == 'skipped' else ('success' if entry.status == 'completed' else ('info' if entry.status == 'in_progress' else 'muted')) }}">
-        {{ {'pending': 'Pending', 'in_progress': 'In Progress', 'completed': 'Completed', 'skipped': 'Skipped'}[entry.status] }}
-      </span>
-      {% set workers = active_employees|selectattr('current_vehicle', 'equalto', v.unit_number)|list %}
-      {% if workers %}
-      <span class="badge success" style="font-size:.6rem">
-        {% for w in workers %}{{ w.initials }}{% if not loop.last %}, {% endif %}{% endfor %} working
-      </span>
-      {% endif %}
-      <span class="spacer"></span>
-      <span class="{{ r.indicator[1] }}">{{ r.indicator[0] }}</span>
-      {% if v.last_washed %}
-        <span class="muted small">Last washed {{ v.last_washed.strftime('%b %d %H:%M') }}</span>
-      {% else %}
-        <span class="muted small">Never washed</span>
-      {% endif %}
-      {% if v.has_dump_task %}
-        {% if v.needs_dump %}
-          <span class="badge danger">Needs Dump ({{ v.cleanings_since_dump or 0 }})</span>
-        {% elif v.last_dumped %}
-          <span class="muted small">Dumped {{ v.last_dumped.strftime('%b %d') }}</span>
-        {% else %}
-          <span class="muted small">Never dumped</span>
-        {% endif %}
-      {% endif %}
-    </div>
-
-    {% set notes = v.notes | strip_res %}
-    {% if notes %}
-    <div class="vnote">{{ notes }}</div>
-    {% endif %}
-
-    {% if entry.status != 'skipped' and not r.replaced_by %}
-    <div class="checklist" data-tasks-hidden="{{ 'true' if entry.status in ('pending', 'in_progress') else 'false' }}">
-      <div class="checklist-group">
-        <span class="checklist-group-label">Inside</span>
-        <div class="checklist-group-items">
-        {% for t in entry.tasks if t.task_name|task_category == 'inside' %}
-        <label class="ck {{ 'done' if t.completed }}">
-          <input type="checkbox" data-entry="{{ entry.id }}" data-task="{{ t.task_name }}"
-                 {{ 'checked' if t.completed }}
-                 {{ 'disabled' if current_role == 'manager' }}>
-          {{ t.task_name }}
-          {% if t.completed_at %}<span class="small muted">· {{ t.completed_at.strftime('%H:%M') }}</span>{% endif %}
-          {% if t.completed and t.employee %}<span class="badge info" style="font-size:.6rem;padding:1px 5px;margin-left:4px">{{ t.employee.initials }}</span>{% endif %}
-        </label>
-        {% endfor %}
-        </div>
-      </div>
-      <div class="checklist-group">
-        <span class="checklist-group-label">Outside</span>
-        <div class="checklist-group-items">
-        {% for t in entry.tasks if t.task_name|task_category == 'outside' %}
-        <label class="ck {{ 'done' if t.completed }}">
-          <input type="checkbox" data-entry="{{ entry.id }}" data-task="{{ t.task_name }}"
-                 {{ 'checked' if t.completed }}
-                 {{ 'disabled' if current_role == 'manager' }}>
-          {{ t.task_name }}
-          {% if t.completed_at %}<span class="small muted">· {{ t.completed_at.strftime('%H:%M') }}</span>{% endif %}
-          {% if t.completed and t.employee %}<span class="badge info" style="font-size:.6rem;padding:1px 5px;margin-left:4px">{{ t.employee.initials }}</span>{% endif %}
-        </label>
-        {% endfor %}
-        </div>
-      </div>
-    </div>
-
-    {% if entry.status in ('pending', 'in_progress') and not r.replaced_by %}
-    <div class="row-start" data-tasks-hidden="true">
-      <button type="button" class="btn success start-btn" data-entry="{{ entry.id }}"
-              data-vehicle="{{ v.unit_number }}"
-              {{ 'disabled' if current_role == 'manager' }}>Start</button>
-      <span class="muted small">Click <strong>Start</strong> to begin working this vehicle. That marks it as
-        &quot;Currently Working&quot; and opens up the task list.</span>
-    </div>
-    {% endif %}
-    {% else %}
-    {% if entry.status == 'skipped' %}
-    <p class="muted small" style="margin:12px 0 4px">Skipped — counts toward completion.{% if entry.skip_reason %} <strong>Reason:</strong> {{ entry.skip_reason }}{% endif %} Un-skip to work this vehicle.</p>
-    {% elif r.replaced_by %}
-    <p class="muted small" style="margin:12px 0 4px">Replaced by {{ r.replaced_by.unit_number }} — work has moved to the replacement vehicle.</p>
-    {% endif %}
-    {% endif %}
-
-    <div class="progress">
-      <div class="progress-bar"><div class="progress-fill {{ 'fill-warn' if entry.status == 'skipped' }}" style="width: {{ r.pct }}%"></div></div>
-      <span class="pct">{{ r.done }}/{{ r.total }} — {{ r.pct }}%{% if entry.status == 'skipped' %} (skipped){% endif %}</span>
-    </div>
-
-    <div class="row-actions">
-      {% if entry.status == 'in_progress' and not r.replaced_by %}
-      <button class="btn success done-btn" data-entry="{{ entry.id }}"
-              {{ 'disabled' if current_role == 'manager' }}>Done</button>
-      {% endif %}
-      {% if entry.status not in ('completed', 'skipped') and not r.replaced_by %}
-      <button class="btn small secondary" data-modal-target="modal-replace-{{ entry.id }}">Replace Vehicle</button>
-      {% endif %}
-      {% if entry.status == 'skipped' %}
-      <form method="post" action="{{ url_for('entry_unskip', entry_id=entry.id) }}" style="display:inline">
-        <button type="submit" class="btn small secondary">Un-skip</button>
-      </form>
-      {% elif entry.status != 'completed' and not r.replaced_by %}
-      <button class="btn small warn" data-modal-target="modal-skip-{{ entry.id }}"
-              {{ 'disabled' if current_role == 'manager' }}>Skip</button>
-      {% endif %}
-      {% if current_role == 'manager' %}
-      <a class="btn small" href="{{ url_for('vehicle_detail', vehicle_id=v.id) }}">History</a>
-      {% endif %}
-    </div>
-    {% if current_role == 'manager' and entry.status in ('completed', 'in_progress') %}
-    {% set incomplete_tasks = entry.tasks|selectattr('completed', 'false')|list %}
-    {% if incomplete_tasks %}
-    <div class="flash flash-warn" style="margin-top:8px;padding:8px 12px;font-size:.8rem">
-      <strong>Not completed:</strong>
-      {% for t in incomplete_tasks %}{{ t.task_name }} ({{ t.task_name|task_category }}){% if not loop.last %}, {% endif %}{% endfor %}
-    </div>
-    {% endif %}
-    {% endif %}
-  </div>
-
-  <div class="modal-bg" id="modal-skip-{{ entry.id }}">
-    <div class="modal">
-      <h3>Skip Vehicle {{ v.unit_number }}</h3>
-      <p class="muted small">Skipping counts this vehicle toward completion without
-        cleaning it. It will still need to be cleaned.</p>
-      <form class="skip-form" method="post"
-            data-skip-entry="{{ entry.id }}"
-            data-unskip-url="{{ url_for('entry_unskip', entry_id=entry.id) }}"
-            action="{{ url_for('entry_skip', entry_id=entry.id) }}">
-        <label>Reason for skipping {% if entry.skip_reason %} (leave blank to keep "{{ entry.skip_reason }}"){% endif %}</label>
-        <select name="reason">
-          <option value="">— Select —</option>
-          <option value="Maintenance">Maintenance</option>
-          <option value="Not On Lot">Not On Lot</option>
-          <option value="Other">Other</option>
-        </select>
-        <div class="flex" style="margin-top:16px">
-          <button type="submit" class="btn warn">Skip Vehicle</button>
-          <button type="button" class="btn secondary" data-modal-close="modal-skip-{{ entry.id }}">Cancel</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <div class="modal-bg" id="modal-replace-{{ entry.id }}">
-    <div class="modal">
-      <h3>Replace Vehicle {{ v.unit_number }}</h3>
-      <form method="post" action="{{ url_for('entry_replace', entry_id=entry.id) }}">
-        <label>Replacement Unit # (e.g. 155)</label>
-        <input type="text" name="replacement_unit" required autocomplete="off">
-        <label>Reason</label>
-        <input type="text" name="reason" placeholder="e.g. down for service">
-        <label>Employee</label>
-        <select name="employee_id">
-          <option value="">— Select —</option>
-          {% for e in employees %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}
-        </select>
-        <div class="flex" style="margin-top:16px">
-          <button type="submit" class="btn warn">Replace</button>
-          <button type="button" class="btn secondary" data-modal-close="modal-replace-{{ entry.id }}">Cancel</button>
-        </div>
-      </form>
-    </div>
-  </div>
+  {{ vehicle_row(r) }}
   {% endfor %}
 </div>
+
+{% if transit_rows %}
+<details class="card sect transit-board" id="transit-board">
+  <summary>Transit Buses ({{ transit_rows|length }}) — skipped</summary>
+  <p class="muted small">Transit buses come in on the prep report but are washed by
+    another crew, so the importer skips them. They are listed here instead of in the
+    main work list — un-skip one to work it here.</p>
+  <div class="board">
+    {% for r in transit_rows %}
+    {{ vehicle_row(r) }}
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
 {% endblock %}

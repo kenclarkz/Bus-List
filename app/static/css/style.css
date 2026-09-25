@@ -175,6 +175,20 @@ details.sect summary {
 details.sect[open] summary { border-bottom: 1px solid var(--border); margin-bottom: 8px; }
 details.sect h2, details.sect h3 { margin-top: 20px; }
 
+/* transit buses dropdown at the bottom of the board */
+details.transit-board { border-style: dashed; }
+details.transit-board summary {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  font-size: .9rem;
+}
+details.transit-board[open] summary {
+  color: var(--primary);
+  border-bottom: 1px dashed var(--border);
+}
+details.transit-board .board { margin-top: 12px; }
+
 /* read-only report detail grid */
 .info-grid {
   display: grid;
@@ -228,6 +242,7 @@ tr.row-inactive td { color: var(--muted); }
 .vrow.row-replaced .vnum,
 .vrow.row-replaced .vmeta,
 .vrow.row-replaced .progress { color: var(--muted); }
+.vrow.row-transit { border-style: dashed; }
 .vnum { font-size: 1.25rem; font-weight: 800; }
 .driver-code {
   font-size: 1.3rem; font-weight: 800; color: var(--info);

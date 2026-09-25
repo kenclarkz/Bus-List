@@ -348,7 +348,7 @@ def build_preview(parsed, location=None):
     """Compare parsed report against DB and produce a preview dict.
 
     Returns dict with 'new', 'updated', 'removed', 'route_changes',
-    'replacements', 'uncertain', 'unchanged'.
+    'replacements', 'uncertain', 'unchanged' and 'transit'.
     """
     preview = {
         "new": [],
@@ -358,6 +358,7 @@ def build_preview(parsed, location=None):
         "replacements": [],
         "uncertain": [],
         "unchanged": [],
+        "transit": [],
         "count": 0,
     }
     db_units = {}
@@ -381,6 +382,12 @@ def build_preview(parsed, location=None):
              "pickup_time": p.pickup_time, "driver_code": p.driver_code}
         if p.uncertain:
             preview["uncertain"].append(v)
+
+        # Transit buses are washed by another crew: they are still imported and
+        # shown on the board, but skipped (see apply_import) and parked in the
+        # transit dropdown instead of the main work list.
+        if vehicles.is_transit_type(p.type) or vehicles.is_transit_vehicle(existing):
+            preview["transit"].append(v)
 
         # substitution hint: "Replace 155" style route
         if p.route and p.route.lower().startswith("replace"):
@@ -436,10 +443,18 @@ def apply_import(preview, location=None, employee_id=None, source="import",
                 (vehicle.notes or "").strip() != item["notes"].strip():
             vehicle.notes = item["notes"].strip()
         vehicle.active = True
-        ensure_entry(sched, vehicle, order_index=position,
-                     prep_time=item.get("prep_time"),
-                     pickup_time=item.get("pickup_time"),
-                     driver_code=item.get("driver_code"))
+        entry = ensure_entry(sched, vehicle, order_index=position,
+                             prep_time=item.get("prep_time"),
+                             pickup_time=item.get("pickup_time"),
+                             driver_code=item.get("driver_code"))
+        # Transit buses are not washed in this bay, so they are imported onto
+        # the board but skipped (they count toward completion). Work already
+        # done on the entry, or a manual skip, is never overwritten.
+        if entry.status not in ("completed", "skipped") and (
+                vehicles.is_transit_type(item.get("type"))
+                or vehicles.is_transit_vehicle(vehicle)):
+            set_entry_skipped(entry, skipped=True,
+                              reason=vehicles.TRANSIT_SKIP_REASON)
         position += 1
         db.session.commit()
 

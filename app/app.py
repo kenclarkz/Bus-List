@@ -465,6 +465,11 @@ def build_schedule_view(sched):
             "pct": pct,
             "is_complete": complete,
             "indicator": status_indicator(entry.vehicle.last_washed),
+            # Transit buses get their own dropdown at the bottom of the board.
+            # The skip reason covers a report calling a vehicle TRANSITB while
+            # its stored type says something else.
+            "is_transit": (vehicles.is_transit_vehicle(entry.vehicle)
+                           or entry.skip_reason == vehicles.TRANSIT_SKIP_REASON),
             # The vehicle this row replaced (for replacement entries).
             "replacement_of": original.vehicle if original else None,
             # The vehicle that replaced this row (for replaced originals).
@@ -613,7 +618,9 @@ def build_import_summary(preview, method):
             f"Updated: {len(preview['updated'])}, "
             f"Removed: {len(preview['removed'])}, "
             f"Replacements: {len(preview['replacements'])}, "
-            f"Uncertain: {len(preview['uncertain'])} [{method}]")
+            f"Uncertain: {len(preview['uncertain'])}, "
+            f"Transit (auto-skipped): {len(preview.get('transit', []))} "
+            f"[{method}]")
 
 
 # ---------------------------------------------------------------------------
@@ -867,6 +874,12 @@ def register_routes(app):
                 continue
             frows.append(r)
 
+        # Transit buses (TRANSITB) are washed by another crew. They stay on the
+        # board but in their own dropdown at the bottom, not the main work list.
+        main_rows, transit_rows = [], []
+        for r in frows:
+            (transit_rows if r["is_transit"] else main_rows).append(r)
+
         types = sorted({v.vehicle_type.name for v in Vehicle.query
                         if v.vehicle_type and v.vehicle_type.name})
 
@@ -884,7 +897,8 @@ def register_routes(app):
 
         return render_template(
             "dashboard.html",
-            rows=frows, all_rows=rows, sched=sched,
+            rows=main_rows, transit_rows=transit_rows,
+            all_rows=rows, sched=sched,
             total=total, completed=completed, in_progress=in_progress,
             skipped=skipped, remaining=remaining, overall=overall, overdue=overdue,
             replacements=replacements, types=types, filters=filters,

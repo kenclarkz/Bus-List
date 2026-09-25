@@ -2154,6 +2154,245 @@ def test_skip_json_and_unskip_fragment(client, app):
 
 
 # ---------------------------------------------------------------------------
+# Transit buses
+# ---------------------------------------------------------------------------
+
+def _echo_report_pdf(rows):
+    """Build an ECHO-format prep report PDF.
+
+    rows: list of (prep_time, unit, location_code, vehicle_type, type, trips)
+    """
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+
+    headers = ["Prep Time", "Vehicle", "Vehicle Type", "Type", "Trips #"]
+    col_widths = [60, 90, 80, 90, 45]
+    row_h = 30
+    x0, y0 = 40, 60
+
+    all_rows = [headers] + [list(r) for r in rows]
+    for ri, row in enumerate(all_rows):
+        ry = y0 + ri * row_h
+        cx = x0
+        for ci, (cell, w) in enumerate(zip(row, col_widths)):
+            shape = page.new_shape()
+            shape.draw_rect(fitz.Rect(cx, ry, cx + w, ry + row_h))
+            shape.finish(color=(0, 0, 0))
+            shape.commit()
+            if ci == 1 and "\n" in cell:
+                lines = cell.split("\n", 1)
+                page.insert_text((cx + 3, ry + 14), lines[0], fontsize=8)
+                page.insert_text((cx + 3, ry + 24), lines[1], fontsize=7)
+            else:
+                page.insert_text((cx + 3, ry + 14), cell, fontsize=8)
+            cx += w
+    return doc.tobytes()
+
+
+def test_is_transit_type():
+    from app.services.vehicles import is_transit_type
+
+    assert is_transit_type("TRANSITB")
+    assert is_transit_type("transitb")
+    assert is_transit_type("TRANSIT BUS")
+    assert is_transit_type("transit_bus")
+    assert not is_transit_type("SUVSUB")
+    assert not is_transit_type("Van.")
+    assert not is_transit_type("MINIBUS")
+    assert not is_transit_type(None)
+    assert not is_transit_type("")
+
+
+def test_is_transit_vehicle(app):
+    from app.services.vehicles import find_or_create_vehicle, is_transit_vehicle
+
+    with app.app_context():
+        bus, _ = find_or_create_vehicle("4301", vehicle_type="TRANSITB",
+                                        location_id=vehicles_loc(app).id)
+        van, _ = find_or_create_vehicle("9331", vehicle_type="Van.",
+                                        location_id=vehicles_loc(app).id)
+        assert is_transit_vehicle(bus) is True
+        assert is_transit_vehicle(van) is False
+        assert is_transit_vehicle(None) is False
+
+
+def test_import_skips_transit_vehicles(client, app):
+    """TRANSITB vehicles on a prep report are imported onto the board but
+    skipped (they are washed by another crew)."""
+    data = _echo_report_pdf([
+        ("01:45", "100-\nJAXUNF", "TRANSITB", "Shuttle", "2"),
+        ("02:00", "200-\nJAXSUV", "SUVSUB", "Hourly", "1"),
+        ("03:15", "300-\nJAXUNF", "TRANSITB", "Shuttle", "1"),
+    ])
+
+    r = client.post("/import", data={"pdf": (io.BytesIO(data), "transit.pdf")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 200
+    # The preview calls out the transit buses up front.
+    assert b"Transit Buses (skipped automatically)" in r.data
+
+    with app.app_context():
+        from app.models import PrepReportImport
+        iid = PrepReportImport.query.first().id
+
+    r = client.post(f"/import/{iid}/apply")
+    assert r.status_code == 302
+
+    with app.app_context():
+        statuses = {}
+        for e in DailySchedule.query.filter_by(
+                work_date=date.today()).first().entries:
+            statuses[e.vehicle.unit_number] = (e.status, e.skip_reason)
+        assert len(statuses) == 3
+        assert statuses["100"] == ("skipped", "Transit — auto-skipped on import")
+        assert statuses["300"] == ("skipped", "Transit — auto-skipped on import")
+        assert statuses["200"] == ("pending", None)
+
+
+def test_import_keeps_completed_transit_vehicle_untouched(client, app):
+    """Re-importing a report never overwrites work already done on a transit
+    vehicle, and never replaces a manual skip reason."""
+    from app.services import schedule as ss
+    from app.services.vehicles import find_or_create_vehicle
+    from app.services.vehicles import TRANSIT_SKIP_REASON
+
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        done_bus, _ = find_or_create_vehicle("410", vehicle_type="TRANSITB",
+                                             location_id=loc.id)
+        done_entry = ss.ensure_entry(sched, done_bus)
+        for t in list(done_entry.tasks):
+            ss.toggle_task(done_entry.id, t.task_name, True)
+
+        other_bus, _ = find_or_create_vehicle("411", vehicle_type="TRANSITB",
+                                              location_id=loc.id)
+        other_entry = ss.ensure_entry(sched, other_bus)
+        ss.set_entry_skipped(other_entry, skipped=True, reason="Maintenance")
+
+    data = _echo_report_pdf([
+        ("01:45", "410-\nJAXUNF", "TRANSITB", "Shuttle", "2"),
+        ("02:00", "411-\nJAXUNF", "TRANSITB", "Shuttle", "1"),
+    ])
+    r = client.post("/import", data={"pdf": (io.BytesIO(data), "transit2.pdf")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 200
+    with app.app_context():
+        from app.models import PrepReportImport
+        iid = PrepReportImport.query.first().id
+    assert client.post(f"/import/{iid}/apply").status_code == 302
+
+    with app.app_context():
+        sched = DailySchedule.query.filter_by(work_date=date.today()).first()
+        by_unit = {e.vehicle.unit_number: e for e in sched.entries}
+        assert by_unit["410"].status == "completed"
+        assert by_unit["410"].skip_reason is None
+        assert by_unit["411"].status == "skipped"
+        assert by_unit["411"].skip_reason == "Maintenance"
+        assert TRANSIT_SKIP_REASON not in {e.skip_reason for e in sched.entries}
+
+
+def test_transit_vehicles_in_own_dropdown_on_dashboard(client, app):
+    """Transit buses are still on the dashboard, but inside their own dropdown
+    at the bottom instead of the main work list."""
+    from app.services import schedule as ss
+    from app.services.vehicles import find_or_create_vehicle
+
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        bus, _ = find_or_create_vehicle("4301", vehicle_type="TRANSITB",
+                                        location_id=loc.id)
+        ss.ensure_entry(sched, bus)
+        suv, _ = find_or_create_vehicle("9205", vehicle_type="SUVSUB",
+                                        location_id=loc.id)
+        ss.ensure_entry(sched, suv)
+
+    html = client.get("/").data.decode()
+    assert "transit-board" in html
+    main, _, dropdown = html.partition('<details class="card sect transit-board"')
+    assert "Transit Buses (1)" in html
+
+    # The transit bus is inside the dropdown, not the main work list.
+    assert 'class="vnum">4301<' in dropdown
+    assert 'class="vnum">4301<' not in main
+    assert 'class="vnum">9205<' in main
+    # ...and it is marked as a transit bus on the board.
+    assert '<span class="badge info">Transit</span>' in dropdown
+
+    # Filtering by unit keeps the transit bus findable in the same place.
+    filtered = client.get("/?unit=4301").data.decode()
+    assert 'class="vnum">4301<' in filtered
+    assert 'class="vnum">9205<' not in filtered
+    assert "transit-board" in filtered
+
+    # The filtered count includes the transit dropdown.
+    assert "Showing 1 of 2" in filtered
+
+
+def test_report_type_transit_wins_over_stored_type(client, app):
+    """A report calling a vehicle TRANSITB skips it and drops it in the transit
+    dropdown even when the stored type says something else."""
+    from app.services.vehicles import find_or_create_vehicle
+
+    with app.app_context():
+        v, _ = find_or_create_vehicle("9331", vehicle_type="Van.",
+                                      location_id=vehicles_loc(app).id)
+
+    data = _echo_report_pdf([("02:00", "9331-\nJAXVAN", "TRANSITB", "Shuttle", "1")])
+    r = client.post("/import", data={"pdf": (io.BytesIO(data), "van.pdf")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 200
+    with app.app_context():
+        from app.models import PrepReportImport
+        iid = PrepReportImport.query.first().id
+    assert client.post(f"/import/{iid}/apply").status_code == 302
+
+    with app.app_context():
+        entry = ScheduleEntry.query.filter_by(vehicle_id=v.id).first()
+        assert entry.status == "skipped"
+        assert entry.skip_reason == "Transit — auto-skipped on import"
+
+    html = client.get("/").data.decode()
+    _, _, dropdown = html.partition('<details class="card sect transit-board"')
+    assert 'class="vnum">9331<' in dropdown
+
+
+def test_unskip_transit_vehicle_lets_it_be_worked(client, app):
+    """A transit bus can be un-skipped and worked like any other vehicle."""
+    from app.services import schedule as ss
+    from app.services.vehicles import find_or_create_vehicle
+
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        bus, _ = find_or_create_vehicle("4302", vehicle_type="TRANSITB",
+                                        location_id=loc.id)
+        entry = ss.ensure_entry(sched, bus)
+        ss.set_entry_skipped(entry, skipped=True,
+                             reason="Transit — auto-skipped on import")
+        eid = entry.id
+
+    html = client.get("/").data.decode()
+    assert f'id="row-{eid}"' in html
+    assert "Un-skip" in html
+
+    assert client.post(f"/entry/{eid}/unskip").status_code == 302
+    with app.app_context():
+        assert ScheduleEntry.query.get(eid).status == "pending"
+
+    # It now offers the normal work actions.
+    html = client.get("/").data.decode()
+    _, _, dropdown = html.partition('<details class="card sect transit-board"')
+    assert f'id="row-{eid}"' in dropdown
+    assert "Skip" in dropdown
+
+    # ...and it still counts as a transit vehicle (dropdown, Transit badge).
+    assert '<span class="badge info">Transit</span>' in dropdown
+
+
+# ---------------------------------------------------------------------------
 # Dump tracking
 # ---------------------------------------------------------------------------
 
