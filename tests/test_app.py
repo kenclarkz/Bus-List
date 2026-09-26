@@ -4,6 +4,7 @@ import json
 from datetime import date, datetime, timedelta
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from app import create_app
 from app.models import db, Vehicle, Employee, ScheduleEntry, TaskCompletion, \
@@ -3806,6 +3807,111 @@ def test_two_employees_work_the_same_vehicle_at_once(client, app):
         # Both employees are on the board as working on it.
         assert Employee.query.get(ann).current_vehicle_id == entry.vehicle_id
         assert Employee.query.get(bob).current_vehicle_id == entry.vehicle_id
+
+
+def test_one_employee_working_outside_does_not_block_another_starting_inside(
+        client, app):
+    """The reported case, over HTTP and from two separate sessions: one employee
+    is working the outside of a bus and a second one starts the inside. Both
+    presses succeed, each with their own clock."""
+    from app.models import PrepSession
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "925")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+
+    # Ann starts the outside of the vehicle.
+    ann_client = app.test_client()
+    ann_client.post("/login", data={"username": "employee", "password": "employee"})
+    ann_client.post("/select", data={"employee_id": str(ann)})
+    r = ann_client.post(f"/entry/{entry_id}/prep/start",
+                        data={"employee_id": str(ann), "scope": "outside"})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert r.is_json
+
+    # Bob, on his own device and his own session, starts the inside of the same
+    # vehicle. Ann's running outside clock must not refuse it.
+    r = client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(bob), "scope": "inside"})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    body = r.get_json()
+    assert body["ok"] is True
+    assert body["scope"] == "inside"
+    assert body["worker"]["employee_id"] == bob
+    # Both clocks are recorded and running, each in its own clock set.
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        sessions = prep_timer.sessions_for(entry)
+        assert len(sessions) == 2
+        assert {(s.employee_id, s.scope) for s in sessions} == {
+            (ann, "outside"), (bob, "inside")}
+        assert all(s.status == "running" for s in sessions)
+        assert PrepSession.query.count() == 2
+        state = prep_timer.state(entry)
+        assert state["scopes"]["outside"]["workers"][0]["employee"] == "Ann Alpha"
+        assert state["scopes"]["inside"]["workers"][0]["employee"] == "Bob Beta"
+
+
+def test_board_database_allows_one_employee_to_write_while_another_reads(app):
+    """The board is several devices at once, so SQLite must not let one
+    employee's open page load lock out another employee's press. WAL plus a
+    real busy timeout is what stops a Start from failing as a bare 500 while
+    somebody else's request holds the database."""
+    from app.models import db as _db
+
+    with app.app_context():
+        engine = _db.engine
+        conn = engine.raw_connection()
+        try:
+            assert engine.dialect.name == "sqlite"
+            mode = conn.cursor().execute("PRAGMA journal_mode").fetchone()[0]
+            assert mode.lower() == "wal", f"journal_mode is {mode!r}, not wal"
+            busy = conn.cursor().execute("PRAGMA busy_timeout").fetchone()[0]
+            assert busy >= 5000, f"busy_timeout is {busy}ms"
+        finally:
+            conn.close()
+        # Every device on shift has to be able to hold a connection while it
+        # renders a page, or a press ends up waiting on an empty pool.
+        assert engine.pool.size() >= 10
+
+
+def test_prep_action_that_loses_the_database_answers_with_json(client, app,
+                                                                monkeypatch):
+    """A request that cannot get to the database is answered like any other
+    refused step, in the shape the board reads. It used to escape as an HTML
+    500, which the board could not parse, so the employee who pressed only saw
+    "Could not start this vehicle. Try again." and could not tell whether their
+    clock had started."""
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "926")
+        ann = add_employee(app, "Ann Alpha")
+
+    def busy_start(*args, **kwargs):
+        # A long-running read elsewhere means the write lock is not available
+        # within SQLite's busy timeout.
+        raise OperationalError("SELECT 1", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(prep_timer, "start", busy_start)
+    r = client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(ann), "scope": "outside"})
+
+    assert r.status_code == 503
+    assert r.is_json
+    body = r.get_json()
+    assert body["ok"] is False
+    assert "busy" in body["error"].lower()
+    # Nothing was recorded, so a retry can still start the clock.
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        assert prep_timer.sessions_for(entry) == []
+    monkeypatch.undo()
+    r = client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(ann), "scope": "outside"})
+    assert r.status_code == 200
 
 
 def test_one_employee_cannot_start_the_same_vehicle_twice(client, app):

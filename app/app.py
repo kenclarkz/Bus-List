@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 
 from flask import Flask, render_template, request, redirect, url_for, flash, \
     jsonify, session, send_file, abort
+from sqlalchemy.exc import OperationalError, TimeoutError as PoolTimeoutError
 from werkzeug.utils import secure_filename
 
 from .models import db, Vehicle, Employee, ScheduleEntry, Replacement, Note, \
@@ -17,6 +18,12 @@ from .services import incidents as incidents_svc
 from .services import prep_timer, timeutils
 from .services.incidents import ISSUE_TYPES, SEVERITIES, STATUSES, \
     allowed_photo, save_incident_photo, SEVERITY_CLASSES, STATUS_CLASSES
+
+# A request that could not get to the database, rather than one the application
+# got wrong: another request held the write lock for longer than SQLite's busy
+# timeout, or the connection pool had nothing free. Both are transient and both
+# used to escape as an HTML 500 the board could not read.
+_DATABASE_BUSY_ERRORS = (OperationalError, PoolTimeoutError)
 
 # The only three accounts. Passwords are the lowercase role name. No accounts
 # can be created through the app.
@@ -121,6 +128,66 @@ def _apply_report_fields(incident, form):
         setattr(incident, field, _parse_yes_no(form.get(field)))
 
 
+def _engine_options(db_uri):
+    """Engine options for the way the board is actually used.
+
+    A detailing board is a shared screen plus a phone per employee, so several
+    requests are always in flight at once: somebody loading the page, somebody
+    re-syncing their timers, somebody pressing Start. SQLAlchemy's stock pool
+    for a file-backed SQLite database is 5 connections (+10 overflow) and
+    sqlite3 gives up on a locked database after 5 seconds, so a handful of
+    devices could either exhaust the pool or time out waiting for the write
+    lock -- and a timed-out write raised out of the request as a bare 500, which
+    the board could only report as "Could not start this vehicle. Try again."
+    while the employee's press was refused for a reason that was never shown.
+    """
+    if not db_uri.startswith("sqlite"):
+        return {}
+    return {
+        # Every device on shift can hold a connection for the length of one page
+        # load, so a Start press always finds one free.
+        "pool_size": 20,
+        "max_overflow": 20,
+        "pool_timeout": 60,
+        "pool_recycle": 1800,
+        "pool_pre_ping": True,
+        # sqlite3's busy timeout: wait out a collision instead of failing.
+        "connect_args": {"timeout": 30},
+    }
+
+
+def _use_write_ahead_logging(engine):
+    """Put a SQLite database into WAL mode on every connection it opens.
+
+    SQLite's default rollback journal lets a single open reader block every
+    writer, and makes two writers that overlap deadlock into a "database is
+    locked" error. That is exactly the board's traffic pattern: one employee
+    working one side of a bus while another starts the other side, with a page
+    load or a timer re-sync landing on top. WAL lets readers and the writer run
+    at the same time, so one employee's press can no longer take another's down
+    with it. ``synchronous=NORMAL`` is safe alongside WAL and much cheaper on a
+    small shop machine.
+    """
+    from sqlalchemy import event
+
+    if engine.dialect.name != "sqlite":
+        return
+
+    @event.listens_for(engine, "connect")
+    def _set_pragmas(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+        except Exception:
+            # A pragma is best effort: an in-memory database has no journal to
+            # change, and a file another process has locked keeps its current
+            # mode. Neither is worth refusing to start over.
+            pass
+        finally:
+            cursor.close()
+
+
 def create_app(test_config=None):
     app = Flask(__name__)
 
@@ -141,12 +208,14 @@ def create_app(test_config=None):
         SECRET_KEY=os.environ.get("SECRET_KEY", "dev-secret-change-me"),
         SQLALCHEMY_DATABASE_URI=db_uri,
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
+        SQLALCHEMY_ENGINE_OPTIONS=_engine_options(db_uri),
         UPLOAD_FOLDER=os.path.join(base_dir, "uploads"),
         MAX_CONTENT_LENGTH=20 * 1024 * 1024,
     )
 
     db.init_app(app)
     with app.app_context():
+        _use_write_ahead_logging(db.engine)
         db.create_all()
         _migrate()
         seed_defaults()
@@ -986,6 +1055,11 @@ def register_routes(app):
         already started, finishing one that was never started, ...) are rejected
         with an explanation and the row keeps its current state, so a mis-click
         can never corrupt the record.
+
+        A step that loses a race for the database is answered in the same shape
+        rather than raised: a bare 500 is an HTML page, which the board cannot
+        read, so the employee who pressed got nothing but "Could not start this
+        vehicle. Try again." and no idea whether their clock had started.
         """
         if session.get("user") != "employee":
             return jsonify(ok=False, error="Manager view is read-only"), 403
@@ -1017,6 +1091,15 @@ def register_routes(app):
         except prep_timer.PrepTimerError as err:
             return jsonify(ok=False, error=err.message,
                            state=prep_timer.state(entry)), err.code
+        except _DATABASE_BUSY_ERRORS:
+            # Another employee's press, page load or timer re-sync held the
+            # write lock. Nothing was written, so answer like any other refused
+            # step: a reason the employee can act on, and a row they can press
+            # again. Roll back first so the released session is clean.
+            db.session.rollback()
+            return jsonify(ok=False, error=(
+                "The board is busy with another employee's action. "
+                "Press the button again in a moment.")), 503
         state = prep_timer.state(entry)
         payload = {
             "ok": True,
