@@ -39,21 +39,27 @@ report. It is not a static mockup.
    Final Inspection) — both configurable in Settings. Every checkbox saves a
    completion timestamp and the employee. Progress shows `6/8 — 75%`.
 4. **Per-vehicle prep timer (Start / Pause / Resume / Done)** — each vehicle on
-   the board gets its own clock, recorded against the employee doing the work.
-   **Start** begins the clock and puts the vehicle in progress; **Pause** and
-   **Resume** stop and restart it without ever losing the time already worked;
-   **Done** stops the clock, freezes that person's total active prep time, and
-   finishes the vehicle once nobody is still working on it. **Several employees
-   can work the same vehicle at the same time**: the row shows a clock per
-   employee, a combined vehicle clock, and an **+ Add Me** button for anyone else
-   to start their own clock, and each person's Pause/Resume/Done only ever
-   touches their own clock. Only the buttons valid for the current state are
+   the board gets **two independent clock sets, one for the inside work and one
+   for the outside work**, and each clock is recorded against the employee doing
+   the work. **Start** begins the clock and puts the vehicle in progress;
+   **Pause** and **Resume** stop and restart it without ever losing the time
+   already worked; **Done** stops the clock, freezes that person's total active
+   prep time, and finishes the vehicle once no clock of either set is still
+   running. The two sets never borrow time from each other: working the outside
+   of a vehicle does not advance its inside clock, and the vehicle's headline
+   number is the sum of both sides. **Several employees can work the same
+   vehicle at the same time**, on the same side or on opposite sides: the row
+   shows a clock per employee per set, a combined vehicle clock, and an
+   **+ Add Me** button for anyone else to start their own clock, and each
+   person's Pause/Resume/Done only ever touches their own clock. One employee
+   never runs two clocks at once on the same vehicle, so the other set must be
+   paused (or finished) first. Only the buttons valid for the current state are
    shown, and an out-of-order action (starting a vehicle that is already running
-   for you, finishing one that was never started, resuming a running timer) is
-   refused with a clear reason instead of corrupting the record. Time is tracked
-   while the page is closed — the server owns the clock, so a refresh, a
-   backgrounded tab, or a device with a wrong clock never loses or invents
-   time. Every
+   for you in that set, finishing one that was never started, resuming a running
+   timer) is refused with a clear reason instead of corrupting the record. Time
+   is tracked while the page is closed — the server owns the clock, so a
+   refresh, a backgrounded tab, or a device with a wrong clock never loses or
+   invents time. Every
    Start/Pause/Resume/Done is kept as permanent event history for the vehicle
    (shown on the board, the vehicle's history page, and the report), and
    completing a vehicle any other way (full checklist, End My Day) stops its
@@ -209,8 +215,12 @@ refresh accuracy, invalid actions being rejected, timers being stopped by other
 completion paths, the Eastern Time formatting, and the report/vehicle history
 output. It also covers several employees timing the same vehicle at once
 (independent clocks, one press acting on only one person's timer, the vehicle
-only completing once the last person is done, crew reporting), and the
-automatic upgrade of an older database to allow a crew per vehicle.
+only completing once the last person is done, crew reporting), the automatic
+upgrade of an older database to allow a crew per vehicle, and the two clock
+sets per vehicle: each side timing apart, a paused clock not blocking the other
+side, one employee not running two clocks at once, two employees working opposite
+sides of one vehicle, and the board/end-of-day/print report splitting the day
+by clock set.
 
 ---
 
@@ -225,7 +235,7 @@ app/
   services/
     pdf_parser.py        # PDF text/table/OCR extraction + unit normalization
     schedule.py          # daily board, checklist, replacements, preview/apply
-    prep_timer.py        # Start/Pause/Resume/Done timers per employee + history
+    prep_timer.py        # inside/outside clocks per employee per vehicle + history
     settings.py          # configurable thresholds/checklist
     timeutils.py         # Eastern Time storage, parsing and display helpers
     vehicles.py          # entity helpers, import/journal records
@@ -243,22 +253,35 @@ data/                    # SQLite database (created at runtime)
 The clock lives on the server, so a timer can never drift from the record that
 is eventually reported.
 
-- **One session per employee per vehicle per day.** A `PrepSession` stores the
-  running total in seconds, the status (`running` / `paused` / `finished`), the
-  start and finish timestamps, and the employee. Each Start/Pause/Resume/Done is
+- **One session per employee per vehicle per clock set per day.** A
+  `PrepSession` stores its `scope` (`inside` or `outside`), the running total in
+  seconds, the status (`running` / `paused` / `finished`), the start and finish
+  timestamps, and the employee. Each Start/Pause/Resume/Done is
   also appended to a `PrepSessionEvent` with its own Eastern timestamp, the
   employee who pressed it, and the running total at that moment.
-- **A whole crew can share a vehicle.** A vehicle has one session per employee,
-  so a second (or third) person just presses Start — or **+ Add Me** — and gets
-  a clock of their own. Pausing, resuming or finishing affects only the session
-  that was pressed, and the vehicle is only marked complete when the last
-  session finishes. The vehicle's clock and its report lines are the sum of
-  everybody's time on it, so two people working the same vehicle for an hour
-  correctly report two hours of prep work.
-- **Existing databases are upgraded in place.** The old schema allowed only one
-  timer per vehicle, so the first launch after this change rebuilds that one
-  table, keeping every session, every total and every recorded event, and then
-  the per-employee constraint takes over.
+- **Inside and outside are timed apart.** A vehicle shows two panels — **Inside
+  Prep** and **Outside Prep** — and each keeps its own total, its own employees
+  and its own event log. The buttons carry the set they belong to, so pressing
+  Done on the outside never touches an inside clock. The vehicle's headline
+  clock is the sum of both sets, which is what the day total and the report
+  count, so a vehicle with ten minutes inside and six outside reports sixteen.
+- **A whole crew can share a vehicle.** A vehicle has one session per employee
+  per set, so a second (or third) person just presses Start — or **+ Add Me** —
+  and gets a clock of their own, and one person can be inside while another
+  works outside at the same time. Pausing, resuming or finishing affects only
+  the session that was pressed, and the vehicle is only marked complete when the
+  last session of either set finishes. The vehicle's clock and its report lines
+  are the sum of everybody's time on it, so two people working the same vehicle
+  for an hour correctly report two hours of prep work.
+- **One clock per person at a time.** An employee never runs two clocks on the
+  same vehicle, so the other set has to be paused (or finished) before it can be
+  started, and a paused clock cannot be resumed while the other set runs.
+- **Existing databases are upgraded in place.** Sessions from the one-clock-per-
+  vehicle schema are backfilled as `scope = 'both'`, so they count towards both
+  the inside and the outside totals while still being reported only once, and
+  the first launch after this change rebuilds that one table to keep every
+  session, every total and every recorded event before the per-employee, per-set
+  constraint takes over.
 - **Active time is the sum of the active segments only.** Pausing banks the
   seconds worked so far; the paused stretch is never billed. Resuming starts a
   new segment on top of the banked total, so previous work is never lost.

@@ -170,7 +170,7 @@ def _migrate():
         return
     try:
         con = sqlite3.connect(path)
-        _allow_crew_per_vehicle(con)
+        _upgrade_prep_sessions(con)
         cols = {r[1] for r in con.execute("PRAGMA table_info(schedule_entries)")}
         if "prep_time" not in cols:
             con.execute("ALTER TABLE schedule_entries ADD COLUMN prep_time VARCHAR(40)")
@@ -274,41 +274,42 @@ def _migrate():
         pass
 
 
-def _uniques_on_entry_id_only(con):
-    """True when prep_sessions still carries the old UNIQUE (entry_id) alone.
+def _upgrade_prep_sessions(con):
+    """Let every vehicle carry two clock sets: one Inside, one Outside.
 
-    The database is asked for its own unique indexes rather than the stored DDL
-    text, so a table that is already UNIQUE (entry_id, employee_id) is left
-    alone instead of being rebuilt on every app start.
+    Two things can be stale in an existing database:
+
+    - ``prep_sessions.scope`` did not exist before the Inside/Outside split. It
+      is added and every clock already recorded is marked ``both``, so it
+      counts towards the Inside *and* the Outside total of its day and no
+      recorded second is lost or invented.
+    - the uniqueness rule is wrong. It used to be ``UNIQUE (entry_id)`` (one
+      timer per vehicle), then ``UNIQUE (entry_id, employee_id)`` (one per
+      employee), and is now ``UNIQUE (entry_id, employee_id, scope)`` (one per
+      employee per clock set). SQLite cannot drop a constraint with ALTER
+      TABLE, so a table with a stale one is rebuilt with the current
+      definition, keeping every session, every total and every recorded event.
     """
-    for row in con.execute("PRAGMA index_list(prep_sessions)").fetchall():
-        _, name, unique, origin = row[0], row[1], row[2], row[3]
-        # origin "u" is a UNIQUE constraint (an auto-index); "pk" is the
-        # primary key and "c" a plain CREATE INDEX, neither of which is ours.
-        if not unique or origin != "u":
-            continue
-        cols = [r[2] for r in con.execute('PRAGMA index_info("%s")' % name)]
-        if cols == ["entry_id"]:
-            return True
-    return False
+    import re
 
-
-def _allow_crew_per_vehicle(con):
-    """Let several employees hold a prep timer on the same vehicle.
-
-    ``prep_sessions.entry_id`` used to be UNIQUE (one timer per vehicle per
-    day), which made a second employee unable to work a vehicle somebody else
-    was already on. SQLite cannot drop a constraint with ALTER TABLE, so an
-    existing database is rebuilt with the current definition — one session per
-    (entry, employee) — keeping every recorded row.
-    """
     row = con.execute(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='prep_sessions'"
     ).fetchone()
     if not row or not row[0]:
         return
-    if not _uniques_on_entry_id_only(con):
-        return
+    columns = {r[1] for r in con.execute("PRAGMA table_info(prep_sessions)")}
+    if "scope" not in columns:
+        # SQLite needs a literal default to add a NOT NULL column, and 'both'
+        # is exactly what a clock recorded before the split should count as.
+        con.execute("ALTER TABLE prep_sessions ADD COLUMN scope VARCHAR(10) "
+                    "NOT NULL DEFAULT 'both'")
+        con.commit()
+        columns.add("scope")
+
+    unique = re.search(r"UNIQUE\s*\(([^)]*)\)", row[0], re.IGNORECASE)
+    if not unique or "scope" in unique.group(1).lower():
+        return  # already allows one clock per employee per set
+
     con.execute("PRAGMA foreign_keys=OFF")
     # Legacy rename keeps prep_session_events pointing at "prep_sessions"
     # instead of rewriting it to the temporary table name.
@@ -316,11 +317,12 @@ def _allow_crew_per_vehicle(con):
     # The same definition the model creates, foreign keys included, so the
     # rebuild does not quietly drop the references SQLite enforces elsewhere.
     con.execute("""
-        CREATE TABLE prep_sessions_crew (
+        CREATE TABLE prep_sessions_scoped (
             id INTEGER NOT NULL,
             entry_id INTEGER NOT NULL,
             vehicle_id INTEGER NOT NULL,
             employee_id INTEGER,
+            scope VARCHAR(10) NOT NULL,
             status VARCHAR(20) NOT NULL,
             started_at VARCHAR(32) NOT NULL,
             last_event_at VARCHAR(32) NOT NULL,
@@ -329,20 +331,22 @@ def _allow_crew_per_vehicle(con):
             created_at DATETIME,
             updated_at DATETIME,
             PRIMARY KEY (id),
-            UNIQUE (entry_id, employee_id),
             FOREIGN KEY(entry_id) REFERENCES schedule_entries (id),
             FOREIGN KEY(vehicle_id) REFERENCES vehicles (id),
-            FOREIGN KEY(employee_id) REFERENCES employees (id)
+            FOREIGN KEY(employee_id) REFERENCES employees (id),
+            CONSTRAINT uq_prep_session_employee_scope
+                UNIQUE (entry_id, employee_id, scope)
         )""")
+    shared = [c for c in (
+        "id", "entry_id", "vehicle_id", "employee_id", "status", "started_at",
+        "last_event_at", "finished_at", "total_seconds", "created_at",
+        "updated_at") if c in columns]
     con.execute(
-        "INSERT INTO prep_sessions_crew (id, entry_id, vehicle_id, employee_id,"
-        " status, started_at, last_event_at, finished_at, total_seconds,"
-        " created_at, updated_at) "
-        "SELECT id, entry_id, vehicle_id, employee_id, status, started_at,"
-        " last_event_at, finished_at, total_seconds, created_at, updated_at "
-        "FROM prep_sessions")
+        f"INSERT INTO prep_sessions_scoped ({', '.join(shared + ['scope'])}) "
+        f"SELECT {', '.join(shared)}, "
+        f"COALESCE(NULLIF(scope, ''), 'both') FROM prep_sessions")
     con.execute("DROP TABLE prep_sessions")
-    con.execute("ALTER TABLE prep_sessions_crew RENAME TO prep_sessions")
+    con.execute("ALTER TABLE prep_sessions_scoped RENAME TO prep_sessions")
     con.execute("CREATE INDEX ix_prep_sessions_entry_id ON prep_sessions (entry_id)")
     con.execute("PRAGMA legacy_alter_table=OFF")
     con.commit()
@@ -558,8 +562,13 @@ def build_schedule_view(sched):
             "replacement_of": original.vehicle if original else None,
             # The vehicle that replaced this row (for replaced originals).
             "replaced_by": replacer.vehicle if replacer else None,
-            # Prep timer: Start / Pause / Resume / Done state for this vehicle.
+            # Prep timer: Start / Pause / Resume / Done state for this vehicle,
+            # one clock set for the inside work and one for the outside work.
             "prep": prep_timer.state(entry),
+            # The work each of those two clock sets covers, so a row can say
+            # what "Inside" and "Outside" mean for this vehicle's type.
+            "prep_tasks": settings.get_type_categorized_checklist(
+                entry.vehicle.vehicle_type),
         })
     return rows
 
@@ -727,15 +736,19 @@ def notes_for_date(d):
 
 
 def _render_vehicle_detail(vehicle):
-    """The vehicle page: its service history plus every prep timer ever run
-    on it (Start / Pause / Resume / Done history and total active prep time)."""
+    """The vehicle page: its service history plus every prep clock ever run
+    on it (Start / Pause / Resume / Done history, the clock set it belongs to
+    and the total active prep time for each of Inside and Outside)."""
     history = prep_timer.vehicle_history(vehicle)
+    totals = prep_timer.vehicle_scope_totals(vehicle)
     return render_template(
         "vehicle_detail.html", vehicle=vehicle,
         indicator=status_indicator(vehicle.last_washed),
         prep_history=history,
         prep_total_label=timeutils.fmt_duration(
-            sum(s["elapsed"] for s in history)))
+            sum(s["elapsed"] for s in history)),
+        prep_inside_label=timeutils.fmt_duration(totals["inside"]),
+        prep_outside_label=timeutils.fmt_duration(totals["outside"]))
 
 
 def build_import_summary(preview, method):
@@ -966,12 +979,13 @@ def register_routes(app):
     def _prep_run(entry_id, action):
         """Run one Start / Pause / Resume / Done step and answer with JSON.
 
-        Every employee has their own clock on a vehicle, so a step always acts
-        on one session: the one the button belongs to (``session_id``) or the
-        acting employee's own. Invalid actions (starting a vehicle you have
-        already started, finishing one you never started, ...) are rejected with
-        an explanation and the row keeps its current state, so a mis-click can
-        never corrupt the record.
+        Every clock belongs to one of a vehicle's two clock sets (Inside /
+        Outside) and to one employee, so a step always acts on one session: the
+        one the button belongs to (``session_id``) or the acting employee's own
+        in the named ``scope``. Invalid actions (starting a clock you have
+        already started, finishing one that was never started, ...) are rejected
+        with an explanation and the row keeps its current state, so a mis-click
+        can never corrupt the record.
         """
         if session.get("user") != "employee":
             return jsonify(ok=False, error="Manager view is read-only"), 403
@@ -981,21 +995,23 @@ def register_routes(app):
         employee_id = _acting_employee_id()
         source = request.json if request.is_json else request.form
         session_id = source.get("session_id") or None
+        scope = prep_timer.normalize_scope(source.get("scope"))
         try:
             if action == "start":
-                started = prep_timer.start(entry, employee_id)
+                started = prep_timer.start(entry, employee_id, scope=scope)
             elif action == "pause":
-                started = prep_timer.pause(entry, employee_id,
+                started = prep_timer.pause(entry, employee_id, scope=scope,
                                            session_id=session_id)
             elif action == "resume":
-                started = prep_timer.resume(entry, employee_id,
-                                            session_id=session_id)
+                started = prep_timer.resume(entry, employee_id, scope=scope,
+                                             session_id=session_id)
             else:
-                started = prep_timer.finish(entry, employee_id,
+                started = prep_timer.finish(entry, employee_id, scope=scope,
                                             session_id=session_id)
                 # Done closes out the employee who pressed it. The vehicle is
                 # only finished on the board once nobody is still working on
-                # it, so a crew can each press Done in their own time.
+                # it, inside or outside, so a crew can each press Done in
+                # their own time.
                 if not prep_timer.active_sessions_for(entry):
                     sched_svc.complete_entry(entry)
         except prep_timer.PrepTimerError as err:
@@ -1005,6 +1021,7 @@ def register_routes(app):
         payload = {
             "ok": True,
             "action": action,
+            "scope": scope,
             "state": state,
             "unit": entry.vehicle.unit_number,
             "vehicle": entry.vehicle.unit_number,
@@ -1030,8 +1047,11 @@ def register_routes(app):
             # Finishing a vehicle changes the day totals, so hand the client
             # freshly calculated counters for the stat tiles.
             counters = schedule_counters(build_schedule_view(sched))
+            totals = prep_timer.scope_totals(sched)
             counters["prep_total"] = timeutils.fmt_duration(
                 prep_timer.total_active_seconds(sched))
+            counters["prep_inside"] = timeutils.fmt_duration(totals["inside"])
+            counters["prep_outside"] = timeutils.fmt_duration(totals["outside"])
             payload["counters"] = counters
         return jsonify(payload)
 
@@ -1059,7 +1079,8 @@ def register_routes(app):
     def prep_active():
         """Timer state for every vehicle on the board being viewed.
 
-        ``sessions`` is keyed by board entry (the vehicle, with its total) and
+        ``sessions`` is keyed by board entry (the vehicle, with its total and
+        the state of each of its two clock sets under ``scopes``) and
         ``workers`` by employee, because a vehicle can be worked by a whole
         crew at once and each "Now Working" card needs its own clock.
 
@@ -1176,6 +1197,7 @@ def register_routes(app):
                 "prep": prep_by_employee.get(emp.id) if cv else None,
             })
         prep_total = prep_timer.total_active_seconds(sched)
+        prep_scopes = prep_timer.scope_totals(sched)
 
         return render_template(
             "dashboard.html",
@@ -1190,6 +1212,8 @@ def register_routes(app):
             active_employees=active_employees,
             prep_total=prep_total,
             prep_total_label=timeutils.fmt_duration(prep_total),
+            prep_inside_label=timeutils.fmt_duration(prep_scopes["inside"]),
+            prep_outside_label=timeutils.fmt_duration(prep_scopes["outside"]),
             prep_running=sum(r["prep"]["running_count"] for r in rows),
         )
     @app.route("/driver")
@@ -1519,6 +1543,7 @@ def register_routes(app):
         overall = counts["overall"]
         applicable_rows = [r for r in rows if not r["is_auto_skipped"]]
         incomplete_rows = [r for r in applicable_rows if not r["is_complete"]]
+        prep_scopes = prep_timer.scope_totals(sched)
         completed_rows = []
         for r in applicable_rows:
             if not r["is_complete"]:
@@ -1573,6 +1598,10 @@ def register_routes(app):
             prep_states=[r["prep"] for r in rows],
             prep_total_label=timeutils.fmt_duration(
                 prep_timer.total_active_seconds(sched)),
+            prep_inside_label=timeutils.fmt_duration(
+                prep_scopes["inside"]),
+            prep_outside_label=timeutils.fmt_duration(
+                prep_scopes["outside"]),
             prep_timed=sum(1 for r in rows if r["prep"]["status"] == "finished"),
             prep_running=sum(r["prep"]["running_count"] for r in rows))
 
@@ -1591,6 +1620,7 @@ def register_routes(app):
         overall = counts["overall"]
         applicable_rows = [r for r in rows if not r["is_auto_skipped"]]
         prep_total = prep_timer.total_active_seconds(sched)
+        prep_scopes = prep_timer.scope_totals(sched)
         # Per-employee stats
         emp_done = {}
         total_tasks = 0
@@ -1613,6 +1643,8 @@ def register_routes(app):
             overall=overall, employee_stats=employee_stats,
             prep_states=[r["prep"] for r in rows],
             prep_total_label=timeutils.fmt_duration(prep_total),
+            prep_inside_label=timeutils.fmt_duration(prep_scopes["inside"]),
+            prep_outside_label=timeutils.fmt_duration(prep_scopes["outside"]),
             prep_timed=sum(1 for r in rows if r["prep"]["status"] == "finished"),
             eastern_tz=timeutils.EASTERN_TZ)
 

@@ -66,17 +66,21 @@
     <h2>Prep Time Log</h2>
     <p style="font-size:12px">
       {{ prep_timed }} vehicle{{ '' if prep_timed == 1 else 's' }} prepped and timed ·
-      total active prep time <strong>{{ prep_total_label }}</strong>.
-      Paused time is not counted as active prep time. A vehicle worked by
-      several employees at once is listed once per employee, and the total
-      counts each employee's clock.
+      total active prep time <strong>{{ prep_total_label }}</strong>
+      (Inside <strong>{{ prep_inside_label }}</strong> · Outside <strong>{{ prep_outside_label }}</strong>).
+      Each vehicle is clocked twice: once for the work inside it and once for the
+      work outside it, and the two sets are timed separately. Paused time is not
+      counted as active prep time. A vehicle worked by several employees at once
+      is listed once per employee per clock set, and the total counts each
+      employee's clock.
     </p>
     <table>
-      <tr><th>Unit</th><th>Employee</th><th>Status</th><th>Start</th><th>Pause / Resume</th><th>Finish</th><th>Total Active Prep</th></tr>
-      {% for p in prep_states %}
+      <tr><th>Unit</th><th>Clock Set</th><th>Employee</th><th>Status</th><th>Start</th><th>Pause / Resume</th><th>Finish</th><th>Total Active Prep</th></tr>
+      {% for p in prep_states if p.workers %}
       {% for w in p.workers %}
       <tr>
         <td><strong>{{ w.vehicle or p.vehicle }}</strong></td>
+        <td>{{ w.scope_label }}</td>
         <td>{{ w.employee or '—' }}</td>
         <td>{{ w.status_label }}</td>
         <td>{{ w.started or '—' }}</td>
@@ -90,7 +94,7 @@
       </tr>
       {% endfor %}
       {% else %}
-      <tr><td colspan="7" style="color:#666">No vehicles on this day's board.</td></tr>
+      <tr><td colspan="8" style="color:#666">No prep clocks were run on this day's board.</td></tr>
       {% endfor %}
     </table>
 
@@ -98,11 +102,12 @@
     {% set logged = prep_states|selectattr('events')|list %}
     {% if logged %}
     <table>
-      <tr><th>Unit</th><th>Employee</th><th>Event</th><th>Time</th><th>Running Total</th></tr>
+      <tr><th>Unit</th><th>Clock Set</th><th>Employee</th><th>Event</th><th>Time</th><th>Running Total</th></tr>
       {% for p in prep_states if p.events %}
       {% for e in p.events %}
       <tr>
         <td><strong>{{ p.vehicle }}</strong></td>
+        <td>{{ e.scope_label }}</td>
         <td>{{ e.employee or '—' }}</td>
         <td>{{ e.label }}</td>
         <td>{{ e.at }}</td>

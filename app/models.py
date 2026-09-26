@@ -183,7 +183,15 @@ class ScheduleEntry(db.Model):
 
 
 class PrepSession(db.Model):
-    """The prep (wash/detail) timer one employee runs on one vehicle.
+    """One prep clock: an employee timing one side of one vehicle.
+
+    A vehicle carries **two independent clock sets**, one for the Inside work
+    (Sweep, Mop, Windows, Seats, Bathroom) and one for the Outside work (Dump,
+    Bay Checked, Final Inspection), so the time spent inside a bus is never
+    mixed up with the time spent washing it. ``scope`` records which set the
+    clock belongs to: ``inside`` or ``outside``. ``both`` is the value given to
+    clocks recorded before the split existed, and it counts towards the Inside
+    *and* the Outside total of its day (see ``services/prep_timer.py``).
 
     Workflow: **Start -> Pause -> Resume -> Done**.
 
@@ -193,13 +201,13 @@ class PrepSession(db.Model):
       records a ``pause`` event; ``Resume`` opens a new segment and records a
       ``resume`` event, so no previous work time is ever lost.
     - ``Done`` banks the last segment, records ``finished_at`` plus a ``done``
-      event and freezes ``total_seconds`` as the vehicle's total active prep
-      time for that employee.
+      event and freezes ``total_seconds`` as that clock set's total active
+      prep time for that employee.
 
-    A vehicle can be worked by a whole crew at once: there is one session per
-    (vehicle, employee) on a day, so each person has their own clock, their own
-    total and their own event log, and stopping one person's timer never
-    disturbs anyone else working the same vehicle.
+    A vehicle can be worked by a whole crew at once, and each side of it
+    independently: there is one session per (vehicle, clock set, employee) on a
+    day, so each person has their own clock per side, their own total and their
+    own event log, and stopping one clock never disturbs anybody else's.
 
     Timestamps are stored as ISO-8601 strings that carry their Eastern Time
     offset (see ``services/timeutils.py``) so they stay unambiguous across
@@ -207,14 +215,27 @@ class PrepSession(db.Model):
     """
     __tablename__ = "prep_sessions"
 
+    # The two clock sets a vehicle carries. ``both`` is legacy: a clock
+    # recorded before the split, which counts towards both totals.
+    SCOPE_INSIDE = "inside"
+    SCOPE_OUTSIDE = "outside"
+    SCOPE_BOTH = "both"
+    SCOPES = (SCOPE_INSIDE, SCOPE_OUTSIDE)
+    SCOPE_LABELS = {
+        SCOPE_INSIDE: "Inside",
+        SCOPE_OUTSIDE: "Outside",
+        SCOPE_BOTH: "Inside + Outside",
+    }
+
     id = db.Column(db.Integer, primary_key=True)
-    # One timer per employee per vehicle per day. The vehicle itself appears
-    # only once on a day's board, but any number of employees can be timed on
-    # it at the same time.
+    # One timer per employee per clock set per vehicle per day. The vehicle
+    # itself appears only once on a day's board, but any number of employees
+    # can be timed on either side of it at the same time.
     entry_id = db.Column(db.Integer, db.ForeignKey("schedule_entries.id"),
                          nullable=False, index=True)
     vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicles.id"), nullable=False)
     employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"))
+    scope = db.Column(db.String(10), default=SCOPE_INSIDE, nullable=False)
     status = db.Column(db.String(20), default="running", nullable=False)
     # running / paused / finished
     started_at = db.Column(db.String(32), nullable=False)     # ISO 8601 + offset
@@ -225,10 +246,11 @@ class PrepSession(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (
-        # The same person never runs two clocks on the same vehicle on the same
-        # day; two different people always may.
-        db.UniqueConstraint("entry_id", "employee_id",
-                            name="uq_prep_session_employee"),
+        # The same person never runs two clocks in the same set on the same
+        # vehicle on the same day; a different set or a different person always
+        # may.
+        db.UniqueConstraint("entry_id", "employee_id", "scope",
+                            name="uq_prep_session_employee_scope"),
     )
 
     entry = db.relationship("ScheduleEntry", back_populates="prep_sessions")
@@ -252,6 +274,23 @@ class PrepSession(db.Model):
     @property
     def is_finished(self):
         return self.status == "finished"
+
+    @property
+    def scope_label(self):
+        """The clock set this session belongs to, for display."""
+        return self.SCOPE_LABELS.get(self.scope, self.SCOPE_LABELS[self.SCOPE_INSIDE])
+
+    def counts_for(self, scope):
+        """Whether this session's time belongs to a clock set's total.
+
+        A ``both`` session (recorded before the two sets existed) counts for
+        both, so no recorded second is lost or double counted in a set total.
+        Without a ``scope`` the whole vehicle is totalled and every clock
+        counts once.
+        """
+        return (scope is None
+                or self.scope == scope
+                or self.scope == self.SCOPE_BOTH)
 
 
 class PrepSessionEvent(db.Model):

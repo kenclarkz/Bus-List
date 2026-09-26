@@ -31,6 +31,8 @@
   <div class="stat warn"><div class="num">{{ replacements }}</div><div class="lbl">Replacements</div></div>
   <div class="stat"><div class="num">{{ overall }}%</div><div class="lbl">Completion</div></div>
   <div class="stat"><div class="num">{{ prep_total_label }}</div><div class="lbl">Active Prep Time</div></div>
+  <div class="stat info"><div class="num">{{ prep_inside_label }}</div><div class="lbl">Inside Prep</div></div>
+  <div class="stat"><div class="num">{{ prep_outside_label }}</div><div class="lbl">Outside Prep</div></div>
   <div class="stat info"><div class="num">{{ prep_timed }}</div><div class="lbl">Prepped &amp; Timed</div></div>
 </div>
 
@@ -40,17 +42,20 @@
   {% if timed %}
   <p class="muted small">
     {{ prep_running }} timer{{ '' if prep_running == 1 else 's' }} still running ·
-    total active prep time <strong>{{ prep_total_label }}</strong> ·
-    paused time is not counted. A vehicle worked by several employees at once
-    is listed once per employee.
+    total active prep time <strong>{{ prep_total_label }}</strong>
+    (inside <strong>{{ prep_inside_label }}</strong> · outside <strong>{{ prep_outside_label }}</strong>) ·
+    paused time is not counted. Every vehicle is clocked twice — once for the
+    work inside it and once for the work outside it — and a vehicle worked by
+    several employees at once is listed once per employee per clock set.
   </p>
   <div class="table-wrap">
   <table>
-    <tr><th>Unit</th><th>Employee</th><th>Status</th><th>Start</th><th>Pause / Resume</th><th>Finish</th><th>Total Active Prep</th></tr>
+    <tr><th>Unit</th><th>Clock Set</th><th>Employee</th><th>Status</th><th>Start</th><th>Pause / Resume</th><th>Finish</th><th>Total Active Prep</th></tr>
     {% for p in timed %}
     {% for w in p.workers %}
     <tr>
       <td><strong>{{ w.vehicle or p.vehicle }}</strong></td>
+      <td>{{ w.scope_label }}</td>
       <td>{{ w.employee or '—' }}</td>
       <td>{{ w.status_label }}</td>
       <td>{{ w.started or '—' }}</td>
