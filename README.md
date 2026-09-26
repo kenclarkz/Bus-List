@@ -38,37 +38,64 @@ report. It is not a static mockup.
    (Sweep, Mop, Windows, Seats, Bathroom) and **Outside** (Dump, Bay Checked,
    Final Inspection) — both configurable in Settings. Every checkbox saves a
    completion timestamp and the employee. Progress shows `6/8 — 75%`.
-4. **Vehicle Replacements** — "Replace Vehicle" moves remaining applicable
+4. **Per-vehicle prep timer (Start / Pause / Resume / Done)** — each vehicle on
+   the board gets its own clock, recorded against the employee doing the work.
+   **Start** begins the clock and puts the vehicle in progress; **Pause** and
+   **Resume** stop and restart it without ever losing the time already worked;
+   **Done** stops the clock, freezes that vehicle's total active prep time, and
+   finishes the vehicle. Only the buttons valid for the current state are shown,
+   and an out-of-order action (starting a vehicle that is already running,
+   finishing one that was never started, resuming a running timer) is refused
+   with a clear reason instead of corrupting the record. Time is tracked while
+   the page is closed — the server owns the clock, so a refresh, a backgrounded
+   tab, or a device with a wrong clock never loses or invents time. Every
+   Start/Pause/Resume/Done is kept as permanent event history for the vehicle
+   (shown on the board, the vehicle's history page, and the report), and
+   completing a vehicle any other way (full checklist, End My Day) stops its
+   clock too. All times are recorded and displayed in **Eastern Time**
+   (America/New_York), including the report's 24-hour prep/pickup times, which
+   are displayed as 12-hour AM/PM without altering the stored values.
+5. **Vehicle Replacements** — "Replace Vehicle" moves remaining applicable
    daily prep requirements to the replacement while preserving completed work
    and historical records. Replacements are clearly displayed on the board and
    recorded in history.
-5. **Smart Status / Last Washed** — Last Washed auto-updates when all Outside
+6. **Smart Status / Last Washed** — Last Washed auto-updates when all Outside
    tasks for the vehicle are complete; Inside tasks do not count as a wash.
    Last Detailed updates on the final inspection. Configurable visual
    indicators: Recently Washed / Due Soon / Overdue.
-6. **Dashboard** — today's totals: total, completed, in progress, remaining,
-   overdue, replacements, worst overall completion %. Search & filter by unit
+7. **Dashboard** — today's totals: total, completed, in progress, remaining,
+   overdue, replacements, worst overall completion %, and the day's total
+   **active prep time**. A "Now Working" strip shows every employee currently
+   on the floor with their vehicle and a live clock. Search & filter by unit
    number, type, route, and status. Each vehicle row shows its report (prep)
-   time, pickup time, and driver code when the wash report supplied them.
+   time, pickup time, and driver code when the wash report supplied them
+   (displayed as 12-hour AM/PM Eastern time).
    **Transit buses** (TRANSITB) are pulled out of the main work list into a
    **Transit Buses** dropdown at the bottom of the board, so they stay visible
    without crowding the list; un-skip one to work it here.
-7. **End My Day** — prominent button. Requires confirmation. Finalizes the
-   day, calculates completed/incomplete, shows unfinished checklist items,
-   replacements, and notes, computes completion %, and generates a clean
-   printable daily summary (Print / Save as PDF) and saves the day to history.
+8. **End My Day** — prominent button. Requires confirmation. Finalizes the
+   day, stops any timer still running, calculates completed/incomplete, shows
+   unfinished checklist items, replacements, and notes, computes completion %,
+   and generates a clean printable daily summary (Print / Save as PDF) and
+   saves the day to history. The printable report includes a **Prep Time Log**
+   with each vehicle's Start/Pause/Resume/Done history, a **Prep Event
+   Detail** section, and the day's **total active prep time**.
    If no employee ends the day by **11:50 PM** local time, an automatic
    end-of-day job finalizes it with the exact same summary (no work is ever
    lost; the cutoff is configurable via `AUTO_END_DAY_TIME`).
-8. **History** — previous days, vehicle cleaning history, prep report imports,
-   replacements, and (per-vehicle) completed checklists.
-9. **Data architecture** — real persistent database (SQLite via SQLAlchemy).
+9. **History** — previous days, vehicle cleaning history, prep report imports,
+   replacements, and (per-vehicle) completed checklists. Every vehicle's page
+   also keeps its permanent **Prep Time History**: one row per run with the
+   employee, status, start, finish, total active prep time, and the full
+   Start/Pause/Resume/Done event log.
+10. **Data architecture** — real persistent database (SQLite via SQLAlchemy).
     Models: Vehicles, Employees, Daily Prep Schedules, Checklist Tasks,
-    Cleaning/Service History, Vehicle Replacements, Prep Report Imports,
+    Prep Sessions & Prep Session Events, Cleaning/Service History, Vehicle
+    Replacements, Prep Report Imports,
     Activity/Notes, Locations, Vehicle Types, Settings, and **Incident
     Reports** (with notes & photos). Designed to support multiple employees
     and locations later (Location is a first-class model).
-10. **UI** — mobile/tablet/desktop responsive, large checkboxes & buttons,
+11. **UI** — mobile/tablet/desktop responsive, large checkboxes & buttons,
     minimal typing, clean professional interface, color-coded statuses, fast
     search, clear daily workflow. Two site layouts are available and can be
     switched per user in **Settings**: **Classic** (top navigation bar, the
@@ -76,7 +103,7 @@ report. It is not a static mockup.
     navigation, sticky toolbar and wider content column). Layouts are
 independent of the color themes (Light / Dark / System / Futuristic /
      Halloween / Bloomberg Terminal / Retro 90s / Holographic).
-11. **Incident Reports** — a dedicated tab where anyone can report an issue
+12. **Incident Reports** — a dedicated tab where anyone can report an issue
     for any vehicle: type (Mechanical / Interior / Exterior / Damage /
     Safety / Other), severity, location, description, date/time, and employee,
     with one or more photo uploads. Managers can review, edit, assign, add
@@ -170,7 +197,11 @@ python -m pytest -q
 
 The test suite covers unit normalization, text-PDF parsing, import
 preview/apply, the checklist & progress, replacements, end-of-day finalization,
-settings, and vehicle CRUD.
+settings, and vehicle CRUD, plus the prep timer workflow: Start → Pause →
+Resume → Done, per-vehicle independence, resume keeping prior work time,
+refresh accuracy, invalid actions being rejected, timers being stopped by other
+completion paths, the Eastern Time formatting, and the report/vehicle history
+output.
 
 ---
 
@@ -185,7 +216,9 @@ app/
   services/
     pdf_parser.py        # PDF text/table/OCR extraction + unit normalization
     schedule.py          # daily board, checklist, replacements, preview/apply
+    prep_timer.py        # per-vehicle Start/Pause/Resume/Done timer + history
     settings.py          # configurable thresholds/checklist
+    timeutils.py         # Eastern Time storage, parsing and display helpers
     vehicles.py          # entity helpers, import/journal records
 scripts/
   make_sample_report.py  # generates a sample prep report PDF
@@ -195,6 +228,38 @@ data/                    # SQLite database (created at runtime)
 ```
 
 ---
+
+## How the prep timer works
+
+The clock lives on the server, so a timer can never drift from the record that
+is eventually reported.
+
+- **One session per vehicle per day.** A `PrepSession` stores the running total
+  in seconds, the status (`running` / `paused` / `finished`), the start and
+  finish timestamps, and the employee. Each Start/Pause/Resume/Done is also
+  appended to a `PrepSessionEvent` with its own Eastern timestamp, the employee
+  who pressed it, and the running total at that moment.
+- **Active time is the sum of the active segments only.** Pausing banks the
+  seconds worked so far; the paused stretch is never billed. Resuming starts a
+  new segment on top of the banked total, so previous work is never lost.
+- **The browser only displays.** Each running timer is rendered with the
+  seconds already banked plus the exact moment its current segment began, and
+  the page carries the server's clock. The browser adds the two together each
+  second. A refresh re-syncs from the server, and a tab coming back to the
+  foreground re-syncs too, so time spent with the page closed or hidden is
+  added — never lost — and a device with a wrong clock is corrected.
+- **Only valid actions are offered or accepted.** Starting a running vehicle,
+  resuming a running timer, pausing a finished one, or finishing a vehicle that
+  was never started are all rejected with an explanation and leave the record
+  untouched. Managers get a read-only board.
+- **Nothing runs forever.** Finishing a timer is not the only way a clock stops:
+  completing a vehicle through its checklist, or ending the day, stops any
+  timer still running for that vehicle.
+- **Eastern Time.** Every recorded timestamp is stored with its Eastern UTC
+  offset (`-05:00` in winter, `-04:00` in summer) and displayed as 12-hour
+  AM/PM, so a report can always be read unambiguously. The report's original
+  24-hour prep and pickup times are converted for display only — what was
+  imported is what is stored.
 
 ## How replacements & history integrity work
 

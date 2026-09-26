@@ -14,6 +14,7 @@ from .models import db, Vehicle, Employee, ScheduleEntry, Replacement, Note, \
     IncidentReport, IncidentNote, IncidentPhoto
 from .services import settings, vehicles, schedule as sched_svc
 from .services import incidents as incidents_svc
+from .services import prep_timer, timeutils
 from .services.incidents import ISSUE_TYPES, SEVERITIES, STATUSES, \
     allowed_photo, save_incident_photo, SEVERITY_CLASSES, STATUS_CLASSES
 
@@ -482,6 +483,8 @@ def build_schedule_view(sched):
             "replacement_of": original.vehicle if original else None,
             # The vehicle that replaced this row (for replaced originals).
             "replaced_by": replacer.vehicle if replacer else None,
+            # Prep timer: Start / Pause / Resume / Done state for this vehicle.
+            "prep": prep_timer.state(entry),
         })
     return rows
 
@@ -524,6 +527,9 @@ def finalize_day(sched, at=None):
     if sched.finalized:
         return False
     counts = schedule_counters(build_schedule_view(sched))
+    # A finalized day never leaves a prep timer running in the background.
+    for entry in sched.entries:
+        prep_timer.stop_active(entry)
     sched.finalized = True
     sched.finalized_at = at or datetime.utcnow()
     sched.summary = json.dumps(dict(
@@ -645,6 +651,18 @@ def notes_for_date(d):
     return Note.query.filter_by(work_date=d).all()
 
 
+def _render_vehicle_detail(vehicle):
+    """The vehicle page: its service history plus every prep timer ever run
+    on it (Start / Pause / Resume / Done history and total active prep time)."""
+    history = prep_timer.vehicle_history(vehicle)
+    return render_template(
+        "vehicle_detail.html", vehicle=vehicle,
+        indicator=status_indicator(vehicle.last_washed),
+        prep_history=history,
+        prep_total_label=timeutils.fmt_duration(
+            sum(s["elapsed"] for s in history)))
+
+
 def build_import_summary(preview, method):
     return (f"{preview['count']} vehicles parsed. "
             f"New: {len(preview['new'])}, "
@@ -697,6 +715,30 @@ def register_routes(app):
             return value
         return re.sub(r"(?i)\s*\bRes\s*#\s*[\w.*-]+", "", str(value)).strip()
 
+    # --- Eastern Time display helpers -----------------------------------
+    # Timestamps are stored timezone-aware; people always read 12-hour AM/PM.
+
+    @app.template_filter("et_time")
+    def et_time_filter(value, seconds=False):
+        """A stored timestamp as 12-hour Eastern time, e.g. 4:05 PM."""
+        return timeutils.fmt_time(value, seconds)
+
+    @app.template_filter("et_datetime")
+    def et_datetime_filter(value):
+        """A stored timestamp as 'Sep 25, 4:05 PM' Eastern time."""
+        return timeutils.fmt_datetime(value)
+
+    @app.template_filter("duration")
+    def duration_filter(value):
+        """Seconds as a readable duration, e.g. 1h 05m."""
+        return timeutils.fmt_duration(value)
+
+    @app.template_filter("prep_time")
+    def prep_time_filter(value):
+        """A report prep/pickup time as 12-hour Eastern time. The stored value
+        is left untouched, so the 24-hour time on the source report survives."""
+        return timeutils.prep_time_label(value)
+
     @app.context_processor
     def inject_globals():
         user = session.get("user")
@@ -725,6 +767,9 @@ def register_routes(app):
             "dark_mode": resolved_dark_mode,
             "layout": settings.get_user_layout(user, emp_id),
             "nav_links": _nav_links(user if user in ROLE_ACCOUNTS else "employee"),
+            # The server's clock, so live timers in the browser can correct for
+            # a skewed device clock instead of drifting.
+            "server_epoch": timeutils.epoch_ms(),
         }
 
     @app.before_request
@@ -816,11 +861,24 @@ def register_routes(app):
                 db.session.commit()
         return redirect(request.referrer or url_for("dashboard"))
 
+    def _acting_employee_id():
+        """Who is driving a board action: the employee the board posted (the
+        board sends the signed-in employee's id), or the signed-in employee
+        when the board didn't send one. A manager has no employee id, so the
+        timer is recorded against whoever did the work."""
+        posted = (request.json.get("employee_id") if request.is_json
+                  else request.form.get("employee_id"))
+        if posted:
+            return posted
+        return session.get("employee_id")
+
     @app.route("/start-work", methods=["POST"])
     def start_work():
-        if session.get("role", "employee") != "employee":
+        """Backwards-compatible alias for the Start step of the prep workflow:
+        it begins the vehicle's prep timer and marks it in progress."""
+        if session.get("user") != "employee":
             return jsonify(ok=False, error="Manager view is read-only"), 403
-        emp_id = request.json.get("employee_id") if request.is_json else request.form.get("employee_id")
+        emp_id = _acting_employee_id()
         entry_id = request.json.get("entry_id") if request.is_json else request.form.get("entry_id")
         if not emp_id or not entry_id:
             return jsonify(ok=False, error="Missing employee_id or entry_id"), 400
@@ -828,13 +886,100 @@ def register_routes(app):
         entry = ScheduleEntry.query.get(int(entry_id))
         if not emp or not entry:
             return jsonify(ok=False, error="Invalid employee or entry"), 404
-        emp.current_vehicle_id = entry.vehicle_id
-        emp.current_vehicle_set_on = date.today()
-        if entry.status == "pending":
-            entry.status = "in_progress"
-        db.session.commit()
-        return jsonify(ok=True, employee=emp.name, initials=emp.initials,
-                       vehicle=entry.vehicle.unit_number)
+        return _prep_run(entry.id, "start")
+
+    def _prep_run(entry_id, action):
+        """Run one Start / Pause / Resume / Done step and answer with JSON.
+
+        Invalid actions (starting a vehicle that is already running, finishing
+        one that was never started, ...) are rejected with an explanation and
+        the row keeps its current state, so a mis-click can never corrupt the
+        record.
+        """
+        if session.get("user") != "employee":
+            return jsonify(ok=False, error="Manager view is read-only"), 403
+        entry = ScheduleEntry.query.get(entry_id)
+        if entry is None:
+            return jsonify(ok=False, error="Vehicle not found"), 404
+        employee_id = _acting_employee_id()
+        try:
+            if action == "start":
+                prep_timer.start(entry, employee_id)
+            elif action == "pause":
+                prep_timer.pause(entry, employee_id)
+            elif action == "resume":
+                prep_timer.resume(entry, employee_id)
+            else:
+                prep_timer.finish(entry, employee_id)
+                # Done also finishes the vehicle on the board.
+                sched_svc.complete_entry(entry)
+        except prep_timer.PrepTimerError as err:
+            return jsonify(ok=False, error=err.message,
+                           state=prep_timer.state(entry)), err.code
+        payload = {
+            "ok": True,
+            "action": action,
+            "state": prep_timer.state(entry),
+            "unit": entry.vehicle.unit_number,
+            "vehicle": entry.vehicle.unit_number,
+        }
+        if action == "start":
+            emp = entry.prep_session.employee if entry.prep_session else None
+            if emp is not None:
+                payload["employee"] = emp.name
+                payload["initials"] = emp.initials
+        if action == "done":
+            sched = db.session.get(DailySchedule, entry.schedule_id)
+            done, total, pct = sched_svc.entry_progress(entry)
+            payload["progress"] = {"done": done, "total": total, "pct": pct}
+            payload["incomplete"] = [t.task_name for t in entry.tasks
+                                     if not t.completed]
+            # Finishing a vehicle changes the day totals, so hand the client
+            # freshly calculated counters for the stat tiles.
+            counters = schedule_counters(build_schedule_view(sched))
+            counters["prep_total"] = timeutils.fmt_duration(
+                prep_timer.total_active_seconds(sched))
+            payload["counters"] = counters
+        return jsonify(payload)
+
+    @app.route("/entry/<int:entry_id>/prep/start", methods=["POST"],
+               endpoint="prep_start")
+    def prep_start(entry_id):
+        return _prep_run(entry_id, "start")
+
+    @app.route("/entry/<int:entry_id>/prep/pause", methods=["POST"],
+               endpoint="prep_pause")
+    def prep_pause(entry_id):
+        return _prep_run(entry_id, "pause")
+
+    @app.route("/entry/<int:entry_id>/prep/resume", methods=["POST"],
+               endpoint="prep_resume")
+    def prep_resume(entry_id):
+        return _prep_run(entry_id, "resume")
+
+    @app.route("/entry/<int:entry_id>/prep/done", methods=["POST"],
+               endpoint="prep_done")
+    def prep_done(entry_id):
+        return _prep_run(entry_id, "done")
+
+    @app.route("/prep/active")
+    def prep_active():
+        """Timer state for every vehicle on the board being viewed.
+
+        The board calls this when the tab comes back to the foreground so a
+        timer that ran while the tab was hidden re-syncs to the server clock
+        instead of drifting.
+        """
+        # The board may be showing a past/future date, so use the date it asks
+        # about rather than always today.
+        d = current_date()
+        sched = sched_svc.get_or_create_schedule(
+            d=d, location=vehicles.default_location())
+        return jsonify(
+            ok=True,
+            date=d.isoformat(),
+            now=timeutils.epoch_ms(),
+            sessions={str(e.id): prep_timer.state(e) for e in sched.entries})
 
     @app.route("/")
     def dashboard():
@@ -919,13 +1064,17 @@ def register_routes(app):
         # Clear any assignments left over from a previous day (employees who
         # forgot to hit Done) so the "Now Working" board doesn't go stale.
         sched_svc.clear_stale_current_vehicles()
+        prep_by_unit = {r["vehicle"].unit_number: r["prep"] for r in rows}
         active_employees = []
         for emp in Employee.query.filter_by(active=True).order_by(Employee.name).all():
             cv = emp.current_vehicle
             active_employees.append({
                 "id": emp.id, "name": emp.name, "initials": emp.initials,
                 "current_vehicle": cv.unit_number if cv else None,
+                # Live prep timer for whatever they are working on right now.
+                "prep": prep_by_unit.get(cv.unit_number) if cv else None,
             })
+        prep_total = prep_timer.total_active_seconds(sched)
 
         return render_template(
             "dashboard.html",
@@ -938,8 +1087,11 @@ def register_routes(app):
             nav_dates=nav_dates, view_date=view_date,
             imported_dates=imported_dates,
             active_employees=active_employees,
+            prep_total=prep_total,
+            prep_total_label=timeutils.fmt_duration(prep_total),
+            prep_running=sum(1 for r in rows
+                             if r["prep"]["status"] == "running"),
         )
-
     @app.route("/driver")
     def driver_dashboard():
         """Driver screen: read-only list of finished vehicles for today and next two days."""
@@ -1005,8 +1157,7 @@ def register_routes(app):
     @app.route("/vehicles/<int:vehicle_id>")
     def vehicle_detail(vehicle_id):
         vehicle = Vehicle.query.get_or_404(vehicle_id)
-        return render_template("vehicle_detail.html", vehicle=vehicle,
-                               indicator=status_indicator(vehicle.last_washed))
+        return _render_vehicle_detail(vehicle)
 
     @app.route("/vehicles/<int:vehicle_id>/edit", methods=["GET", "POST"])
     def vehicle_edit(vehicle_id):
@@ -1141,6 +1292,8 @@ def register_routes(app):
         reason = request.form.get("reason", "").strip()
         if not reason:
             reason = entry.skip_reason or ""
+        # A skipped vehicle is not being worked on, so its clock stops here.
+        prep_timer.stop_active(entry, employee_id=_acting_employee_id())
         status = sched_svc.set_entry_skipped(entry, skipped=True, reason=reason)
         if wants_json:
             # Skipping never completes a vehicle, so hand the client the
@@ -1170,11 +1323,15 @@ def register_routes(app):
         if session.get("user") != "employee":
             return jsonify(ok=False, error="Manager view is read-only"), 403
         entry = ScheduleEntry.query.get_or_404(entry_id)
+        # A vehicle finished any other way still closes out its prep timer, so
+        # no timer is ever left running in the background.
+        prep_timer.stop_active(entry, employee_id=_acting_employee_id())
         sched_svc.complete_entry(entry)
         done, total, pct = sched_svc.entry_progress(entry)
         incomplete = [t.task_name for t in entry.tasks if not t.completed]
         return jsonify(ok=True, done=done, total=total, pct=pct,
-                       incomplete=incomplete)
+                       incomplete=incomplete,
+                       state=prep_timer.state(entry))
 
     @app.route("/schedule/<int:entry_id>/replace", methods=["POST"])
     def entry_replace(entry_id):
@@ -1312,7 +1469,12 @@ def register_routes(app):
             overall=overall, incomplete_rows=incomplete_rows,
             completed_rows=completed_rows,
             finalized=sched.finalized, employees=employees_list(),
-            nav_dates=nav_dates, employee_stats=employee_stats)
+            nav_dates=nav_dates, employee_stats=employee_stats,
+            prep_states=[r["prep"] for r in rows],
+            prep_total_label=timeutils.fmt_duration(
+                prep_timer.total_active_seconds(sched)),
+            prep_timed=sum(1 for r in rows if r["prep"]["status"] == "finished"),
+            prep_running=sum(1 for r in rows if r["prep"]["active"]))
 
     @app.route("/print/<path:date>")
     def print_report(date):
@@ -1328,6 +1490,7 @@ def register_routes(app):
         skipped = counts["skipped"]
         overall = counts["overall"]
         applicable_rows = [r for r in rows if not r["is_auto_skipped"]]
+        prep_total = prep_timer.total_active_seconds(sched)
         # Per-employee stats
         emp_done = {}
         total_tasks = 0
@@ -1347,7 +1510,11 @@ def register_routes(app):
             "print_report.html", rows=rows, notes=notes, d=d, sched=sched,
             replacements=replacements, total=total, completed=completed,
             skipped=skipped,
-            overall=overall, employee_stats=employee_stats)
+            overall=overall, employee_stats=employee_stats,
+            prep_states=[r["prep"] for r in rows],
+            prep_total_label=timeutils.fmt_duration(prep_total),
+            prep_timed=sum(1 for r in rows if r["prep"]["status"] == "finished"),
+            eastern_tz=timeutils.EASTERN_TZ)
 
     @app.route("/history")
     def history_days():
@@ -1381,8 +1548,7 @@ def register_routes(app):
     @app.route("/history/vehicle/<int:vehicle_id>")
     def vehicle_history(vehicle_id):
         vehicle = Vehicle.query.get_or_404(vehicle_id)
-        return render_template("vehicle_detail.html", vehicle=vehicle,
-                               indicator=status_indicator(vehicle.last_washed))
+        return _render_vehicle_detail(vehicle)
 
     @app.route("/employees", methods=["GET", "POST"])
     def employees_page():

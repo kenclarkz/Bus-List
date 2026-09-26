@@ -72,6 +72,15 @@
       <div class="now-worker-info">
         <div class="now-worker-name">{{ emp.name }}</div>
         <div class="now-worker-unit">{{ emp.current_vehicle }}</div>
+        {% if emp.prep and emp.prep.active %}
+        <div class="now-worker-timer prep prep-{{ emp.prep.status }}" id="prep-now-{{ emp.id }}"
+             data-prep-timer
+             data-prep-unit="{{ emp.current_vehicle }}"
+             data-status="{{ emp.prep.status }}"
+             data-base-seconds="{{ emp.prep.base_seconds }}"
+             {% if emp.prep.segment_epoch %}data-segment-epoch="{{ emp.prep.segment_epoch }}"{% endif %}
+             data-server-epoch="{{ emp.prep.server_epoch }}">{{ emp.prep.clock_label }}</div>
+        {% endif %}
       </div>
     </div>
     {% endfor %}
@@ -79,6 +88,12 @@
     <p class="muted" id="now-working-empty" style="margin:0">No vehicles in progress right now. Click <strong>Start</strong> on a vehicle to begin.</p>
     {% endif %}
   </div>
+  {% if prep_total %}
+  <p class="muted small" style="margin:10px 0 0">
+    Active prep time recorded today: <strong>{{ prep_total_label }}</strong>
+    {% if prep_running %} · {{ prep_running }} timer{{ 's' if prep_running != 1 else '' }} running{% endif %}
+  </p>
+  {% endif %}
 </div>
 
 <div class="stat-grid">
@@ -95,6 +110,7 @@
     <div class="stat danger"><div class="num">{{ overdue }}</div><div class="lbl">Overdue</div></div>
     <div class="stat"><div class="num">{{ replacements }}</div><div class="lbl">Replacements</div></div>
     <div class="stat"><div class="num" data-stat="overall">{{ overall }}%</div><div class="lbl">Completion</div></div>
+    <div class="stat"><div class="num" data-stat="prep_total" data-prep-total-label="{{ prep_total_label }}">{{ prep_total_label }}</div><div class="lbl">Active Prep Time</div></div>
   </div>
 </div>
 
