@@ -538,15 +538,25 @@ def _refuse_second_running_clock(entry, employee_id, scope, session=None):
     a time, so the other set waits until this clock is paused. Paused time is
     not active prep time, which is exactly what makes taking up the other side
     the right thing to do.
+
+    The board is shared and a press is recorded against whoever is signed in at
+    the time, so the name of the person already on the clock is spelled out: a
+    colleague who pressed Start on the other side of the vehicle is then told
+    plainly that the clock is not theirs, and how to get a clock of their own
+    instead of being left with a bare "could not start this vehicle".
     """
     elsewhere = [s for s in employee_sessions_for(entry, employee_id)
                  if s.status == "running" and s is not session]
     if not elsewhere:
         return
     running = elsewhere[-1]
+    who = running.employee.name if running.employee else "Someone else"
     raise PrepTimerError(
-        f"You already have a running {running.scope_label} timer on vehicle "
-        f"{_unit(entry)} — pause it before working {scope_label(scope)} prep")
+        f"{who} already has a running {running.scope_label} clock on vehicle "
+        f"{_unit(entry)} — if that is you, pause it before working "
+        f"{scope_label(scope)} prep; if it is not, press "
+        f"\"Not you? Switch name\" at the top of the board to run a clock of "
+        f"your own")
 
 
 def start(entry, employee_id=None, at=None, scope=INSIDE):

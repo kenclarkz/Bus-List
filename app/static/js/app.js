@@ -391,11 +391,28 @@ function prepSetMetaHtml(state) {
 
 // Rebuild the per-employee clocks of one clock set. Any number of employees can
 // be on a set at once, each with their own clock, total and buttons.
+//
+// A clock set nobody has started yet is rendered without a list at all, so the
+// very first Start on that side has to build it: without this the employee who
+// presses Start on the inside of a vehicle somebody is already washing outside
+// is told their clock is "in the list above" while there is no list above, and
+// no clock appears until the page is reloaded.
 function renderPrepWorkers(setEl, entryId, state) {
+  var workers = state.workers || [];
   var list = setEl.querySelector('.prep-workers');
-  if (!list) return;
+  if (!list) {
+    if (!workers.length) return;
+    list = document.createElement('ul');
+    list.className = 'prep-workers';
+    // Where the server puts it: after the set's own meta line, before its
+    // buttons and its history.
+    var anchor = setEl.querySelector('.prep-actions') ||
+      setEl.querySelector('.prep-history');
+    if (anchor) setEl.insertBefore(list, anchor);
+    else setEl.appendChild(list);
+  }
   list.innerHTML = '';
-  (state.workers || []).forEach(function (w) {
+  workers.forEach(function (w) {
     var item = document.createElement('li');
     item.className = 'prep-worker prep-worker-' + w.status;
     item.setAttribute('data-session', w.session_id);

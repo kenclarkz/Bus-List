@@ -54,7 +54,12 @@
   <div class="flex between" style="margin-bottom:8px">
     <span class="muted"><strong>Working as:</strong></span>
     <span><strong>{{ current_employee.name }}</strong> <span class="badge info">{{ current_employee.initials }}</span></span>
-    <span class="muted small">Checked tasks are attributed to you</span>
+    {# The board is shared, so whoever is up next has to be able to take it over
+       without logging out. Without this their presses are recorded against the
+       person signed in now, and a second crew on the other side of a vehicle is
+       refused with a clock that is not theirs. #}
+    <a class="btn small secondary" href="{{ url_for('select_employee') }}">Not you? Switch name</a>
+    <span class="muted small">Checked tasks and timers are attributed to you</span>
   </div>
 </div>
 {% endif %}
