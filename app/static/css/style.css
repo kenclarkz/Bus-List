@@ -360,6 +360,31 @@ tr.row-inactive td { color: var(--muted); }
 .prep-meta { font-size: .8rem; color: var(--muted); }
 .prep-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .prep-hint { flex: 1 1 240px; }
+.prep-crew { font-size: .65rem; }
+/* the vehicle total: the sum of every employee working on it */
+.prep-total { color: var(--text); }
+.prep-running .prep-total { color: var(--success); }
+.prep-paused .prep-total { color: var(--warn); }
+.prep-finished .prep-total { color: var(--success); }
+
+/* one row per employee working the vehicle: each has their own clock */
+.prep-workers { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.prep-worker {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: rgba(127, 127, 127, .06);
+}
+.prep-worker-name { font-weight: 600; }
+.prep-worker .prep-clock { font-size: 1.05rem; }
+.prep-worker-when { flex: 1 1 200px; }
+.prep-worker-actions { display: flex; align-items: center; gap: 6px; }
+.prep-worker-status { font-size: .6rem; }
+.prep-worker-running { border-left: 3px solid var(--success); }
+.prep-worker-paused { border-left: 3px solid var(--warn); }
+.prep-worker-finished { border-left: 3px solid var(--border); }
+.prep-worker.prep-worker-running .prep-clock { color: var(--success); }
+.prep-worker.prep-worker-paused .prep-clock { color: var(--warn); }
+.prep-worker.prep-worker-finished .prep-clock { color: var(--muted); }
 .prep-running { border-left-color: var(--success); background: var(--success-bg); }
 .prep-running .prep-clock { color: var(--success); }
 .prep-paused { border-left-color: var(--warn); background: var(--warn-bg); }
@@ -382,10 +407,14 @@ tr.row-inactive td { color: var(--muted); }
 .prep-event-done { color: var(--success); }
 .prep-event-time { font-variant-numeric: tabular-nums; }
 /* the crew reads the clock from across the bay: make it unmistakable */
-.prep-running .prep-clock { animation: prep-pulse 2s ease-in-out infinite; }
+.prep-running .prep-total,
+.prep-worker.prep-worker-running .prep-clock {
+  animation: prep-pulse 2s ease-in-out infinite;
+}
 @keyframes prep-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .65; } }
 @media (prefers-reduced-motion: reduce) {
-  .prep-running .prep-clock { animation: none; }
+  .prep-running .prep-total,
+  .prep-worker.prep-worker-running .prep-clock { animation: none; }
 }
 
 .muted { color: var(--muted); }

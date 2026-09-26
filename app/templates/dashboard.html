@@ -75,10 +75,12 @@
         {% if emp.prep and emp.prep.active %}
         <div class="now-worker-timer prep prep-{{ emp.prep.status }}" id="prep-now-{{ emp.id }}"
              data-prep-timer
-             data-prep-unit="{{ emp.current_vehicle }}"
+             data-prep-employee="{{ emp.id }}"
+             data-session="{{ emp.prep.session_id }}"
              data-status="{{ emp.prep.status }}"
              data-base-seconds="{{ emp.prep.base_seconds }}"
              {% if emp.prep.segment_epoch %}data-segment-epoch="{{ emp.prep.segment_epoch }}"{% endif %}
+             data-elapsed="{{ emp.prep.elapsed }}"
              data-server-epoch="{{ emp.prep.server_epoch }}">{{ emp.prep.clock_label }}</div>
         {% endif %}
       </div>

@@ -170,6 +170,7 @@ def _migrate():
         return
     try:
         con = sqlite3.connect(path)
+        _allow_crew_per_vehicle(con)
         cols = {r[1] for r in con.execute("PRAGMA table_info(schedule_entries)")}
         if "prep_time" not in cols:
             con.execute("ALTER TABLE schedule_entries ADD COLUMN prep_time VARCHAR(40)")
@@ -271,6 +272,56 @@ def _migrate():
         con.close()
     except Exception:
         pass
+
+
+def _allow_crew_per_vehicle(con):
+    """Let several employees hold a prep timer on the same vehicle.
+
+    ``prep_sessions.entry_id`` used to be UNIQUE (one timer per vehicle per
+    day), which made a second employee unable to work a vehicle somebody else
+    was already on. SQLite cannot drop a constraint with ALTER TABLE, so an
+    existing database is rebuilt with the current definition — one session per
+    (entry, employee) — keeping every recorded row.
+    """
+    row = con.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='prep_sessions'"
+    ).fetchone()
+    if not row or not row[0]:
+        return
+    if "UNIQUE" not in row[0].upper():
+        return
+    con.execute("PRAGMA foreign_keys=OFF")
+    # Legacy rename keeps prep_session_events pointing at "prep_sessions"
+    # instead of rewriting it to the temporary table name.
+    con.execute("PRAGMA legacy_alter_table=ON")
+    con.execute("""
+        CREATE TABLE prep_sessions_crew (
+            id INTEGER NOT NULL,
+            entry_id INTEGER NOT NULL,
+            vehicle_id INTEGER NOT NULL,
+            employee_id INTEGER,
+            status VARCHAR(20) NOT NULL,
+            started_at VARCHAR(32) NOT NULL,
+            last_event_at VARCHAR(32) NOT NULL,
+            finished_at VARCHAR(32),
+            total_seconds INTEGER NOT NULL,
+            created_at DATETIME,
+            updated_at DATETIME,
+            PRIMARY KEY (id),
+            UNIQUE (entry_id, employee_id)
+        )""")
+    con.execute(
+        "INSERT INTO prep_sessions_crew (id, entry_id, vehicle_id, employee_id,"
+        " status, started_at, last_event_at, finished_at, total_seconds,"
+        " created_at, updated_at) "
+        "SELECT id, entry_id, vehicle_id, employee_id, status, started_at,"
+        " last_event_at, finished_at, total_seconds, created_at, updated_at "
+        "FROM prep_sessions")
+    con.execute("DROP TABLE prep_sessions")
+    con.execute("ALTER TABLE prep_sessions_crew RENAME TO prep_sessions")
+    con.execute("CREATE INDEX ix_prep_sessions_entry_id ON prep_sessions (entry_id)")
+    con.execute("PRAGMA legacy_alter_table=OFF")
+    con.commit()
 
 
 def seed_defaults():
@@ -891,10 +942,12 @@ def register_routes(app):
     def _prep_run(entry_id, action):
         """Run one Start / Pause / Resume / Done step and answer with JSON.
 
-        Invalid actions (starting a vehicle that is already running, finishing
-        one that was never started, ...) are rejected with an explanation and
-        the row keeps its current state, so a mis-click can never corrupt the
-        record.
+        Every employee has their own clock on a vehicle, so a step always acts
+        on one session: the one the button belongs to (``session_id``) or the
+        acting employee's own. Invalid actions (starting a vehicle you have
+        already started, finishing one you never started, ...) are rejected with
+        an explanation and the row keeps its current state, so a mis-click can
+        never corrupt the record.
         """
         if session.get("user") != "employee":
             return jsonify(ok=False, error="Manager view is read-only"), 403
@@ -902,32 +955,48 @@ def register_routes(app):
         if entry is None:
             return jsonify(ok=False, error="Vehicle not found"), 404
         employee_id = _acting_employee_id()
+        source = request.json if request.is_json else request.form
+        session_id = source.get("session_id") or None
         try:
             if action == "start":
-                prep_timer.start(entry, employee_id)
+                started = prep_timer.start(entry, employee_id)
             elif action == "pause":
-                prep_timer.pause(entry, employee_id)
+                started = prep_timer.pause(entry, employee_id,
+                                           session_id=session_id)
             elif action == "resume":
-                prep_timer.resume(entry, employee_id)
+                started = prep_timer.resume(entry, employee_id,
+                                            session_id=session_id)
             else:
-                prep_timer.finish(entry, employee_id)
-                # Done also finishes the vehicle on the board.
-                sched_svc.complete_entry(entry)
+                started = prep_timer.finish(entry, employee_id,
+                                            session_id=session_id)
+                # Done closes out the employee who pressed it. The vehicle is
+                # only finished on the board once nobody is still working on
+                # it, so a crew can each press Done in their own time.
+                if not prep_timer.active_sessions_for(entry):
+                    sched_svc.complete_entry(entry)
         except prep_timer.PrepTimerError as err:
             return jsonify(ok=False, error=err.message,
                            state=prep_timer.state(entry)), err.code
+        state = prep_timer.state(entry)
         payload = {
             "ok": True,
             "action": action,
-            "state": prep_timer.state(entry),
+            "state": state,
             "unit": entry.vehicle.unit_number,
             "vehicle": entry.vehicle.unit_number,
+            "entry_status": entry.status,
+            "entry_completed": entry.status == "completed",
+            "still_working": bool(prep_timer.active_sessions_for(entry)),
         }
-        if action == "start":
-            emp = entry.prep_session.employee if entry.prep_session else None
-            if emp is not None:
-                payload["employee"] = emp.name
-                payload["initials"] = emp.initials
+        # The clock the press actually moved, so the "Now Working" card ticks
+        # the employee's own time rather than the vehicle's total.
+        worker = next((w for w in state["workers"]
+                       if started is not None and w["session_id"] == started.id),
+                      None)
+        if worker is not None:
+            payload["worker"] = worker
+            payload["employee"] = worker["employee"]
+            payload["initials"] = worker["initials"]
         if action == "done":
             sched = db.session.get(DailySchedule, entry.schedule_id)
             done, total, pct = sched_svc.entry_progress(entry)
@@ -966,6 +1035,10 @@ def register_routes(app):
     def prep_active():
         """Timer state for every vehicle on the board being viewed.
 
+        ``sessions`` is keyed by board entry (the vehicle, with its total) and
+        ``workers`` by employee, because a vehicle can be worked by a whole
+        crew at once and each "Now Working" card needs its own clock.
+
         The board calls this when the tab comes back to the foreground so a
         timer that ran while the tab was hidden re-syncs to the server clock
         instead of drifting.
@@ -979,7 +1052,9 @@ def register_routes(app):
             ok=True,
             date=d.isoformat(),
             now=timeutils.epoch_ms(),
-            sessions={str(e.id): prep_timer.state(e) for e in sched.entries})
+            sessions={str(e.id): prep_timer.state(e) for e in sched.entries},
+            workers={str(emp_id): worker for emp_id, worker
+                     in prep_timer.active_worker_states(sched).items()})
 
     @app.route("/")
     def dashboard():
@@ -1064,7 +1139,9 @@ def register_routes(app):
         # Clear any assignments left over from a previous day (employees who
         # forgot to hit Done) so the "Now Working" board doesn't go stale.
         sched_svc.clear_stale_current_vehicles()
-        prep_by_unit = {r["vehicle"].unit_number: r["prep"] for r in rows}
+        # A vehicle can be worked by several employees at once, so each person
+        # gets the clock of *their* session, not the vehicle's total.
+        prep_by_employee = prep_timer.active_worker_states(sched)
         active_employees = []
         for emp in Employee.query.filter_by(active=True).order_by(Employee.name).all():
             cv = emp.current_vehicle
@@ -1072,7 +1149,7 @@ def register_routes(app):
                 "id": emp.id, "name": emp.name, "initials": emp.initials,
                 "current_vehicle": cv.unit_number if cv else None,
                 # Live prep timer for whatever they are working on right now.
-                "prep": prep_by_unit.get(cv.unit_number) if cv else None,
+                "prep": prep_by_employee.get(emp.id) if cv else None,
             })
         prep_total = prep_timer.total_active_seconds(sched)
 
@@ -1089,8 +1166,7 @@ def register_routes(app):
             active_employees=active_employees,
             prep_total=prep_total,
             prep_total_label=timeutils.fmt_duration(prep_total),
-            prep_running=sum(1 for r in rows
-                             if r["prep"]["status"] == "running"),
+            prep_running=sum(r["prep"]["running_count"] for r in rows),
         )
     @app.route("/driver")
     def driver_dashboard():
@@ -1474,7 +1550,7 @@ def register_routes(app):
             prep_total_label=timeutils.fmt_duration(
                 prep_timer.total_active_seconds(sched)),
             prep_timed=sum(1 for r in rows if r["prep"]["status"] == "finished"),
-            prep_running=sum(1 for r in rows if r["prep"]["active"]))
+            prep_running=sum(r["prep"]["running_count"] for r in rows))
 
     @app.route("/print/<path:date>")
     def print_report(date):

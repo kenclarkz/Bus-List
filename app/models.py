@@ -174,14 +174,16 @@ class ScheduleEntry(db.Model):
         "TaskCompletion", back_populates="entry",
         cascade="all, delete-orphan"
     )
-    prep_session = db.relationship(
+    # One timer per employee: any number of employees can work the same
+    # vehicle at the same time, each with their own clock and event log.
+    prep_sessions = db.relationship(
         "PrepSession", back_populates="entry",
-        cascade="all, delete-orphan", uselist=False
+        cascade="all, delete-orphan", order_by="PrepSession.id"
     )
 
 
 class PrepSession(db.Model):
-    """The prep (wash/detail) timer for one vehicle on one day's board.
+    """The prep (wash/detail) timer one employee runs on one vehicle.
 
     Workflow: **Start -> Pause -> Resume -> Done**.
 
@@ -192,7 +194,12 @@ class PrepSession(db.Model):
       ``resume`` event, so no previous work time is ever lost.
     - ``Done`` banks the last segment, records ``finished_at`` plus a ``done``
       event and freezes ``total_seconds`` as the vehicle's total active prep
-      time.
+      time for that employee.
+
+    A vehicle can be worked by a whole crew at once: there is one session per
+    (vehicle, employee) on a day, so each person has their own clock, their own
+    total and their own event log, and stopping one person's timer never
+    disturbs anyone else working the same vehicle.
 
     Timestamps are stored as ISO-8601 strings that carry their Eastern Time
     offset (see ``services/timeutils.py``) so they stay unambiguous across
@@ -201,9 +208,11 @@ class PrepSession(db.Model):
     __tablename__ = "prep_sessions"
 
     id = db.Column(db.Integer, primary_key=True)
-    # One timer per vehicle per day (a vehicle appears once on a day's board).
+    # One timer per employee per vehicle per day. The vehicle itself appears
+    # only once on a day's board, but any number of employees can be timed on
+    # it at the same time.
     entry_id = db.Column(db.Integer, db.ForeignKey("schedule_entries.id"),
-                         nullable=False, unique=True, index=True)
+                         nullable=False, index=True)
     vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicles.id"), nullable=False)
     employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"))
     status = db.Column(db.String(20), default="running", nullable=False)
@@ -215,7 +224,14 @@ class PrepSession(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    entry = db.relationship("ScheduleEntry", back_populates="prep_session")
+    __table_args__ = (
+        # The same person never runs two clocks on the same vehicle on the same
+        # day; two different people always may.
+        db.UniqueConstraint("entry_id", "employee_id",
+                            name="uq_prep_session_employee"),
+    )
+
+    entry = db.relationship("ScheduleEntry", back_populates="prep_sessions")
     vehicle = db.relationship("Vehicle")
     employee = db.relationship("Employee")
     events = db.relationship(

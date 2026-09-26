@@ -139,47 +139,70 @@ function addNowWorkerTimer(card, empId, state) {
   }
   timer.id = 'prep-now-' + empId;
   timer.className = 'now-worker-timer prep prep-' + state.status;
-  timer.setAttribute('data-prep-unit', state.vehicle || '');
-  timer.setAttribute('data-status', state.status);
-  timer.setAttribute('data-base-seconds', state.base_seconds);
-  if (state.segment_epoch) {
-    timer.setAttribute('data-segment-epoch', state.segment_epoch);
-  } else {
-    timer.removeAttribute('data-segment-epoch');
-  }
-  timer.setAttribute('data-server-epoch', state.server_epoch);
-  timer.textContent = clockLabel(state.elapsed);
+  timer.setAttribute('data-prep-employee', empId);
+  applyClock(timer, state);
 }
 
-// Recompute every live timer from the server's base values.
+// Seconds a clock element currently shows: a running clock is recomputed from
+// the server's base value, a paused/finished one keeps the frozen total it was
+// last handed.
+function clockSeconds(el) {
+  var base = parseInt(el.getAttribute('data-base-seconds'), 10) || 0;
+  var segment = parseInt(el.getAttribute('data-segment-epoch'), 10);
+  if (el.getAttribute('data-status') !== 'running' || isNaN(segment)) {
+    return parseInt(el.getAttribute('data-elapsed'), 10) || 0;
+  }
+  return base + Math.max(0, Math.floor((serverNow() - segment) / 1000));
+}
+
+// Hand a state dict to one live clock element.
+function applyClock(el, state) {
+  if (!el || !state) return;
+  el.setAttribute('data-status', state.status);
+  el.setAttribute('data-base-seconds', state.base_seconds);
+  if (state.segment_epoch) {
+    el.setAttribute('data-segment-epoch', state.segment_epoch);
+  } else {
+    el.removeAttribute('data-segment-epoch');
+  }
+  el.setAttribute('data-elapsed', state.elapsed);
+  el.setAttribute('data-server-epoch', state.server_epoch);
+  el.textContent = clockLabel(state.elapsed);
+}
+
+// Recompute every live timer from the server's base values, then the vehicle
+// totals, which are the sum of the clocks of everyone working that vehicle.
 function tickPrepTimers() {
   var timers = document.querySelectorAll('[data-prep-timer]');
-  for (var i = 0; i < timers.length; i++) {
-    var el = timers[i];
-    if (el.getAttribute('data-status') !== 'running') continue;
-    var base = parseInt(el.getAttribute('data-base-seconds'), 10) || 0;
-    var segment = parseInt(el.getAttribute('data-segment-epoch'), 10);
-    var elapsed = base;
-    if (!isNaN(segment)) {
-      elapsed = base + Math.max(0, Math.floor((serverNow() - segment) / 1000));
+  var i, el, seconds;
+  for (i = 0; i < timers.length; i++) {
+    el = timers[i];
+    if (el.getAttribute('data-prep-sum')) continue;
+    seconds = clockSeconds(el);
+    el.setAttribute('data-elapsed', seconds);
+    el.textContent = clockLabel(seconds);
+  }
+  var totals = document.querySelectorAll('[data-prep-sum]');
+  for (i = 0; i < totals.length; i++) {
+    el = totals[i];
+    var block = el.closest ? el.closest('.prep') : null;
+    if (!block) continue;
+    seconds = 0;
+    var clocks = block.querySelectorAll('[data-prep-timer]:not([data-prep-sum])');
+    for (var j = 0; j < clocks.length; j++) {
+      seconds += parseInt(clocks[j].getAttribute('data-elapsed'), 10) || 0;
     }
-    el.textContent = clockLabel(elapsed);
+    el.setAttribute('data-elapsed', seconds);
+    el.textContent = clockLabel(seconds);
   }
 }
 
 function applyPrepState(row, state) {
   if (!row || !state) return;
-  var timer = row.querySelector('[data-prep-timer]');
-  if (timer) {
-    timer.setAttribute('data-status', state.status);
-    timer.setAttribute('data-base-seconds', state.base_seconds);
-    if (state.segment_epoch) {
-      timer.setAttribute('data-segment-epoch', state.segment_epoch);
-    } else {
-      timer.removeAttribute('data-segment-epoch');
-    }
-    timer.setAttribute('data-server-epoch', state.server_epoch);
-    timer.textContent = clockLabel(state.elapsed);
+  var total = row.querySelector('[data-prep-sum]');
+  if (total) {
+    total.setAttribute('data-elapsed', state.elapsed);
+    total.textContent = clockLabel(state.elapsed);
   }
   row.className = row.className.replace(/\bprep-\w+\b/g, '').replace(/\s+/g, ' ') +
     ' prep-' + state.status;
@@ -188,20 +211,18 @@ function applyPrepState(row, state) {
     badge.textContent = state.status_label;
     badge.className = 'badge prep-status ' + prepBadgeClass(state.status);
   }
-  var meta = row.querySelector('.prep-meta');
-  if (meta) {
-    var parts = [];
-    if (state.employee) parts.push(state.initials + ' ' + state.employee);
-    else parts.push('No employee recorded');
-    if (state.started) parts.push('Started ' + state.started);
-    if (state.finished) parts.push('Done ' + state.finished);
-    if (state.status === 'finished') {
-      parts.push('Total prep ' + state.total_label);
-    } else if (state.status === 'paused') {
-      parts.push('timer paused at ' + state.total_label);
+  var crew = row.querySelector('.prep-crew');
+  if (crew) {
+    if (state.worker_count > 1) {
+      crew.textContent = state.worker_count + ' employees';
+      crew.style.display = '';
+    } else {
+      crew.style.display = 'none';
     }
-    meta.textContent = parts.join(' · ');
   }
+  renderPrepWorkers(row, state);
+  var meta = row.querySelector('.prep-meta');
+  if (meta) meta.innerHTML = prepMetaHtml(state);
 }
 
 function prepBadgeClass(status) {
@@ -211,7 +232,7 @@ function prepBadgeClass(status) {
   return 'muted';
 }
 
-function prepButton(action, entryId, extraClass) {
+function prepButton(action, entryId, sessionId, extraClass) {
   var labels = { start: 'Start', pause: 'Pause', resume: 'Resume', done: 'Done' };
   var classes = {
     start: 'btn success start-btn',
@@ -224,16 +245,96 @@ function prepButton(action, entryId, extraClass) {
   btn.className = classes[action] + (extraClass ? ' ' + extraClass : '');
   btn.setAttribute('data-prep-action', action);
   btn.setAttribute('data-entry', entryId);
+  if (sessionId) btn.setAttribute('data-session', sessionId);
   btn.textContent = labels[action];
+  if (prepIsReadOnly()) btn.disabled = true;
   return btn;
+}
+
+function prepJoinButton(entryId) {
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn success join-btn';
+  btn.setAttribute('data-prep-join', entryId);
+  btn.setAttribute('data-entry', entryId);
+  btn.textContent = '+ Add Me';
+  if (prepIsReadOnly()) btn.disabled = true;
+  return btn;
+}
+
+function prepIsReadOnly() {
+  var row = document.querySelector('.prep[data-readonly="1"]');
+  return !!row;
+}
+
+function escapeHtml(text) {
+  return String(text === null || text === undefined ? '' : text)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function prepMetaHtml(state) {
+  if (!state.worker_count) return '<span class="muted">No employee recorded</span>';
+  var parts = [];
+  parts.push(state.worker_count + ' employee' +
+    (state.worker_count === 1 ? '' : 's') + ' on this vehicle');
+  if (state.started) parts.push('Started ' + state.started);
+  if (state.finished) parts.push('Done ' + state.finished);
+  parts.push('<strong>Total prep ' + state.total_label + '</strong>');
+  return parts.join(' · ');
+}
+
+// Rebuild the per-employee clocks of a vehicle. Any number of employees can be
+// on it at once, each with their own clock, total and buttons.
+function renderPrepWorkers(row, state) {
+  var list = row.querySelector('.prep-workers');
+  if (!list) return;
+  var entryId = row.getAttribute('data-prep-entry');
+  list.innerHTML = '';
+  (state.workers || []).forEach(function (w) {
+    var item = document.createElement('li');
+    item.className = 'prep-worker prep-worker-' + w.status;
+    item.setAttribute('data-session', w.session_id);
+    item.innerHTML =
+      '<span class="badge info prep-worker-initials">' +
+        escapeHtml(w.initials || '—') + '</span>' +
+      '<span class="prep-worker-name">' + escapeHtml(w.employee || 'Unassigned') +
+        '</span>' +
+      '<span class="prep-clock prep-timer" data-prep-timer data-employee="' +
+        escapeHtml(w.employee_id || '') + '" data-session="' + w.session_id +
+        '" data-status="' + w.status + '" data-base-seconds="' + w.base_seconds +
+        '"' + (w.segment_epoch ? ' data-segment-epoch="' + w.segment_epoch + '"' : '') +
+        ' data-elapsed="' + w.elapsed + '" data-server-epoch="' +
+        w.server_epoch + '">' + clockLabel(w.elapsed) + '</span>' +
+      '<span class="badge prep-worker-status ' + prepBadgeClass(w.status) + '">' +
+        w.status_label + '</span>' +
+      '<span class="prep-worker-when muted small">' +
+        (w.started ? 'Started ' + escapeHtml(w.started) : '') +
+        (w.finished ? ' · Done ' + escapeHtml(w.finished) : '') +
+        ' · ' + w.total_label + '</span>';
+    var actions = document.createElement('span');
+    actions.className = 'prep-worker-actions';
+    if (w.status === 'running') {
+      actions.appendChild(prepButton('pause', entryId, w.session_id));
+      actions.appendChild(prepButton('done', entryId, w.session_id));
+    } else if (w.status === 'paused') {
+      actions.appendChild(prepButton('resume', entryId, w.session_id));
+      actions.appendChild(prepButton('done', entryId, w.session_id));
+    }
+    item.appendChild(actions);
+    list.appendChild(item);
+  });
 }
 
 function prepHint(state) {
   if (state.status === 'none') {
     return 'Press Start to begin the clock on this vehicle.';
   }
+  if (prepHasMyClock(state)) {
+    return 'Your clock for this vehicle is in the list above.';
+  }
   if (state.status === 'running') {
-    return 'Clock is running — the prep time keeps counting if you close the page.';
+    return state.running_count + ' clock' + (state.running_count === 1 ? '' : 's') +
+      ' running — the prep time keeps counting if you close the page.';
   }
   if (state.status === 'paused') {
     return 'Paused: paused time is not added to the prep total.';
@@ -241,20 +342,30 @@ function prepHint(state) {
   return 'Prep complete — total active prep time ' + state.total_label + '.';
 }
 
-// Swap the row's buttons over to the ones the new state allows.
-function renderPrepActions(row, entryId, state) {
+// Whether the acting employee already holds a clock on this vehicle. They get
+// their own buttons in the list, not a button that would be refused.
+function prepHasMyClock(state) {
+  var mine = CURRENT_EMPLOYEE;
+  if (!mine) return false;
+  return (state.workers || []).some(function (w) {
+    return String(w.employee_id) === String(mine);
+  });
+}
+
+// Swap the row's top-level buttons over to the ones the new state allows:
+// Start when nobody is on the vehicle, otherwise "+ Add Me" so another
+// employee can run their own clock on it.
+function renderPrepActions(row, entryId, state, entryCompleted) {
   var actions = row.querySelector('.prep-actions');
   if (!actions) return;
-  var buttons = actions.querySelectorAll('[data-prep-action]');
+  var buttons = actions.querySelectorAll('[data-prep-action], [data-prep-join]');
   for (var i = 0; i < buttons.length; i++) buttons[i].remove();
+  var done = entryCompleted === undefined
+    ? state.status === 'finished' : !!entryCompleted;
   if (state.status === 'none') {
     actions.insertBefore(prepButton('start', entryId), actions.firstChild);
-  } else if (state.status === 'running') {
-    actions.insertBefore(prepButton('done', entryId), actions.firstChild);
-    actions.insertBefore(prepButton('pause', entryId), actions.firstChild);
-  } else if (state.status === 'paused') {
-    actions.insertBefore(prepButton('done', entryId), actions.firstChild);
-    actions.insertBefore(prepButton('resume', entryId), actions.firstChild);
+  } else if (!done && !prepHasMyClock(state)) {
+    actions.insertBefore(prepJoinButton(entryId), actions.firstChild);
   }
   var hint = actions.querySelector('.prep-hint');
   if (hint) hint.textContent = prepHint(state);
@@ -297,10 +408,24 @@ function renderPrepHistory(row, state) {
   row.appendChild(details);
 }
 
+// Bind every timer button in a block, once each. Rows are re-rendered after an
+// action, so the buttons JS creates need the same click handling.
+function bindPrepButtons(root) {
+  root.querySelectorAll('[data-prep-action], [data-prep-join]')
+    .forEach(function (btn) {
+      if (btn.getAttribute('data-prep-bound')) return;
+      btn.setAttribute('data-prep-bound', '1');
+      btn.addEventListener('click', function () { runPrepAction(btn); });
+    });
+}
+
 function runPrepAction(btn) {
-  var action = btn.getAttribute('data-prep-action');
-  var entryId = btn.getAttribute('data-entry');
-  if (!PREP_ACTIONS[action]) return;
+  // A "+ Add Me" press is simply a Start on this vehicle for whoever is signed
+  // in; a Pause / Resume / Done carries the session its button lives in.
+  var join = btn.getAttribute('data-prep-join');
+  var action = btn.getAttribute('data-prep-action') || (join ? 'start' : null);
+  var entryId = btn.getAttribute('data-entry') || join;
+  if (!PREP_ACTIONS[action] || !entryId) return;
   if (!CURRENT_EMPLOYEE) {
     alert('Please pick your name first.');
     window.location.href = '/select';
@@ -309,6 +434,9 @@ function runPrepAction(btn) {
   btn.disabled = true;
   var body = new FormData();
   body.append('employee_id', CURRENT_EMPLOYEE);
+  if (btn.getAttribute('data-session')) {
+    body.append('session_id', btn.getAttribute('data-session'));
+  }
   fetch('/entry/' + entryId + '/prep/' + action, {
     method: 'POST',
     body: body
@@ -323,7 +451,12 @@ function runPrepAction(btn) {
       return;
     }
     var state = data.state;
-    if (data.action === 'start') {
+    // A press moves exactly one clock. On a shared screen that can be a
+    // colleague's, so only the acting employee's own "Now Working" card is
+    // ever added or removed here.
+    var isMine = !!(data.worker && data.worker.employee_id &&
+      String(data.worker.employee_id) === String(CURRENT_EMPLOYEE));
+    if (data.action === 'start' && isMine) {
       var ck = row ? row.closest('.vrow').querySelector('.checklist') : null;
       if (ck) ck.setAttribute('data-tasks-hidden', 'false');
       var badge = row ? row.closest('.vrow').querySelector('.entry-status') : null;
@@ -332,15 +465,18 @@ function runPrepAction(btn) {
         badge.className = 'badge entry-status info';
       }
       addNowWorker(CURRENT_EMPLOYEE, data.employee, data.initials, data.unit,
-        data.state);
+        data.worker);
     }
     if (row) {
       applyPrepState(row, state);
-      renderPrepActions(row, entryId, state);
+      renderPrepActions(row, entryId, state, data.entry_completed);
       renderPrepHistory(row, state);
+      bindPrepButtons(row);
     }
     if (data.action === 'done') {
-      if (data.progress) {
+      // The vehicle is only finished once the last employee working it is
+      // done, so only then does the row lock down.
+      if (data.entry_completed && data.progress) {
         var vrow = btn.closest('.vrow');
         if (vrow) {
           var bar = vrow.querySelector('.progress-fill');
@@ -364,9 +500,10 @@ function runPrepAction(btn) {
       }
       // Finishing a vehicle changes the day totals.
       updateStats(data.counters);
-      // The employee is free again, so leave the "Now Working" floor.
-      removeNowWorker(CURRENT_EMPLOYEE);
+      // This employee is free again, so leave the "Now Working" floor.
+      if (isMine) removeNowWorker(CURRENT_EMPLOYEE);
     }
+    tickPrepTimers();
   }).catch(function () {
     btn.disabled = false;
     alert('Could not ' + action + ' this vehicle. Try again.');
@@ -382,17 +519,19 @@ function resyncPrepTimers() {
   fetch(url).then(function (r) { return r.json(); }).then(function (data) {
     if (!data || !data.sessions) return;
     serverOffset = data.now - Date.now();
-    var byUnit = {};
     Object.keys(data.sessions).forEach(function (entryId) {
-      var state = data.sessions[entryId];
-      byUnit[state.vehicle] = state;
       var row = prepRow(entryId);
-      if (row) applyPrepState(row, state);
+      if (row) {
+        applyPrepState(row, data.sessions[entryId]);
+        renderPrepActions(row, entryId, data.sessions[entryId]);
+      }
     });
-    document.querySelectorAll('.now-worker-timer[data-prep-unit]')
+    // Each "Now Working" card holds its own employee's clock, matched by
+    // employee: a vehicle worked by a crew has one card per person.
+    document.querySelectorAll('.now-worker-timer[data-prep-employee]')
       .forEach(function (el) {
-        var state = byUnit[el.getAttribute('data-prep-unit')];
-        if (state) applyPrepState(el, state);
+        var state = (data.workers || {})[el.getAttribute('data-prep-employee')];
+        if (state) applyClock(el, state);
       });
     tickPrepTimers();
   }).catch(function () { /* keep the last known values */ });
@@ -417,16 +556,19 @@ function markSkipped(row, entryId, reason, unskipUrl) {
     if (actions) actions.remove();
     prepBlock.className = prepBlock.className.replace(/\bprep-\w+\b/g, '') +
       ' prep-skipped';
-    var timer = prepBlock.querySelector('[data-prep-timer]');
-    if (timer) timer.setAttribute('data-status', 'skipped');
+    prepBlock.querySelectorAll('[data-prep-timer]').forEach(function (t) {
+      t.setAttribute('data-status', 'skipped');
+    });
+    prepBlock.querySelectorAll('.prep-worker-actions').forEach(function (a) {
+      a.remove();
+    });
     var status = prepBlock.querySelector('.prep-status');
     if (status) {
       status.textContent = 'Skipped';
       status.className = 'badge prep-status warn';
     }
   }
-  var doneBtn = row.querySelector('.done-btn');
-  if (doneBtn) doneBtn.remove();
+  row.querySelectorAll('.done-btn').forEach(function (btn) { btn.remove(); });
 
   var note = row.querySelector('.skip-note');
   if (!note) {
@@ -552,10 +694,9 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   });
 
-  // Prep timer workflow: Start -> Pause -> Resume -> Done
-  document.querySelectorAll('[data-prep-action]').forEach(function (btn) {
-    btn.addEventListener('click', function () { runPrepAction(btn); });
-  });
+  // Prep timer workflow: Start -> Pause -> Resume -> Done, per employee, so a
+  // crew can work the same vehicle at the same time.
+  bindPrepButtons(document);
 
   // Live clocks. The server supplies the banked seconds and the moment each
   // segment began, so these keep counting across refreshes and hidden tabs.
