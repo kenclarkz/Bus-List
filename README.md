@@ -295,6 +295,17 @@ is eventually reported.
   resuming a running timer, pausing a finished one, or finishing a vehicle that
   was never started are all rejected with an explanation and leave the record
   untouched. Managers get a read-only board.
+- **A crew working at the same time never blocks itself.** Several employees are
+  on the board from their own devices at once, so a press regularly overlaps
+  somebody else's page load or timer re-sync. The SQLite database is therefore
+  opened in **WAL** mode, with a 30s busy timeout and a pool big enough for the
+  devices on shift, so a reader can never lock a writer out — one employee
+  starting the inside is not refused because another is working the outside.
+  A press that still cannot reach the database is answered as JSON with a
+  "press again" message rather than an error page, and the board re-reads the
+  vehicle's clocks so nobody is left wondering whether their clock started.
+  (WAL keeps a `detail.db-wal` / `detail.db-shm` pair next to the database; a
+  copy of the database taken while the app is running should include them.)
 - **Nothing runs forever.** Finishing a timer is not the only way a clock stops:
   completing a vehicle through its checklist, or ending the day, stops any
   timer still running for that vehicle.

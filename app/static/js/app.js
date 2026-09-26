@@ -534,6 +534,26 @@ function bindPrepButtons(root) {
     });
 }
 
+// Post one action to the server and return the answer as an object, whatever
+// came back. Every answer the board gives is JSON, but a login redirect, a
+// server error page or a dropped connection is not: those used to throw out of
+// r.json() and be reported as a bare "Try again.", which told the employee
+// nothing and left them unable to tell whether their clock had started. An
+// answer we cannot read comes back as {ok: false, unreadable: true} so the
+// caller can re-read the vehicle's real state instead of guessing.
+function postBoardAction(url, body) {
+  return fetch(url, { method: 'POST', body: body }).then(function (r) {
+    return r.text().then(function (text) {
+      var data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
+      if (data && typeof data === 'object') return data;
+      return { ok: false, unreadable: true };
+    });
+  }, function () {
+    return { ok: false, unreadable: true };
+  });
+}
+
 function runPrepAction(btn) {
   // A "+ Add Me" press is simply a Start on that clock set for whoever is
   // signed in; a Pause / Resume / Done carries the session and the clock set
@@ -555,17 +575,20 @@ function runPrepAction(btn) {
   if (btn.getAttribute('data-session')) {
     body.append('session_id', btn.getAttribute('data-session'));
   }
-  fetch('/entry/' + entryId + '/prep/' + action, {
-    method: 'POST',
-    body: body
-  }).then(function (r) {
-    return r.json().then(function (data) { return { ok: r.ok, data: data }; });
-  }).then(function (res) {
-    var data = res.data || {};
+  postBoardAction('/entry/' + entryId + '/prep/' + action, body).then(function (data) {
     var row = prepRow(entryId);
-    if (!data.ok) {
+    if (!data || !data.ok) {
       btn.disabled = false;
-      alert(data.error || 'Could not ' + action + ' this vehicle.');
+      if (data && data.error) {
+        alert(data.error);
+        return;
+      }
+      // The press may or may not have landed, so re-read every clock rather
+      // than telling the employee to press again and risk starting a second
+      // clock: the re-sync paints the row with whatever is really recorded.
+      resyncPrepTimers();
+      alert('Could not ' + action + ' this vehicle right now. The board has ' +
+        'been re-checked — look at the clock before pressing again.');
       return;
     }
     var state = data.state;
@@ -623,8 +646,10 @@ function runPrepAction(btn) {
     }
     tickPrepTimers();
   }).catch(function () {
+    // Only a fault in this handler itself lands here, since the request can no
+    // longer reject. Re-sync so the row matches what is really recorded.
     btn.disabled = false;
-    alert('Could not ' + action + ' this vehicle. Try again.');
+    resyncPrepTimers();
   });
 }
 
