@@ -406,6 +406,35 @@ tr.row-inactive td { color: var(--muted); }
 .prep-event-resume { color: var(--info); }
 .prep-event-done { color: var(--success); }
 .prep-event-time { font-variant-numeric: tabular-nums; }
+
+/* Two independent clock sets per vehicle: one for the inside work, one for the
+   outside work. Each is its own little panel with its own total, its own
+   employees and its own buttons, so the two sides of a vehicle never borrow
+   each other's time. */
+.prep-label-scope {
+  font-weight: 400; text-transform: none; letter-spacing: 0; opacity: .8;
+}
+.prep-sets { display: flex; flex-direction: column; gap: 8px; margin-top: 2px; }
+.prepset {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 8px 10px; border: 1px solid var(--border);
+  border-left: 3px solid var(--border); border-radius: 6px;
+  background: rgba(127, 127, 127, .05);
+}
+.prepset .prep-label { color: var(--text); }
+.prepset .prep-total { font-size: 1.1rem; }
+.prepset .prep-clock { font-size: 1.1rem; }
+/* The vehicle block above already carries the running tint, so a clock set
+   only tints its own left edge and keeps a quiet background. */
+.prepset.prep-none, .prepset.prep-skipped,
+.prepset.prep-running, .prepset.prep-paused, .prepset.prep-finished {
+  background: rgba(127, 127, 127, .05);
+}
+.prepset.prep-running { border-left-color: var(--success); }
+.prepset.prep-paused { border-left-color: var(--warn); }
+.prepset.prep-finished, .prepset.prep-none { border-left-color: var(--border); }
+.prep-tasks { flex: 1 1 100%; font-size: .7rem; }
+
 /* the crew reads the clock from across the bay: make it unmistakable */
 .prep-running .prep-total,
 .prep-worker.prep-worker-running .prep-clock {

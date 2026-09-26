@@ -13,6 +13,11 @@ var CURRENT_EMPLOYEE = (function () {
   }
 })();
 
+function nowWorkerUnit(vehicle, prep) {
+  if (!prep || !prep.active) return vehicle;
+  return vehicle + ' · ' + prepScopeLabel(prep.scope) + ' prep';
+}
+
 function addNowWorker(empId, name, initials, vehicle, prep) {
   var grid = document.getElementById('now-working-grid');
   if (!grid) return;
@@ -21,7 +26,9 @@ function addNowWorker(empId, name, initials, vehicle, prep) {
   var existing = grid.querySelector('.now-worker[data-employee="' + empId + '"]');
   if (existing) {
     var unit = existing.querySelector('.now-worker-unit');
-    if (unit) unit.textContent = vehicle;
+    // The card says which side of the vehicle this person is timing, so a
+    // press on the Outside set is not mistaken for the Inside one.
+    if (unit) unit.textContent = nowWorkerUnit(vehicle, prep);
     addNowWorkerTimer(existing, empId, prep);
     return;
   }
@@ -38,7 +45,7 @@ function addNowWorker(empId, name, initials, vehicle, prep) {
   nameEl.textContent = name;
   var unitEl = document.createElement('div');
   unitEl.className = 'now-worker-unit';
-  unitEl.textContent = vehicle;
+  unitEl.textContent = nowWorkerUnit(vehicle, prep);
   info.appendChild(nameEl);
   info.appendChild(unitEl);
   card.appendChild(avatar);
@@ -122,6 +129,23 @@ function prepRow(entryId) {
   return document.getElementById('prep-' + entryId);
 }
 
+// One clock set of a vehicle: the Inside clocks or the Outside clocks. Every
+// vehicle has exactly these two, and they are clocked independently.
+function prepSet(entryId, scope) {
+  return document.getElementById('prep-' + entryId + '-' + (scope || 'inside'));
+}
+
+function prepScopes(row) {
+  if (!row) return [];
+  return Array.prototype.slice.call(row.querySelectorAll('.prepset'));
+}
+
+function prepScopeLabel(scope) {
+  if (scope === 'outside') return 'Outside';
+  if (scope === 'both') return 'Inside & Outside';
+  return 'Inside';
+}
+
 // Add (or refresh) the live clock on a "Now Working" card. A card created by a
 // Start click gets the same ticking clock a page load would have rendered.
 function addNowWorkerTimer(card, empId, state) {
@@ -170,15 +194,32 @@ function applyClock(el, state) {
   el.textContent = clockLabel(state.elapsed);
 }
 
-// Recompute every live timer from the server's base values, then the vehicle
-// totals, which are the sum of the clocks of everyone working that vehicle.
+// Recompute every live timer from the server's base values, then each clock
+// set's total (the sum of the clocks in that set) and finally the vehicle
+// total. A clock recorded before the Inside/Outside split carries no scope and
+// counts towards both sets, so it is subtracted once from the vehicle total to
+// keep the two sets from double counting it.
 function tickPrepTimers() {
   var timers = document.querySelectorAll('[data-prep-timer]');
   var i, el, seconds;
   for (i = 0; i < timers.length; i++) {
     el = timers[i];
-    if (el.getAttribute('data-prep-sum')) continue;
+    if (el.getAttribute('data-prep-sum') ||
+        el.getAttribute('data-prep-sum-scope')) continue;
     seconds = clockSeconds(el);
+    el.setAttribute('data-elapsed', seconds);
+    el.textContent = clockLabel(seconds);
+  }
+  var sets = document.querySelectorAll('.prepset');
+  for (i = 0; i < sets.length; i++) {
+    el = sets[i].querySelector('[data-prep-sum-scope]');
+    if (!el) continue;
+    seconds = 0;
+    var setClocks = sets[i].querySelectorAll(
+      '[data-prep-timer]:not([data-prep-sum-scope])');
+    for (var j = 0; j < setClocks.length; j++) {
+      seconds += parseInt(setClocks[j].getAttribute('data-elapsed'), 10) || 0;
+    }
     el.setAttribute('data-elapsed', seconds);
     el.textContent = clockLabel(seconds);
   }
@@ -188,30 +229,71 @@ function tickPrepTimers() {
     var block = el.closest ? el.closest('.prep') : null;
     if (!block) continue;
     seconds = 0;
-    var clocks = block.querySelectorAll('[data-prep-timer]:not([data-prep-sum])');
-    for (var j = 0; j < clocks.length; j++) {
-      seconds += parseInt(clocks[j].getAttribute('data-elapsed'), 10) || 0;
+    var setTotals = block.querySelectorAll('[data-prep-sum-scope]');
+    for (var k = 0; k < setTotals.length; k++) {
+      seconds += parseInt(setTotals[k].getAttribute('data-elapsed'), 10) || 0;
+    }
+    var shared = block.querySelectorAll('[data-prep-both]');
+    var counted = {};
+    for (var m = 0; m < shared.length; m++) {
+      // A clock recorded before the Inside/Outside split is listed in both sets,
+      // so take it off the vehicle total only once.
+      var sharedId = shared[m].getAttribute('data-session') || String(m);
+      if (counted[sharedId]) continue;
+      counted[sharedId] = true;
+      seconds -= parseInt(shared[m].getAttribute('data-elapsed'), 10) || 0;
     }
     el.setAttribute('data-elapsed', seconds);
     el.textContent = clockLabel(seconds);
   }
 }
 
-function applyPrepState(row, state) {
+// Hand a vehicle's whole state to its block: the combined total in the head and
+// each of the two clock sets below it.
+function applyPrepState(row, state, entryCompleted) {
   if (!row || !state) return;
   var total = row.querySelector('[data-prep-sum]');
   if (total) {
     total.setAttribute('data-elapsed', state.elapsed);
     total.textContent = clockLabel(state.elapsed);
   }
-  row.className = row.className.replace(/\bprep-\w+\b/g, '').replace(/\s+/g, ' ') +
+  applyPrepBadge(row, state);
+  var meta = row.querySelector('.prep-meta');
+  if (meta) meta.innerHTML = prepMetaHtml(state);
+  prepScopes(row).forEach(function (setEl) {
+    var scope = setEl.getAttribute('data-prep-scope');
+    var setState = (state.scopes || {})[scope];
+    if (!setState) return;
+    applyPrepSetState(setEl, state, setState, entryCompleted);
+  });
+}
+
+// One clock set: its own total, status, employee clocks, buttons and history.
+function applyPrepSetState(setEl, state, setState, entryCompleted) {
+  var scope = setEl.getAttribute('data-prep-scope');
+  var entryId = setEl.getAttribute('data-prep-entry');
+  var total = setEl.querySelector('[data-prep-sum-scope]');
+  if (total) {
+    total.setAttribute('data-elapsed', setState.elapsed);
+    total.textContent = clockLabel(setState.elapsed);
+  }
+  applyPrepBadge(setEl, setState);
+  var meta = setEl.querySelector('.prep-meta');
+  if (meta) meta.innerHTML = prepSetMetaHtml(setState);
+  renderPrepWorkers(setEl, entryId, setState);
+  renderPrepActions(setEl, entryId, scope, setState, entryCompleted);
+  renderPrepHistory(setEl, setState, scope);
+}
+
+function applyPrepBadge(block, state) {
+  block.className = block.className.replace(/\bprep-\w+\b/g, '').replace(/\s+/g, ' ') +
     ' prep-' + state.status;
-  var badge = row.querySelector('.prep-status');
+  var badge = block.querySelector('.prep-status');
   if (badge) {
     badge.textContent = state.status_label;
     badge.className = 'badge prep-status ' + prepBadgeClass(state.status);
   }
-  var crew = row.querySelector('.prep-crew');
+  var crew = block.querySelector('.prep-crew');
   if (crew) {
     if (state.worker_count > 1) {
       crew.textContent = state.worker_count + ' employees';
@@ -220,9 +302,6 @@ function applyPrepState(row, state) {
       crew.style.display = 'none';
     }
   }
-  renderPrepWorkers(row, state);
-  var meta = row.querySelector('.prep-meta');
-  if (meta) meta.innerHTML = prepMetaHtml(state);
 }
 
 function prepBadgeClass(status) {
@@ -232,7 +311,9 @@ function prepBadgeClass(status) {
   return 'muted';
 }
 
-function prepButton(action, entryId, sessionId, extraClass) {
+// Every button carries the clock set it acts on, so a press can never move the
+// wrong one of a vehicle's two sets.
+function prepButton(action, entryId, sessionId, extraClass, scope) {
   var labels = { start: 'Start', pause: 'Pause', resume: 'Resume', done: 'Done' };
   var classes = {
     start: 'btn success start-btn',
@@ -246,17 +327,21 @@ function prepButton(action, entryId, sessionId, extraClass) {
   btn.setAttribute('data-prep-action', action);
   btn.setAttribute('data-entry', entryId);
   if (sessionId) btn.setAttribute('data-session', sessionId);
-  btn.textContent = labels[action];
+  if (scope) btn.setAttribute('data-prep-scope', scope);
+  btn.textContent = action === 'start'
+    ? labels.start + ' ' + prepScopeLabel(scope)
+    : labels[action];
   if (prepIsReadOnly()) btn.disabled = true;
   return btn;
 }
 
-function prepJoinButton(entryId) {
+function prepJoinButton(entryId, scope) {
   var btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'btn success join-btn';
   btn.setAttribute('data-prep-join', entryId);
   btn.setAttribute('data-entry', entryId);
+  if (scope) btn.setAttribute('data-prep-scope', scope);
   btn.textContent = '+ Add Me';
   if (prepIsReadOnly()) btn.disabled = true;
   return btn;
@@ -280,20 +365,41 @@ function prepMetaHtml(state) {
   if (state.started) parts.push('Started ' + state.started);
   if (state.finished) parts.push('Done ' + state.finished);
   parts.push('<strong>Total prep ' + state.total_label + '</strong>');
+  var scopes = state.scopes || {};
+  if (scopes.inside && scopes.outside) {
+    parts.push('(inside ' + scopes.inside.total_label +
+      ' · outside ' + scopes.outside.total_label + ')');
+  }
   return parts.join(' · ');
 }
 
-// Rebuild the per-employee clocks of a vehicle. Any number of employees can be
-// on it at once, each with their own clock, total and buttons.
-function renderPrepWorkers(row, state) {
-  var list = row.querySelector('.prep-workers');
+function prepSetMetaHtml(state) {
+  if (!state.worker_count) {
+    return '<span class="muted">No ' +
+      prepScopeLabel(state.scope).toLowerCase() + ' clock yet</span>';
+  }
+  var parts = [];
+  parts.push(state.worker_count + ' employee' +
+    (state.worker_count === 1 ? '' : 's') + ' on the ' +
+    prepScopeLabel(state.scope).toLowerCase());
+  if (state.started) parts.push('Started ' + state.started);
+  if (state.finished) parts.push('Done ' + state.finished);
+  parts.push('<strong>' + prepScopeLabel(state.scope) + ' prep ' +
+    state.total_label + '</strong>');
+  return parts.join(' · ');
+}
+
+// Rebuild the per-employee clocks of one clock set. Any number of employees can
+// be on a set at once, each with their own clock, total and buttons.
+function renderPrepWorkers(setEl, entryId, state) {
+  var list = setEl.querySelector('.prep-workers');
   if (!list) return;
-  var entryId = row.getAttribute('data-prep-entry');
   list.innerHTML = '';
   (state.workers || []).forEach(function (w) {
     var item = document.createElement('li');
     item.className = 'prep-worker prep-worker-' + w.status;
     item.setAttribute('data-session', w.session_id);
+    item.setAttribute('data-prep-scope', w.scope);
     item.innerHTML =
       '<span class="badge info prep-worker-initials">' +
         escapeHtml(w.initials || '—') + '</span>' +
@@ -301,7 +407,9 @@ function renderPrepWorkers(row, state) {
         '</span>' +
       '<span class="prep-clock prep-timer" data-prep-timer data-employee="' +
         escapeHtml(w.employee_id || '') + '" data-session="' + w.session_id +
-        '" data-status="' + w.status + '" data-base-seconds="' + w.base_seconds +
+        '" data-prep-scope="' + w.scope + '"' +
+        (w.scope === 'both' ? ' data-prep-both="1"' : '') +
+        ' data-status="' + w.status + '" data-base-seconds="' + w.base_seconds +
         '"' + (w.segment_epoch ? ' data-segment-epoch="' + w.segment_epoch + '"' : '') +
         ' data-elapsed="' + w.elapsed + '" data-server-epoch="' +
         w.server_epoch + '">' + clockLabel(w.elapsed) + '</span>' +
@@ -314,11 +422,11 @@ function renderPrepWorkers(row, state) {
     var actions = document.createElement('span');
     actions.className = 'prep-worker-actions';
     if (w.status === 'running') {
-      actions.appendChild(prepButton('pause', entryId, w.session_id));
-      actions.appendChild(prepButton('done', entryId, w.session_id));
+      actions.appendChild(prepButton('pause', entryId, w.session_id, null, w.scope));
+      actions.appendChild(prepButton('done', entryId, w.session_id, null, w.scope));
     } else if (w.status === 'paused') {
-      actions.appendChild(prepButton('resume', entryId, w.session_id));
-      actions.appendChild(prepButton('done', entryId, w.session_id));
+      actions.appendChild(prepButton('resume', entryId, w.session_id, null, w.scope));
+      actions.appendChild(prepButton('done', entryId, w.session_id, null, w.scope));
     }
     item.appendChild(actions);
     list.appendChild(item);
@@ -326,24 +434,29 @@ function renderPrepWorkers(row, state) {
 }
 
 function prepHint(state) {
+  var label = prepScopeLabel(state.scope);
+  var lower = label.toLowerCase();
   if (state.status === 'none') {
-    return 'Press Start to begin the clock on this vehicle.';
+    return 'Press Start ' + label + ' to time the ' + lower +
+      ' work on this vehicle.';
   }
   if (prepHasMyClock(state)) {
-    return 'Your clock for this vehicle is in the list above.';
+    return 'Your ' + lower + ' clock for this vehicle is in the list above.';
   }
   if (state.status === 'running') {
     return state.running_count + ' clock' + (state.running_count === 1 ? '' : 's') +
-      ' running — the prep time keeps counting if you close the page.';
+      ' running — the ' + lower + ' clock keeps counting if you close the page.';
   }
   if (state.status === 'paused') {
-    return 'Paused: paused time is not added to the prep total.';
+    return 'Paused: paused time is not added to the ' + lower + ' total.';
   }
-  return 'Prep complete — total active prep time ' + state.total_label + '.';
+  return label + ' complete — total active ' + lower + ' prep time ' +
+    state.total_label + '.';
 }
 
-// Whether the acting employee already holds a clock on this vehicle. They get
-// their own buttons in the list, not a button that would be refused.
+// Whether the acting employee already holds a clock in this clock set. They get
+// their own buttons in the list, not a button that would be refused. The other
+// set of the vehicle is a different clock, so it does not count.
 function prepHasMyClock(state) {
   var mine = CURRENT_EMPLOYEE;
   if (!mine) return false;
@@ -352,33 +465,35 @@ function prepHasMyClock(state) {
   });
 }
 
-// Swap the row's top-level buttons over to the ones the new state allows:
-// Start when nobody is on the vehicle, otherwise "+ Add Me" so another
-// employee can run their own clock on it.
-function renderPrepActions(row, entryId, state, entryCompleted) {
-  var actions = row.querySelector('.prep-actions');
+// Swap one clock set's buttons over to the ones its new state allows: Start
+// when nobody is on that set, otherwise "+ Add Me" so another employee can run
+// their own clock on it. The other set keeps its buttons.
+function renderPrepActions(setEl, entryId, scope, state, entryCompleted) {
+  var actions = setEl.querySelector('.prep-actions');
   if (!actions) return;
   var buttons = actions.querySelectorAll('[data-prep-action], [data-prep-join]');
   for (var i = 0; i < buttons.length; i++) buttons[i].remove();
   var done = entryCompleted === undefined
     ? state.status === 'finished' : !!entryCompleted;
   if (state.status === 'none') {
-    actions.insertBefore(prepButton('start', entryId), actions.firstChild);
+    actions.insertBefore(prepButton('start', entryId, null, null, scope),
+      actions.firstChild);
   } else if (!done && !prepHasMyClock(state)) {
-    actions.insertBefore(prepJoinButton(entryId), actions.firstChild);
+    actions.insertBefore(prepJoinButton(entryId, scope), actions.firstChild);
   }
   var hint = actions.querySelector('.prep-hint');
   if (hint) hint.textContent = prepHint(state);
 }
 
-function renderPrepHistory(row, state) {
-  var existing = row.querySelector('.prep-history');
+function renderPrepHistory(setEl, state, scope) {
+  var existing = setEl.querySelector('.prep-history');
   if (existing) existing.remove();
   if (!state.events || !state.events.length) return;
   var details = document.createElement('details');
   details.className = 'prep-history';
   var summary = document.createElement('summary');
-  summary.textContent = 'Prep history (' + state.events.length + ')';
+  summary.textContent = prepScopeLabel(scope) +
+    ' prep history (' + state.events.length + ')';
   var list = document.createElement('ul');
   list.className = 'prep-events';
   state.events.forEach(function (event) {
@@ -405,7 +520,7 @@ function renderPrepHistory(row, state) {
   });
   details.appendChild(summary);
   details.appendChild(list);
-  row.appendChild(details);
+  setEl.appendChild(details);
 }
 
 // Bind every timer button in a block, once each. Rows are re-rendered after an
@@ -420,11 +535,13 @@ function bindPrepButtons(root) {
 }
 
 function runPrepAction(btn) {
-  // A "+ Add Me" press is simply a Start on this vehicle for whoever is signed
-  // in; a Pause / Resume / Done carries the session its button lives in.
+  // A "+ Add Me" press is simply a Start on that clock set for whoever is
+  // signed in; a Pause / Resume / Done carries the session and the clock set
+  // its button lives in.
   var join = btn.getAttribute('data-prep-join');
   var action = btn.getAttribute('data-prep-action') || (join ? 'start' : null);
   var entryId = btn.getAttribute('data-entry') || join;
+  var scope = btn.getAttribute('data-prep-scope') || 'inside';
   if (!PREP_ACTIONS[action] || !entryId) return;
   if (!CURRENT_EMPLOYEE) {
     alert('Please pick your name first.');
@@ -434,6 +551,7 @@ function runPrepAction(btn) {
   btn.disabled = true;
   var body = new FormData();
   body.append('employee_id', CURRENT_EMPLOYEE);
+  body.append('scope', scope);
   if (btn.getAttribute('data-session')) {
     body.append('session_id', btn.getAttribute('data-session'));
   }
@@ -451,9 +569,9 @@ function runPrepAction(btn) {
       return;
     }
     var state = data.state;
-    // A press moves exactly one clock. On a shared screen that can be a
-    // colleague's, so only the acting employee's own "Now Working" card is
-    // ever added or removed here.
+    // A press moves exactly one clock of one clock set. On a shared screen that
+    // can be a colleague's, so only the acting employee's own "Now Working"
+    // card is ever added or removed here.
     var isMine = !!(data.worker && data.worker.employee_id &&
       String(data.worker.employee_id) === String(CURRENT_EMPLOYEE));
     if (data.action === 'start' && isMine) {
@@ -468,9 +586,9 @@ function runPrepAction(btn) {
         data.worker);
     }
     if (row) {
-      applyPrepState(row, state);
-      renderPrepActions(row, entryId, state, data.entry_completed);
-      renderPrepHistory(row, state);
+      // Both clock sets come back with every press, so the other one stays in
+      // step even though only this one was touched.
+      applyPrepState(row, state, data.entry_completed);
       bindPrepButtons(row);
     }
     if (data.action === 'done') {
@@ -521,10 +639,9 @@ function resyncPrepTimers() {
     serverOffset = data.now - Date.now();
     Object.keys(data.sessions).forEach(function (entryId) {
       var row = prepRow(entryId);
-      if (row) {
-        applyPrepState(row, data.sessions[entryId]);
-        renderPrepActions(row, entryId, data.sessions[entryId]);
-      }
+      // Re-rendering a row replaces its buttons, so the fresh ones are bound
+      // again here the same way a press re-binds them.
+      if (row) { applyPrepState(row, data.sessions[entryId]); bindPrepButtons(row); }
     });
     // Each "Now Working" card holds its own employee's clock, matched by
     // employee: a vehicle worked by a crew has one card per person.
@@ -532,6 +649,14 @@ function resyncPrepTimers() {
       .forEach(function (el) {
         var state = (data.workers || {})[el.getAttribute('data-prep-employee')];
         if (state) applyClock(el, state);
+      });
+    // The card names the side being timed, and a card can be showing a clock
+    // for the other set of the same vehicle after a press.
+    document.querySelectorAll('.now-worker[data-employee]')
+      .forEach(function (card) {
+        var state = (data.workers || {})[card.getAttribute('data-employee')];
+        var unit = card.querySelector('.now-worker-unit');
+        if (state && unit) unit.textContent = nowWorkerUnit(state.vehicle, state);
       });
     tickPrepTimers();
   }).catch(function () { /* keep the last known values */ });
@@ -546,27 +671,34 @@ function updateStats(counters) {
   });
 }
 
+// Strip one prep block (a vehicle or one of its clock sets) of everything that
+// could start or move a clock, and label it skipped.
+function markPrepSkipped(block) {
+  var actions = block.querySelector('.prep-actions');
+  if (actions) actions.remove();
+  block.className = block.className.replace(/\bprep-\w+\b/g, '') + ' prep-skipped';
+  block.querySelectorAll('[data-prep-timer]').forEach(function (t) {
+    t.setAttribute('data-status', 'skipped');
+  });
+  block.querySelectorAll('.prep-worker-actions').forEach(function (a) {
+    a.remove();
+  });
+  var status = block.querySelector('.prep-status');
+  if (status) {
+    status.textContent = 'Skipped';
+    status.className = 'badge prep-status warn';
+  }
+}
+
 function markSkipped(row, entryId, reason, unskipUrl) {
   var ck = row.querySelector('.checklist');
   if (ck) ck.remove();
   var prepBlock = row.querySelector('.prep');
   if (prepBlock) {
-    // A skipped vehicle never runs a clock, so drop its controls.
-    var actions = prepBlock.querySelector('.prep-actions');
-    if (actions) actions.remove();
-    prepBlock.className = prepBlock.className.replace(/\bprep-\w+\b/g, '') +
-      ' prep-skipped';
-    prepBlock.querySelectorAll('[data-prep-timer]').forEach(function (t) {
-      t.setAttribute('data-status', 'skipped');
-    });
-    prepBlock.querySelectorAll('.prep-worker-actions').forEach(function (a) {
-      a.remove();
-    });
-    var status = prepBlock.querySelector('.prep-status');
-    if (status) {
-      status.textContent = 'Skipped';
-      status.className = 'badge prep-status warn';
-    }
+    // A skipped vehicle never runs a clock, so drop the controls of both clock
+    // sets and freeze every clock on the vehicle.
+    markPrepSkipped(prepBlock);
+    prepScopes(prepBlock).forEach(markPrepSkipped);
   }
   row.querySelectorAll('.done-btn').forEach(function (btn) { btn.remove(); });
 

@@ -71,7 +71,7 @@
       <div class="now-worker-avatar">{{ emp.initials }}</div>
       <div class="now-worker-info">
         <div class="now-worker-name">{{ emp.name }}</div>
-        <div class="now-worker-unit">{{ emp.current_vehicle }}</div>
+        <div class="now-worker-unit">{{ emp.current_vehicle }}{% if emp.prep and emp.prep.active %} · {{ emp.prep.scope_label }} prep{% endif %}</div>
         {% if emp.prep and emp.prep.active %}
         <div class="now-worker-timer prep prep-{{ emp.prep.status }}" id="prep-now-{{ emp.id }}"
              data-prep-timer
@@ -93,6 +93,7 @@
   {% if prep_total %}
   <p class="muted small" style="margin:10px 0 0">
     Active prep time recorded today: <strong>{{ prep_total_label }}</strong>
+    (inside <strong>{{ prep_inside_label }}</strong> · outside <strong>{{ prep_outside_label }}</strong>)
     {% if prep_running %} · {{ prep_running }} timer{{ 's' if prep_running != 1 else '' }} running{% endif %}
   </p>
   {% endif %}
@@ -113,6 +114,8 @@
     <div class="stat"><div class="num">{{ replacements }}</div><div class="lbl">Replacements</div></div>
     <div class="stat"><div class="num" data-stat="overall">{{ overall }}%</div><div class="lbl">Completion</div></div>
     <div class="stat"><div class="num" data-stat="prep_total" data-prep-total-label="{{ prep_total_label }}">{{ prep_total_label }}</div><div class="lbl">Active Prep Time</div></div>
+    <div class="stat info"><div class="num" data-stat="prep_inside" data-prep-inside-label="{{ prep_inside_label }}">{{ prep_inside_label }}</div><div class="lbl">Inside Prep</div></div>
+    <div class="stat"><div class="num" data-stat="prep_outside" data-prep-outside-label="{{ prep_outside_label }}">{{ prep_outside_label }}</div><div class="lbl">Outside Prep</div></div>
   </div>
 </div>
 
