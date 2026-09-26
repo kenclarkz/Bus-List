@@ -275,7 +275,17 @@ is eventually reported.
   for an hour correctly report two hours of prep work.
 - **One clock per person at a time.** An employee never runs two clocks on the
   same vehicle, so the other set has to be paused (or finished) before it can be
-  started, and a paused clock cannot be resumed while the other set runs.
+  started, and a paused clock cannot be resumed while the other set runs. The
+  refusal names the person already on the clock and points at **Not you? Switch
+  name**, so somebody who pressed Start on the other side of a vehicle is told
+  whose clock is in the way and how to get a clock of their own.
+- **The board is shared, so it can change hands.** Every press is recorded
+  against the employee the board is currently working as, and **Not you? Switch
+  name** at the top of the board hands it to the next person without logging
+  out. That is what lets two people work the inside and the outside of one
+  vehicle from the same screen: the second person takes the board over, presses
+  Start on their side, and gets a clock of their own. Without it their press
+  would be recorded against the colleague already on the vehicle and refused.
 - **Existing databases are upgraded in place.** Sessions from the one-clock-per-
   vehicle schema are backfilled as `scope = 'both'`, so they count towards both
   the inside and the outside totals while still being reported only once, and
@@ -290,7 +300,10 @@ is eventually reported.
   the page carries the server's clock. The browser adds the two together each
   second. A refresh re-syncs from the server, and a tab coming back to the
   foreground re-syncs too, so time spent with the page closed or hidden is
-  added — never lost — and a device with a wrong clock is corrected.
+  added — never lost — and a device with a wrong clock is corrected. A press
+  redraws only the vehicle it touched, building the clock list of a clock set
+  that had none, so the very first clock on a side of a vehicle shows up (with
+  its own Pause/Done buttons) as soon as Start is pressed.
 - **Only valid actions are offered or accepted.** Starting a running vehicle,
   resuming a running timer, pausing a finished one, or finishing a vehicle that
   was never started are all rejected with an explanation and leave the record

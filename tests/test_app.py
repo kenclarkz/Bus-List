@@ -4352,12 +4352,13 @@ def test_booting_again_leaves_an_already_upgraded_database_alone(app, tmp_path):
         assert con.execute("SELECT note FROM prep_sessions").fetchall() == \
             [("keep me",)]
         ddl = _prep_sessions_ddl(db_path)
-        assert "UNIQUE (entry_id, employee_id)" in ddl
+        assert "UNIQUE (entry_id, employee_id, scope)" in ddl
         assert ddl.count("FOREIGN KEY") == 3
     finally:
         con.close()
     with app.app_context():
-        # Still one session per (entry, employee), still readable by the model.
+        # Still one session per (entry, employee, clock set), still readable by
+        # the model.
         assert [s.employee_id for s in PrepSession.query.all()] == [ann]
 
 
@@ -4433,3 +4434,92 @@ def test_now_working_card_follows_the_employee_not_the_vehicle(client, app):
     html = client.get("/").data.decode()
     assert 'data-prep-employee="%d"' % ann not in html
     assert 'data-prep-employee="%d"' % bob in html
+
+
+# ---------------------------------------------------------------------------
+# A shared board: the second person can take it over
+# ---------------------------------------------------------------------------
+
+def test_board_offers_a_way_to_switch_the_working_employee(client, app):
+    """The board is shared, so the person up next must be able to take it over
+    without logging out, and the name picker has to know who is on it now."""
+    with app.app_context():
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+    client.post("/select", data={"employee_id": str(ann)})
+
+    board = client.get("/").data.decode()
+    assert "Working as" in board
+    assert 'href="/select"' in board
+    assert "Not you? Switch name" in board
+
+    picker = client.get("/select").data.decode()
+    # Already signed in, so the picker offers the change instead of the first
+    # sign-in, and Ann is preselected for anyone who just walks up to it.
+    assert "Not you? Switch name" in picker
+    assert '<option value="%d" selected>Ann Alpha</option>' % ann in picker
+    assert '<option value="%d">Bob Beta</option>' % bob in picker
+
+    client.post("/select", data={"employee_id": str(bob)})
+    board = client.get("/").data.decode()
+    assert 'data-employee-id="%d"' % bob in board
+    assert "Bob Beta" in board
+
+
+def test_second_employee_can_start_the_other_side_after_switching(client, app):
+    """The reported failure: one person is working the outside of a vehicle and
+    a colleague presses Start on the inside.
+
+    A press is recorded against whoever is signed in, so on a shared board the
+    second person's Start was refused as a second clock for the colleague who
+    already had one. Taking the board over and pressing again gives them their
+    own inside clock, and both sides of the vehicle keep counting apart."""
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "934")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        prep_timer.start(ScheduleEntry.query.get(entry_id), ann, at=t0,
+                         scope=prep_timer.OUTSIDE)
+        db.session.commit()
+
+    # Ann is signed in and Bob presses Start on the inside: the board has no way
+    # of knowing that yet, so the start is refused.
+    client.post("/select", data={"employee_id": str(ann)})
+    r = client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(ann), "scope": "inside"})
+    assert r.status_code == 409
+    # The refusal names whose clock is in the way and how to get one of your own,
+    # instead of leaving the employee with a bare "could not start this vehicle".
+    error = r.get_json()["error"]
+    assert "Ann Alpha already has a running Outside clock" in error
+    assert "Not you? Switch name" in error
+
+    # A clock set nobody has started is rendered without a clock list at all, so
+    # the browser builds the list when the first Start lands on that side.
+    board = client.get("/").data.decode()
+    start = board.index(f'id="prep-{entry_id}-inside"')
+    inside_block = board[start:board.index("</section>", start)]
+    assert "Start Inside" in inside_block
+    assert 'class="prep-workers"' not in inside_block
+
+    # Bob takes the board over and presses Start on the inside.
+    client.post("/select", data={"employee_id": str(bob)})
+    r = client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(bob), "scope": "inside"})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["ok"] is True
+    assert body["state"]["scopes"]["inside"]["workers"][0]["employee"] == "Bob Beta"
+    assert body["state"]["scopes"]["outside"]["workers"][0]["employee"] == "Ann Alpha"
+
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        state = prep_timer.state(entry)
+        # Both sides of the vehicle are timed apart, each against its own person.
+        assert state["scopes"]["inside"]["worker_count"] == 1
+        assert state["scopes"]["outside"]["worker_count"] == 1
+        assert {w.employee_id for w in prep_timer.active_sessions_for(entry)} == \
+            {ann, bob}

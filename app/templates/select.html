@@ -30,8 +30,15 @@
 </head>
 <body class="login-body">
   <div class="login-card">
-    <h1 style="margin-top:0">Who's working?</h1>
-    <p class="muted" style="margin-top:0">Pick your name to continue to the Detailing Board.</p>
+    <h1 style="margin-top:0">{{ 'Not you? Switch name' if current_employee else "Who's working?" }}</h1>
+    <p class="muted" style="margin-top:0">
+      {%- if current_employee -%}
+      The board is shared. Pick the name of whoever is working now, so their
+      tasks and timers are recorded against them.
+      {%- else -%}
+      Pick your name to continue to the Detailing Board.
+      {%- endif -%}
+    </p>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
@@ -45,7 +52,7 @@
       <label for="employee_id">Employee</label>
       <select id="employee_id" name="employee_id" class="select-select" required autofocus>
         <option value="">— Select your name —</option>
-        {% for e in employees %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}
+        {% for e in employees %}<option value="{{ e.id }}"{% if current_employee and current_employee.id == e.id %} selected{% endif %}>{{ e.name }}</option>{% endfor %}
       </select>
       <button type="submit" class="btn big" style="margin-top:16px">Continue →</button>
     </form>

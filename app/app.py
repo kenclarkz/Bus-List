@@ -980,7 +980,12 @@ def register_routes(app):
 
     @app.route("/select", methods=["GET", "POST"])
     def select_employee():
-        """After the splash, employees pick their name before the board unlocks."""
+        """After the splash, employees pick their name before the board unlocks.
+
+        It is also how a shared board changes hands: picking a name here is how
+        the next person takes over, so their tasks and timers are recorded
+        against them instead of against whoever is signed in at the time.
+        """
         role = session.get("user")
         if role == "driver":
             return redirect(url_for("driver_dashboard"))
@@ -994,7 +999,9 @@ def register_routes(app):
             if emp and emp.active:
                 session["employee_id"] = emp.id
                 session["employee_name"] = emp.name
-                flash(f"Signed in as {emp.name}", "success")
+                # Also the way a shared board changes hands mid-shift, so the
+                # wording covers signing in and switching alike.
+                flash(f"Working as {emp.name}", "success")
                 return redirect(url_for("dashboard"))
             flash("Please choose your name to continue", "error")
             return redirect(url_for("select_employee"))
