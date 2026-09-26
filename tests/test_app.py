@@ -3324,8 +3324,9 @@ def test_prep_timer_keeps_counting_after_a_reload(client, app):
     assert 'data-status="running"' in html
     assert "data-segment-epoch=" in html
     assert "Timer running" in html
-    # Five minutes of work are already on the clock.
-    assert "05:00" in html
+    # Five minutes of work are already on the clock (t0 is truncated to the
+    # second, so the render may land a tick either side of the boundary).
+    assert "05:00" in html or "04:59" in html
 
     state = client.get(f"/prep/active").get_json()
     assert state["ok"] is True
@@ -3500,3 +3501,406 @@ def test_prep_timestamps_are_timezone_aware():
     assert timeutils.fmt_time(stamp) == "12:00 PM"
     assert timeutils.fmt_time(summer) == "12:00 PM"
     assert timeutils.to_eastern("2026-07-15T16:05:00Z").hour == 12
+
+
+# ---------------------------------------------------------------------------
+# More than one employee on the same vehicle
+# ---------------------------------------------------------------------------
+
+def test_two_employees_work_the_same_vehicle_at_once(client, app):
+    """A second employee can start the vehicle somebody else is already on."""
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "920")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        entry = ScheduleEntry.query.get(entry_id)
+        prep_timer.start(entry, ann, at=t0)
+        prep_timer.start(entry, bob, at=t0 + timedelta(minutes=1))
+
+        # Each employee has their own session, clock and total.
+        sessions = prep_timer.sessions_for(entry)
+        assert len(sessions) == 2
+        assert {s.employee_id for s in sessions} == {ann, bob}
+        assert all(s.status == "running" for s in sessions)
+        assert [e.employee_id for e in sessions[0].events] == [ann]
+        # The board state carries one clock per employee plus the vehicle total.
+        state = prep_timer.state(entry, at=t0 + timedelta(minutes=6))
+        assert state["worker_count"] == 2
+        assert state["running_count"] == 2
+        assert state["status"] == "running"
+        assert [w["employee"] for w in state["workers"]] == [
+            "Ann Alpha", "Bob Beta"]
+        # 6 minutes for Ann (started first) and 5 for Bob (joined a minute in).
+        assert [w["elapsed"] for w in state["workers"]] == [6 * 60, 5 * 60]
+        assert state["elapsed"] == 11 * 60
+        assert prep_timer.total_active_seconds(
+            entry.schedule, at=t0 + timedelta(minutes=6)) == 11 * 60
+        # Both employees are on the board as working on it.
+        assert Employee.query.get(ann).current_vehicle_id == entry.vehicle_id
+        assert Employee.query.get(bob).current_vehicle_id == entry.vehicle_id
+
+
+def test_one_employee_cannot_start_the_same_vehicle_twice(client, app):
+    """Joining a vehicle somebody else works is fine; starting it again yourself
+    is not."""
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "921")
+        ann = add_employee(app, "Ann Alpha")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        entry = ScheduleEntry.query.get(entry_id)
+        prep_timer.start(entry, ann, at=t0)
+
+    r = client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(ann)})
+    assert r.status_code == 409
+    assert "already started for you" in r.get_json()["error"]
+    # Once finished, the same employee cannot re-open the vehicle either.
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        prep_timer.finish(entry, ann, at=t0 + timedelta(minutes=30))
+    r = client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(ann)})
+    assert r.status_code == 409
+    assert "already been finished" in r.get_json()["error"]
+
+
+def test_each_employee_pauses_and_finishes_their_own_clock(client, app):
+    """Pausing / resuming / finishing one person's clock leaves everyone else's
+    running, and the vehicle is only complete once the last one is done."""
+    from app.models import PrepSession
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "922")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        entry = ScheduleEntry.query.get(entry_id)
+        ann_session = prep_timer.start(entry, ann, at=t0).id
+        bob_session = prep_timer.start(entry, bob, at=t0).id
+
+    # Ann pauses her own clock (the button in her row carries her session).
+    r = client.post(f"/entry/{entry_id}/prep/pause",
+                    data={"employee_id": str(ann),
+                          "session_id": str(ann_session)})
+    assert r.status_code == 200
+    state = r.get_json()["state"]
+    assert state["running_count"] == 1
+    assert {w["status"] for w in state["workers"]} == {"paused", "running"}
+    with app.app_context():
+        assert PrepSession.query.get(ann_session).status == "paused"
+        assert PrepSession.query.get(bob_session).status == "running"
+
+    # Ann is done: her clock freezes and she leaves the floor, while Bob keeps
+    # working and the vehicle is not complete yet.
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        prep_timer.finish(entry, ann, at=t0 + timedelta(minutes=10),
+                          session_id=ann_session)
+        assert Employee.query.get(ann).current_vehicle_id is None
+        assert Employee.query.get(bob).current_vehicle_id == entry.vehicle_id
+        assert entry.status == "in_progress"
+    r = client.post(f"/entry/{entry_id}/prep/done",
+                    data={"employee_id": str(bob),
+                          "session_id": str(bob_session)})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["entry_completed"] is True
+    assert body["counters"]["completed"] == 1
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        assert entry.status == "completed"
+        assert [s.id for s in prep_timer.sessions_for(entry)] == [
+            ann_session, bob_session]
+        state = prep_timer.state(entry)
+        assert [w["status"] for w in state["workers"]] == [
+            "finished", "finished"]
+        # Each employee's clock is separate, and the vehicle total is the sum.
+        assert state["elapsed"] == sum(w["elapsed"] for w in state["workers"])
+        assert Employee.query.get(bob).current_vehicle_id is None
+
+
+def test_finishing_a_crew_stops_every_clock_on_the_vehicle(client, app):
+    """Completing a vehicle some other way stops all of its clocks, so nothing
+    is left running in the background."""
+    from app.models import PrepSession
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "923")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        entry = ScheduleEntry.query.get(entry_id)
+        prep_timer.start(entry, ann, at=t0)
+        prep_timer.start(entry, bob, at=t0)
+
+    client.post(f"/entry/{entry_id}/complete")
+    with app.app_context():
+        sessions = PrepSession.query.filter_by(entry_id=entry_id).all()
+        assert len(sessions) == 2
+        assert all(s.status == "finished" for s in sessions)
+        assert all(s.finished_at is not None for s in sessions)
+
+
+def test_only_the_acting_employees_clock_is_stopped(client, app):
+    """A press acts on one clock: the acting employee's own, or the one the
+    button belongs to. Somebody with no clock on the vehicle cannot stop
+    anybody else's, and a timer from another vehicle is refused."""
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, vehicle_id = prep_entry(app, "924")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        cid = add_employee(app, "Cid Clark")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        entry = ScheduleEntry.query.get(entry_id)
+        prep_timer.start(entry, ann, at=t0)
+        prep_timer.start(entry, bob, at=t0)
+
+    # Bob presses Pause with no session id: it is Bob's own clock that stops.
+    r = client.post(f"/entry/{entry_id}/prep/pause",
+                    data={"employee_id": str(bob)})
+    assert r.status_code == 200
+    paused = [w for w in r.get_json()["state"]["workers"]
+              if w["status"] == "paused"]
+    assert [w["employee"] for w in paused] == ["Bob Beta"]
+
+    # Cid has no clock on the vehicle, so there is nothing to act on.
+    r = client.post(f"/entry/{entry_id}/prep/pause",
+                    data={"employee_id": str(cid)})
+    assert r.status_code == 409
+    assert "no prep timer on vehicle" in r.get_json()["error"]
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        assert sorted(s.status for s in prep_timer.sessions_for(entry)) == [
+            "paused", "running"]
+
+    # A timer that belongs to another vehicle is refused as well.
+    other_id, _ = prep_entry(app, "925")
+    with app.app_context():
+        other = ScheduleEntry.query.get(other_id)
+        other_session = prep_timer.start(other, cid, at=t0).id
+    r = client.post(f"/entry/{entry_id}/prep/pause",
+                    data={"employee_id": str(cid),
+                          "session_id": str(other_session)})
+    assert r.status_code == 409
+    assert "not on vehicle" in r.get_json()["error"]
+
+
+def test_board_shows_every_employee_on_a_vehicle(client, app):
+    """The board lists one clock per employee and offers the + Add Me button so
+    anybody can start their own clock on a vehicle already being worked."""
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "926")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        entry = ScheduleEntry.query.get(entry_id)
+        ann_session = prep_timer.start(entry, ann, at=t0).id
+        prep_timer.start(entry, bob, at=t0)
+
+    html = client.get("/").data.decode()
+    block = html[html.index(f'id="prep-{entry_id}"'):
+                 html.index('class="progress"', html.index(f'id="prep-{entry_id}"'))]
+    assert "Ann Alpha" in block and "Bob Beta" in block
+    assert "2 employees" in block
+    assert 'data-prep-join="%d"' % entry_id in block
+    # A clock per employee, each with its own session and status.
+    assert block.count('data-prep-timer') == 3      # vehicle total + 2 clocks
+    assert 'data-session="%d"' % ann_session in block
+    assert "Prep history (2)" in block             # one start event each
+
+    # The "Now Working" strip carries a card per employee.
+    assert 'data-prep-employee="%d"' % ann in html
+    assert 'data-prep-employee="%d"' % bob in html
+
+    # /prep/active keys the vehicles by entry and the clocks by employee.
+    payload = client.get("/prep/active").get_json()
+    assert payload["sessions"][str(entry_id)]["worker_count"] == 2
+    assert {payload["workers"][str(ann)]["employee"],
+            payload["workers"][str(bob)]["employee"]} == {"Ann Alpha", "Bob Beta"}
+
+
+def test_crew_reports_list_every_employee(client, app):
+    """The printable report and the end-of-day summary log one line per
+    employee and total both clocks."""
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "927", prep_time="04:30")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        entry = ScheduleEntry.query.get(entry_id)
+        prep_timer.start(entry, ann, at=t0)
+        prep_timer.pause(entry, ann, at=t0 + timedelta(minutes=10),
+                         session_id=prep_timer.sessions_for(entry)[0].id)
+        prep_timer.resume(entry, ann, at=t0 + timedelta(minutes=20),
+                          session_id=prep_timer.sessions_for(entry)[0].id)
+        prep_timer.finish(entry, ann, at=t0 + timedelta(minutes=25),
+                          session_id=prep_timer.sessions_for(entry)[0].id)
+        prep_timer.start(entry, bob, at=t0 + timedelta(minutes=30))
+        db.session.commit()
+
+    for html in (client.get(f"/print/{date.today().isoformat()}").data.decode(),
+                 client.get("/end").data.decode()):
+        assert "Prep Time Log" in html
+        assert "Ann Alpha" in html and "Bob Beta" in html
+        # Ann: 10 minutes + 5 after the resume. Bob: still running.
+        assert "15m 00s" in html
+        assert "Paused" in html and "Resumed" in html
+    # The vehicle's history keeps one run per employee.
+    with app.app_context():
+        from app.models import Vehicle as V
+        vehicle = V.query.get(entry_id) and ScheduleEntry.query.get(
+            entry_id).vehicle
+        history = prep_timer.vehicle_history(vehicle)
+        assert len(history) == 2
+        assert {h["employee"] for h in history} == {"Ann Alpha", "Bob Beta"}
+
+
+# ---------------------------------------------------------------------------
+# Upgrading a database written before a crew could share a vehicle
+# ---------------------------------------------------------------------------
+
+def _downgrade_prep_sessions_to_one_per_vehicle(db_path):
+    """Rewrite prep_sessions the way the old model made it: one timer per
+    vehicle per day, i.e. UNIQUE on entry_id only. Everything else, including
+    the recorded events, is left exactly as the old database had it."""
+    import sqlite3
+    con = sqlite3.connect(db_path)
+    current = con.execute("SELECT sql FROM sqlite_master WHERE type='table'"
+                          " AND name='prep_sessions'").fetchone()[0]
+    legacy = current.replace(
+        "UNIQUE (entry_id, employee_id)", "UNIQUE (entry_id)")
+    assert "UNIQUE (entry_id)" in legacy
+    con.execute("PRAGMA foreign_keys=OFF")
+    # Keeps prep_session_events pointing at "prep_sessions" while we swap it.
+    con.execute("PRAGMA legacy_alter_table=ON")
+    con.execute("ALTER TABLE prep_sessions RENAME TO prep_sessions_legacy")
+    con.execute(legacy)
+    con.execute("INSERT INTO prep_sessions SELECT * FROM prep_sessions_legacy")
+    con.execute("DROP TABLE prep_sessions_legacy")
+    con.execute("PRAGMA legacy_alter_table=OFF")
+    con.commit()
+    con.close()
+
+
+def test_existing_database_is_upgraded_to_allow_a_crew_per_vehicle(app, tmp_path):
+    """A database written before the change keeps every recorded second and
+    gains the ability to run two employees on one vehicle."""
+    from app.models import PrepSession, PrepSessionEvent
+    from app.services import prep_timer
+
+    db_path = str(tmp_path / "test.db")
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "930")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        session = prep_timer.start(ScheduleEntry.query.get(entry_id), ann,
+                                   at=t0)
+        prep_timer.finish(ScheduleEntry.query.get(entry_id), ann,
+                          at=t0 + timedelta(minutes=20), session_id=session.id)
+        old_session_id = PrepSession.query.one().id
+    _downgrade_prep_sessions_to_one_per_vehicle(db_path)
+
+    # Booting the app against the old file is the upgrade.
+    upgraded = create_app({
+        "TESTING": True,
+        "SQLALCHEMY_DATABASE_URI": f"sqlite:///{db_path}",
+        "SECRET_KEY": "test",
+        "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+    })
+    with upgraded.app_context():
+        sessions = PrepSession.query.all()
+        assert [s.id for s in sessions] == [old_session_id]
+        assert sessions[0].employee_id == ann
+        assert sessions[0].total_seconds == 20 * 60
+        assert [e.id for e in sessions[0].events] == \
+            [e.id for e in PrepSessionEvent.query.all()]
+
+        # The constraint is gone: a second employee can join the same vehicle.
+        prep_timer.start(ScheduleEntry.query.get(entry_id), bob,
+                         at=t0 + timedelta(minutes=30))
+        assert len(PrepSession.query.all()) == 2
+        state = prep_timer.state(ScheduleEntry.query.get(entry_id))
+        assert state["worker_count"] == 2
+        assert state["elapsed"] == 20 * 60
+
+
+def test_join_button_is_hidden_for_the_employee_already_timing(client, app):
+    """A person who already has a clock on a vehicle is offered their own
+    buttons, not a button that would be refused."""
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "931")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        entry = ScheduleEntry.query.get(entry_id)
+        prep_timer.start(entry, ann, at=t0)
+        db.session.commit()
+
+    # Signed in as Ann: her own row of buttons, no "+ Add Me".
+    c = app.test_client()
+    c.post("/login", data={"username": "employee", "password": "employee"})
+    c.post("/select", data={"employee_id": str(ann)})
+    html = c.get("/").data.decode()
+    start = html.index(f'id="prep-{entry_id}"')
+    block = html[start:start + 4000]
+    assert "Ann Alpha" in block
+    assert 'data-prep-join' not in block
+    assert "Your clock for this vehicle is in the list above" in block
+
+    # Signed in as Bob, the same vehicle offers him a clock of his own.
+    c = app.test_client()
+    c.post("/login", data={"username": "employee", "password": "employee"})
+    c.post("/select", data={"employee_id": str(bob)})
+    html = c.get("/").data.decode()
+    start = html.index(f'id="prep-{entry_id}"')
+    block = html[start:start + 4000]
+    assert 'data-prep-join="%d"' % entry_id in block
+
+
+def test_now_working_card_follows_the_employee_not_the_vehicle(client, app):
+    """Each "Now Working" card shows that person's own clock, and a card
+    disappears as soon as they press Done even if colleagues carry on."""
+    with app.app_context():
+        first_id, _ = prep_entry(app, "932")
+        second_id, _ = prep_entry(app, "933")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        first = ScheduleEntry.query.get(first_id)
+        second = ScheduleEntry.query.get(second_id)
+        from app.services import prep_timer
+        prep_timer.start(first, ann, at=t0)
+        prep_timer.start(second, bob, at=t0 + timedelta(minutes=2))
+        ann_session = prep_timer.sessions_for(first)[0].id
+
+    payload = client.get("/prep/active").get_json()
+    assert payload["workers"][str(ann)]["session_id"] == ann_session
+    assert payload["workers"][str(ann)]["entry_id"] == first_id
+    assert payload["workers"][str(bob)]["entry_id"] == second_id
+    html = client.get("/").data.decode()
+    assert 'data-prep-employee="%d"' % ann in html
+
+    # Ann presses Done: her card goes, Bob's keeps ticking.
+    client.post(f"/entry/{first_id}/prep/done", data={"employee_id": str(ann)})
+    payload = client.get("/prep/active").get_json()
+    assert str(ann) not in payload["workers"]
+    assert payload["workers"][str(bob)]["status"] == "running"
+    html = client.get("/").data.decode()
+    assert 'data-prep-employee="%d"' % ann not in html
+    assert 'data-prep-employee="%d"' % bob in html

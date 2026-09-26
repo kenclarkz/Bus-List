@@ -62,55 +62,98 @@
   <div class="vnote">{{ notes }}</div>
   {% endif %}
 
-  {# ---- Prep timer: Start -> Pause -> Resume -> Done -------------------- #}
+  {# ---- Prep timer: Start -> Pause -> Resume -> Done ---------------------- #}
+  {# Any number of employees can work the same vehicle at the same time.  #}
+  {# Each one gets their own clock, their own total and their own event   #}
+  {# log; the clock in the head is the vehicle's total across the crew.   #}
+  {% set status_badge = {'finished': 'success', 'running': 'info', 'paused': 'warn', 'none': 'muted'} %}
   <div class="prep prep-{{ prep.status }}" id="prep-{{ entry.id }}"
-       data-prep-entry="{{ entry.id }}">
+       data-prep-entry="{{ entry.id }}"
+       data-readonly="{{ '1' if current_role == 'manager' else '0' }}">
     <div class="prep-head">
       <span class="prep-label">Prep Time</span>
-      <span class="prep-clock prep-timer"
+      <span class="prep-clock prep-timer prep-total"
             data-prep-timer
-            data-entry="{{ entry.id }}"
-            data-status="{{ prep.status }}"
-            data-base-seconds="{{ prep.base_seconds }}"
-            {% if prep.segment_epoch %}data-segment-epoch="{{ prep.segment_epoch }}"{% endif %}
+            data-prep-sum="{{ entry.id }}"
+            data-status="sum"
+            data-elapsed="{{ prep.elapsed }}"
             data-server-epoch="{{ prep.server_epoch }}">{{ prep.clock_label }}</span>
-      <span class="badge prep-status {{ 'success' if prep.status == 'finished' else ('info' if prep.status == 'running' else ('warn' if prep.status == 'paused' else 'muted')) }}">
+      <span class="badge prep-status {{ status_badge.get(prep.status, 'muted') }}">
         {{ prep.status_label }}
       </span>
+      {% if prep.worker_count > 1 %}
+      <span class="badge info prep-crew">{{ prep.worker_count }} employees</span>
+      {% endif %}
     </div>
     <div class="prep-meta">
-      {% if prep.employee %}<span class="badge info">{{ prep.initials }}</span> {{ prep.employee }}{% else %}<span class="muted">No employee recorded</span>{% endif %}
-      {% if prep.started %} · Started {{ prep.started }}{% endif %}
-      {% if prep.finished %} · Done {{ prep.finished }}{% endif %}
-      {% if prep.status == 'finished' %} · <strong>Total prep {{ prep.total_label }}</strong>{% endif %}
-      {% if prep.status == 'paused' %} · <span class="muted">timer paused at {{ prep.total_label }}</span>{% endif %}
+      {% if prep.worker_count %}
+        {{ prep.worker_count }} employee{{ 's' if prep.worker_count != 1 else '' }} on this vehicle ·
+        Started {{ prep.started }}
+        {% if prep.finished %}· Done {{ prep.finished }}{% endif %} ·
+        <strong>Total prep {{ prep.total_label }}</strong>
+      {% else %}<span class="muted">No employee recorded</span>{% endif %}
     </div>
+    {% if prep.workers %}
+    <ul class="prep-workers">
+      {% for w in prep.workers %}
+      <li class="prep-worker prep-worker-{{ w.status }}" data-session="{{ w.session_id }}">
+        <span class="badge info prep-worker-initials">{{ w.initials or '—' }}</span>
+        <span class="prep-worker-name">{{ w.employee or 'Unassigned' }}</span>
+        <span class="prep-clock prep-timer"
+              data-prep-timer
+              data-employee="{{ w.employee_id or '' }}"
+              data-session="{{ w.session_id }}"
+              data-status="{{ w.status }}"
+              data-base-seconds="{{ w.base_seconds }}"
+              {% if w.segment_epoch %}data-segment-epoch="{{ w.segment_epoch }}"{% endif %}
+              data-elapsed="{{ w.elapsed }}"
+              data-server-epoch="{{ w.server_epoch }}">{{ w.clock_label }}</span>
+        <span class="badge prep-worker-status {{ status_badge.get(w.status, 'muted') }}">{{ w.status_label }}</span>
+        <span class="prep-worker-when muted small">
+          {% if w.started %}Started {{ w.started }}{% endif %}{% if w.finished %} · Done {{ w.finished }}{% endif %} ·
+          {{ w.total_label }}
+        </span>
+        <span class="prep-worker-actions">
+          {% if w.status == 'running' %}
+          <button type="button" class="btn warn pause-btn" data-prep-action="pause"
+                  data-entry="{{ entry.id }}" data-session="{{ w.session_id }}"
+                  {{ 'disabled' if current_role == 'manager' }}>Pause</button>
+          {% endif %}
+          {% if w.status == 'paused' %}
+          <button type="button" class="btn resume-btn" data-prep-action="resume"
+                  data-entry="{{ entry.id }}" data-session="{{ w.session_id }}"
+                  {{ 'disabled' if current_role == 'manager' }}>Resume</button>
+          {% endif %}
+          {% if w.status in ('running', 'paused') %}
+          <button type="button" class="btn success done-btn" data-prep-action="done"
+                  data-entry="{{ entry.id }}" data-session="{{ w.session_id }}"
+                  {{ 'disabled' if current_role == 'manager' }}>Done</button>
+          {% endif %}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
     {% if entry.status != 'skipped' and not r.replaced_by %}
+    {% set my_sessions = prep.workers | selectattr('employee_id', 'equalto', current_employee.id) | list if current_employee else [] %}
     <div class="prep-actions">
       {% if prep.status == 'none' %}
       <button type="button" class="btn success start-btn" data-prep-action="start"
               data-entry="{{ entry.id }}" data-vehicle="{{ v.unit_number }}"
               {{ 'disabled' if current_role == 'manager' }}>Start</button>
-      {% elif prep.status == 'running' %}
-      <button type="button" class="btn warn pause-btn" data-prep-action="pause"
-              data-entry="{{ entry.id }}"
-              {{ 'disabled' if current_role == 'manager' }}>Pause</button>
-      {% endif %}
-      {% if prep.status == 'paused' %}
-      <button type="button" class="btn resume-btn" data-prep-action="resume"
-              data-entry="{{ entry.id }}"
-              {{ 'disabled' if current_role == 'manager' }}>Resume</button>
-      {% endif %}
-      {% if prep.status in ('running', 'paused') %}
-      <button type="button" class="btn success done-btn" data-prep-action="done"
-              data-entry="{{ entry.id }}"
-              {{ 'disabled' if current_role == 'manager' }}>Done</button>
+      {% elif entry.status != 'completed' and not my_sessions %}
+      {# Somebody is already on it: anyone else can run their own clock. #}
+      <button type="button" class="btn success join-btn" data-prep-join="{{ entry.id }}"
+              data-entry="{{ entry.id }}" data-vehicle="{{ v.unit_number }}"
+              {{ 'disabled' if current_role == 'manager' }}>+ Add Me</button>
       {% endif %}
       <span class="muted small prep-hint">
         {% if prep.status == 'none' %}Press <strong>Start</strong> to begin the clock on this vehicle.
-        {% elif prep.status == 'running' %}Clock is running — the prep time keeps counting if you close the page.
+        {% elif my_sessions %}Your clock for this vehicle is in the list above.
+        {% elif prep.status == 'running' %}{{ prep.running_count }} clock{{ 's' if prep.running_count != 1 else '' }} running — the prep time keeps counting if you close the page.
         {% elif prep.status == 'paused' %}Paused: paused time is not added to the prep total.
         {% else %}Prep complete — total active prep time {{ prep.total_label }}.{% endif %}
+        {% if prep.worker_count %}More than one employee can work this vehicle at the same time.{% endif %}
       </span>
     </div>
     {% endif %}

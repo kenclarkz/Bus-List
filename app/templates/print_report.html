@@ -67,24 +67,28 @@
     <p style="font-size:12px">
       {{ prep_timed }} vehicle{{ '' if prep_timed == 1 else 's' }} prepped and timed ·
       total active prep time <strong>{{ prep_total_label }}</strong>.
-      Paused time is not counted as active prep time.
+      Paused time is not counted as active prep time. A vehicle worked by
+      several employees at once is listed once per employee, and the total
+      counts each employee's clock.
     </p>
     <table>
       <tr><th>Unit</th><th>Employee</th><th>Status</th><th>Start</th><th>Pause / Resume</th><th>Finish</th><th>Total Active Prep</th></tr>
       {% for p in prep_states %}
+      {% for w in p.workers %}
       <tr>
-        <td><strong>{{ p.vehicle }}</strong></td>
-        <td>{{ p.employee or '—' }}</td>
-        <td>{{ p.status_label }}</td>
-        <td>{{ p.started or '—' }}</td>
+        <td><strong>{{ w.vehicle or p.vehicle }}</strong></td>
+        <td>{{ w.employee or '—' }}</td>
+        <td>{{ w.status_label }}</td>
+        <td>{{ w.started or '—' }}</td>
         <td>
-          {% set stops = p.events|selectattr('type', 'in', ['pause', 'resume'])|list %}
+          {% set stops = w.events|selectattr('type', 'in', ['pause', 'resume'])|list %}
           {% for e in stops %}{{ e.label }} {{ e.at }}{% if not loop.last %} · {% endif %}{% endfor %}
           {% if not stops %}—{% endif %}
         </td>
-        <td>{{ p.finished or '—' }}</td>
-        <td><strong>{{ p.total_label if p.status != 'none' else '—' }}</strong></td>
+        <td>{{ w.finished or '—' }}</td>
+        <td><strong>{{ w.total_label }}</strong></td>
       </tr>
+      {% endfor %}
       {% else %}
       <tr><td colspan="7" style="color:#666">No vehicles on this day's board.</td></tr>
       {% endfor %}

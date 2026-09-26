@@ -41,25 +41,28 @@
   <p class="muted small">
     {{ prep_running }} timer{{ '' if prep_running == 1 else 's' }} still running ·
     total active prep time <strong>{{ prep_total_label }}</strong> ·
-    paused time is not counted.
+    paused time is not counted. A vehicle worked by several employees at once
+    is listed once per employee.
   </p>
   <div class="table-wrap">
   <table>
     <tr><th>Unit</th><th>Employee</th><th>Status</th><th>Start</th><th>Pause / Resume</th><th>Finish</th><th>Total Active Prep</th></tr>
     {% for p in timed %}
+    {% for w in p.workers %}
     <tr>
-      <td><strong>{{ p.vehicle }}</strong></td>
-      <td>{{ p.employee or '—' }}</td>
-      <td>{{ p.status_label }}</td>
-      <td>{{ p.started or '—' }}</td>
+      <td><strong>{{ w.vehicle or p.vehicle }}</strong></td>
+      <td>{{ w.employee or '—' }}</td>
+      <td>{{ w.status_label }}</td>
+      <td>{{ w.started or '—' }}</td>
       <td>
-        {% set stops = p.events|selectattr('type', 'in', ['pause', 'resume'])|list %}
+        {% set stops = w.events|selectattr('type', 'in', ['pause', 'resume'])|list %}
         {% for e in stops %}{{ e.label }} {{ e.at }}{% if not loop.last %} · {% endif %}{% endfor %}
         {% if not stops %}—{% endif %}
       </td>
-      <td>{{ p.finished or '—' }}</td>
-      <td><strong>{{ p.total_label }}</strong></td>
+      <td>{{ w.finished or '—' }}</td>
+      <td><strong>{{ w.total_label }}</strong></td>
     </tr>
+    {% endfor %}
     {% endfor %}
   </table>
   </div>

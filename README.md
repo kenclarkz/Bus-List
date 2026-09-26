@@ -42,13 +42,18 @@ report. It is not a static mockup.
    the board gets its own clock, recorded against the employee doing the work.
    **Start** begins the clock and puts the vehicle in progress; **Pause** and
    **Resume** stop and restart it without ever losing the time already worked;
-   **Done** stops the clock, freezes that vehicle's total active prep time, and
-   finishes the vehicle. Only the buttons valid for the current state are shown,
-   and an out-of-order action (starting a vehicle that is already running,
-   finishing one that was never started, resuming a running timer) is refused
-   with a clear reason instead of corrupting the record. Time is tracked while
-   the page is closed — the server owns the clock, so a refresh, a backgrounded
-   tab, or a device with a wrong clock never loses or invents time. Every
+   **Done** stops the clock, freezes that person's total active prep time, and
+   finishes the vehicle once nobody is still working on it. **Several employees
+   can work the same vehicle at the same time**: the row shows a clock per
+   employee, a combined vehicle clock, and an **+ Add Me** button for anyone else
+   to start their own clock, and each person's Pause/Resume/Done only ever
+   touches their own clock. Only the buttons valid for the current state are
+   shown, and an out-of-order action (starting a vehicle that is already running
+   for you, finishing one that was never started, resuming a running timer) is
+   refused with a clear reason instead of corrupting the record. Time is tracked
+   while the page is closed — the server owns the clock, so a refresh, a
+   backgrounded tab, or a device with a wrong clock never loses or invents
+   time. Every
    Start/Pause/Resume/Done is kept as permanent event history for the vehicle
    (shown on the board, the vehicle's history page, and the report), and
    completing a vehicle any other way (full checklist, End My Day) stops its
@@ -65,8 +70,9 @@ report. It is not a static mockup.
    indicators: Recently Washed / Due Soon / Overdue.
 7. **Dashboard** — today's totals: total, completed, in progress, remaining,
    overdue, replacements, worst overall completion %, and the day's total
-   **active prep time**. A "Now Working" strip shows every employee currently
-   on the floor with their vehicle and a live clock. Search & filter by unit
+   **active prep time** (all employees' clocks added together, so two people
+   working the same vehicle count as two workers). A "Now Working" strip shows
+   every employee currently on the floor with their vehicle and a live clock. Search & filter by unit
    number, type, route, and status. Each vehicle row shows its report (prep)
    time, pickup time, and driver code when the wash report supplied them
    (displayed as 12-hour AM/PM Eastern time).
@@ -201,7 +207,10 @@ settings, and vehicle CRUD, plus the prep timer workflow: Start → Pause →
 Resume → Done, per-vehicle independence, resume keeping prior work time,
 refresh accuracy, invalid actions being rejected, timers being stopped by other
 completion paths, the Eastern Time formatting, and the report/vehicle history
-output.
+output. It also covers several employees timing the same vehicle at once
+(independent clocks, one press acting on only one person's timer, the vehicle
+only completing once the last person is done, crew reporting), and the
+automatic upgrade of an older database to allow a crew per vehicle.
 
 ---
 
@@ -216,7 +225,7 @@ app/
   services/
     pdf_parser.py        # PDF text/table/OCR extraction + unit normalization
     schedule.py          # daily board, checklist, replacements, preview/apply
-    prep_timer.py        # per-vehicle Start/Pause/Resume/Done timer + history
+    prep_timer.py        # Start/Pause/Resume/Done timers per employee + history
     settings.py          # configurable thresholds/checklist
     timeutils.py         # Eastern Time storage, parsing and display helpers
     vehicles.py          # entity helpers, import/journal records
@@ -234,11 +243,22 @@ data/                    # SQLite database (created at runtime)
 The clock lives on the server, so a timer can never drift from the record that
 is eventually reported.
 
-- **One session per vehicle per day.** A `PrepSession` stores the running total
-  in seconds, the status (`running` / `paused` / `finished`), the start and
-  finish timestamps, and the employee. Each Start/Pause/Resume/Done is also
-  appended to a `PrepSessionEvent` with its own Eastern timestamp, the employee
-  who pressed it, and the running total at that moment.
+- **One session per employee per vehicle per day.** A `PrepSession` stores the
+  running total in seconds, the status (`running` / `paused` / `finished`), the
+  start and finish timestamps, and the employee. Each Start/Pause/Resume/Done is
+  also appended to a `PrepSessionEvent` with its own Eastern timestamp, the
+  employee who pressed it, and the running total at that moment.
+- **A whole crew can share a vehicle.** A vehicle has one session per employee,
+  so a second (or third) person just presses Start — or **+ Add Me** — and gets
+  a clock of their own. Pausing, resuming or finishing affects only the session
+  that was pressed, and the vehicle is only marked complete when the last
+  session finishes. The vehicle's clock and its report lines are the sum of
+  everybody's time on it, so two people working the same vehicle for an hour
+  correctly report two hours of prep work.
+- **Existing databases are upgraded in place.** The old schema allowed only one
+  timer per vehicle, so the first launch after this change rebuilds that one
+  table, keeping every session, every total and every recorded event, and then
+  the per-employee constraint takes over.
 - **Active time is the sum of the active segments only.** Pausing banks the
   seconds worked so far; the paused stretch is never billed. Resuming starts a
   new segment on top of the banked total, so previous work is never lost.
