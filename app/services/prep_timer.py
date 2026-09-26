@@ -584,6 +584,13 @@ def start(entry, employee_id=None, at=None, scope=INSIDE):
     unit = entry.vehicle.unit_number
     # One clock per employee per set: a run of your own in this set is off
     # limits, and you can never run two sides of one vehicle at once.
+    #
+    # The board is shared and a press is recorded against whoever is signed in,
+    # so "for you" can be the wrong person: a colleague who walked up to a
+    # vehicle somebody had already started is told about a clock of their own
+    # they know nothing about. So the refusal says what to do either way -- let
+    # it run, or take the board over and press again -- instead of leaving them
+    # to work out that the board is not signed in as them.
     mine = employee_sessions_for(entry, employee_id, wanted)
     if mine:
         session = mine[-1]
@@ -591,10 +598,15 @@ def start(entry, employee_id=None, at=None, scope=INSIDE):
             verb = "running" if session.status == "running" else "paused"
             raise PrepTimerError(
                 f"Vehicle {unit} {set_name} prep is already started "
-                f"for you (timer {verb})")
+                f"for you (timer {verb}) — if that is you it is already "
+                f"counting and there is nothing to press; if it is not, press "
+                f"\"Not you? Switch name\" at the top of the board and press "
+                f"{set_name} again to run a clock of your own")
         raise PrepTimerError(
             f"Vehicle {unit} {set_name} prep has already been finished "
-            f"for you")
+            f"for you — if that is you, this set of work is done; if it is "
+            f"not, press \"Not you? Switch name\" at the top of the board and "
+            f"press {set_name} again to run a clock of your own")
     _refuse_second_running_clock(entry, employee_id, wanted)
 
     session = PrepSession(

@@ -1096,8 +1096,12 @@ def register_routes(app):
                 if not prep_timer.active_sessions_for(entry):
                     sched_svc.complete_entry(entry)
         except prep_timer.PrepTimerError as err:
+            # A refused press still answers with the vehicle's real state, so
+            # the board repaints the row instead of leaving the button that was
+            # just refused on screen next to a clock that has moved on.
             return jsonify(ok=False, error=err.message,
-                           state=prep_timer.state(entry)), err.code
+                           state=prep_timer.state(entry),
+                           entry_completed=entry.status == "completed"), err.code
         except _DATABASE_BUSY_ERRORS:
             # Another employee's press, page load or timer re-sync held the
             # write lock. Nothing was written, so answer like any other refused
