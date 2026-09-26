@@ -274,6 +274,25 @@ def _migrate():
         pass
 
 
+def _uniques_on_entry_id_only(con):
+    """True when prep_sessions still carries the old UNIQUE (entry_id) alone.
+
+    The database is asked for its own unique indexes rather than the stored DDL
+    text, so a table that is already UNIQUE (entry_id, employee_id) is left
+    alone instead of being rebuilt on every app start.
+    """
+    for row in con.execute("PRAGMA index_list(prep_sessions)").fetchall():
+        _, name, unique, origin = row[0], row[1], row[2], row[3]
+        # origin "u" is a UNIQUE constraint (an auto-index); "pk" is the
+        # primary key and "c" a plain CREATE INDEX, neither of which is ours.
+        if not unique or origin != "u":
+            continue
+        cols = [r[2] for r in con.execute('PRAGMA index_info("%s")' % name)]
+        if cols == ["entry_id"]:
+            return True
+    return False
+
+
 def _allow_crew_per_vehicle(con):
     """Let several employees hold a prep timer on the same vehicle.
 
@@ -288,12 +307,14 @@ def _allow_crew_per_vehicle(con):
     ).fetchone()
     if not row or not row[0]:
         return
-    if "UNIQUE" not in row[0].upper():
+    if not _uniques_on_entry_id_only(con):
         return
     con.execute("PRAGMA foreign_keys=OFF")
     # Legacy rename keeps prep_session_events pointing at "prep_sessions"
     # instead of rewriting it to the temporary table name.
     con.execute("PRAGMA legacy_alter_table=ON")
+    # The same definition the model creates, foreign keys included, so the
+    # rebuild does not quietly drop the references SQLite enforces elsewhere.
     con.execute("""
         CREATE TABLE prep_sessions_crew (
             id INTEGER NOT NULL,
@@ -308,7 +329,10 @@ def _allow_crew_per_vehicle(con):
             created_at DATETIME,
             updated_at DATETIME,
             PRIMARY KEY (id),
-            UNIQUE (entry_id, employee_id)
+            UNIQUE (entry_id, employee_id),
+            FOREIGN KEY(entry_id) REFERENCES schedule_entries (id),
+            FOREIGN KEY(vehicle_id) REFERENCES vehicles (id),
+            FOREIGN KEY(employee_id) REFERENCES employees (id)
         )""")
     con.execute(
         "INSERT INTO prep_sessions_crew (id, entry_id, vehicle_id, employee_id,"
