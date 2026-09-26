@@ -4174,6 +4174,87 @@ def test_existing_database_is_upgraded_to_allow_a_crew_per_vehicle(app, tmp_path
         assert len(PrepSession.query.all()) == 3
 
 
+def _prep_sessions_ddl(db_path):
+    import sqlite3
+    con = sqlite3.connect(db_path)
+    try:
+        return con.execute("SELECT sql FROM sqlite_master WHERE type='table'"
+                           " AND name='prep_sessions'").fetchone()[0]
+    finally:
+        con.close()
+
+
+def test_upgraded_prep_sessions_keeps_its_foreign_keys(app, tmp_path):
+    """Rebuilding the table must not quietly drop the references the model
+    declares — the crew upgrade is a constraint swap, not a schema downgrade."""
+    db_path = str(tmp_path / "test.db")
+    _downgrade_prep_sessions_to_one_per_vehicle(db_path)
+    create_app({
+        "TESTING": True,
+        "SQLALCHEMY_DATABASE_URI": f"sqlite:///{db_path}",
+        "SECRET_KEY": "test",
+        "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+    })
+
+    import sqlite3
+    con = sqlite3.connect(db_path)
+    try:
+        targets = {r[2] for r in
+                   con.execute("PRAGMA foreign_key_list(prep_sessions)")}
+        assert targets == {"schedule_entries", "vehicles", "employees"}
+    finally:
+        con.close()
+
+
+def test_booting_again_leaves_an_already_upgraded_database_alone(app, tmp_path):
+    """The upgrade runs once. A database that already allows a crew must be
+    left untouched on every later start, not re-copied."""
+    from app.models import PrepSession
+    from app.services import prep_timer
+    import sqlite3
+
+    db_path = str(tmp_path / "test.db")
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "932")
+        ann = add_employee(app, "Ann Alpha")
+        prep_timer.start(ScheduleEntry.query.get(entry_id), ann,
+                         at=timeutils.now_eastern().replace(microsecond=0))
+    _downgrade_prep_sessions_to_one_per_vehicle(db_path)
+
+    config = {
+        "TESTING": True,
+        "SQLALCHEMY_DATABASE_URI": f"sqlite:///{db_path}",
+        "SECRET_KEY": "test",
+        "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+    }
+    create_app(config)  # first boot: the upgrade runs
+
+    # A column the upgrade never knew about: a rebuild would drop it, because
+    # it copies a fixed list of columns.
+    con = sqlite3.connect(db_path)
+    con.execute("ALTER TABLE prep_sessions ADD COLUMN note TEXT")
+    con.execute("UPDATE prep_sessions SET note='keep me'")
+    con.commit()
+    con.close()
+
+    create_app(config)  # second boot: nothing left to do
+
+    con = sqlite3.connect(db_path)
+    try:
+        cols = {r[1] for r in con.execute("PRAGMA table_info(prep_sessions)")}
+        assert "note" in cols
+        assert con.execute("SELECT note FROM prep_sessions").fetchall() == \
+            [("keep me",)]
+        ddl = _prep_sessions_ddl(db_path)
+        assert "UNIQUE (entry_id, employee_id)" in ddl
+        assert ddl.count("FOREIGN KEY") == 3
+    finally:
+        con.close()
+    with app.app_context():
+        # Still one session per (entry, employee), still readable by the model.
+        assert [s.employee_id for s in PrepSession.query.all()] == [ann]
+
+
 def test_join_button_is_hidden_for_the_employee_already_timing(client, app):
     """A person who already has a clock in one clock set is offered their own
     buttons there, not a button that would be refused, and is still offered a

@@ -314,6 +314,8 @@ def _upgrade_prep_sessions(con):
     # Legacy rename keeps prep_session_events pointing at "prep_sessions"
     # instead of rewriting it to the temporary table name.
     con.execute("PRAGMA legacy_alter_table=ON")
+    # The same definition the model creates, foreign keys included, so the
+    # rebuild does not quietly drop the references SQLite enforces elsewhere.
     con.execute("""
         CREATE TABLE prep_sessions_scoped (
             id INTEGER NOT NULL,
