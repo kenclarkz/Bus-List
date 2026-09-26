@@ -4523,3 +4523,87 @@ def test_second_employee_can_start_the_other_side_after_switching(client, app):
         assert state["scopes"]["outside"]["worker_count"] == 1
         assert {w.employee_id for w in prep_timer.active_sessions_for(entry)} == \
             {ann, bob}
+
+
+def test_refused_press_answers_with_the_state_the_board_needs_to_repaint(client,
+                                                                       app):
+    """A refused press must carry the vehicle's real state, not just a reason.
+
+    The board used to alert the reason and return, leaving the row exactly as it
+    was: the button that had just been refused was still on screen and the clock
+    beside it was whatever it had been before somebody else's press landed. On a
+    shared board that is how an employee ends up pressing a button the server has
+    already refused once, so the refusal is answered in the same shape as a
+    successful press.
+    """
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "936")
+        ann = add_employee(app, "Ann Alpha")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        prep_timer.start(ScheduleEntry.query.get(entry_id), ann, at=t0)
+        db.session.commit()
+
+    r = client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(ann), "scope": "inside"})
+    assert r.status_code == 409
+    body = r.get_json()
+    assert body["ok"] is False
+    assert body["entry_completed"] is False
+    state = body["state"]
+    assert state["scopes"]["inside"]["workers"][0]["employee"] == "Ann Alpha"
+    assert state["scopes"]["inside"]["workers"][0]["status"] == "running"
+    # The other clock set comes back too, so it stays in step as well.
+    assert state["scopes"]["outside"]["worker_count"] == 0
+
+
+def test_a_refusal_on_a_shared_board_says_how_to_get_a_clock_of_your_own(client,
+                                                                       app):
+    """The reported failure, from the other side: a vehicle is already started and
+    a second employee presses Start on the shared board.
+
+    The press is recorded against whoever is signed in, so the employee is told
+    about a clock of "theirs" they know nothing about. Both refusals that can
+    come out of this -- the clock is already counting, and the clock set is
+    already finished -- therefore have to say what to do when the board is not
+    signed in as them, the same way the refusal for a second running clock
+    already does.
+    """
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "937")
+        ann = add_employee(app, "Ann Alpha")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        entry = ScheduleEntry.query.get(entry_id)
+        # The outside set is washed and finished, the inside one is still going:
+        # both refusals a shared board can produce are on the table at once.
+        prep_timer.start(entry, ann, at=t0, scope=prep_timer.OUTSIDE)
+        prep_timer.finish(entry, ann, at=t0 + timedelta(minutes=30),
+                          scope=prep_timer.OUTSIDE)
+        prep_timer.start(entry, ann, at=t0 + timedelta(minutes=45),
+                         scope=prep_timer.INSIDE)
+        db.session.commit()
+
+    # The inside clock is still running: a press is refused, and the employee is
+    # told the clock is counting and how to run one of their own.
+    r = client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(ann), "scope": "inside"})
+    assert r.status_code == 409
+    error = r.get_json()["error"]
+    assert "already started for you (timer running)" in error
+    assert "already counting" in error
+    assert "Not you? Switch name" in error
+
+    # The outside clock set is finished, so that one is refused the same way.
+    r = client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(ann), "scope": "outside"})
+    assert r.status_code == 409
+    error = r.get_json()["error"]
+    assert "already been finished for you" in error
+    assert "Not you? Switch name" in error
+    # A finished clock set is not re-opened by the refusal itself.
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        assert len(prep_timer.sessions_for(entry, prep_timer.OUTSIDE)) == 1

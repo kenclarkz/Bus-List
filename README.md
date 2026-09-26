@@ -307,7 +307,12 @@ is eventually reported.
 - **Only valid actions are offered or accepted.** Starting a running vehicle,
   resuming a running timer, pausing a finished one, or finishing a vehicle that
   was never started are all rejected with an explanation and leave the record
-  untouched. Managers get a read-only board.
+  untouched. A rejection is answered with the vehicle's real state as well as
+  the reason, so the board repaints the row rather than leaving the refused
+  button on screen. Because the board is shared, a press is recorded against
+  whoever is signed in, so a refusal that says "for you" also says what to do
+  when the board is *not* signed in as you ("Not you? Switch name"). Managers
+  get a read-only board.
 - **A crew working at the same time never blocks itself.** Several employees are
   on the board from their own devices at once, so a press regularly overlaps
   somebody else's page load or timer re-sync. The SQLite database is therefore
@@ -319,6 +324,16 @@ is eventually reported.
   vehicle's clocks so nobody is left wondering whether their clock started.
   (WAL keeps a `detail.db-wal` / `detail.db-shm` pair next to the database; a
   copy of the database taken while the app is running should include them.)
+- **A press the board could not read never guesses.** When the answer to a press
+  is not JSON (a login redirect, an error page, a dropped connection) the board
+  re-reads the vehicle from the server *and waits for that read* before it says
+  anything, then reports what is really recorded: that your clock is running
+  (so the press did land and there is nothing to press again), that a named
+  colleague is already working that clock set (press **+ Add Me** to run a clock
+  of your own), that the board had lost your name (so the press was never
+  recorded), or — only when the re-read failed too — that the clock on screen
+  may be out of date and the page should be reloaded. It never claims a re-check
+  that did not happen.
 - **Nothing runs forever.** Finishing a timer is not the only way a clock stops:
   completing a vehicle through its checklist, or ending the day, stops any
   timer still running for that vehicle.

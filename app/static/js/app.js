@@ -146,6 +146,16 @@ function prepScopeLabel(scope) {
   return 'Inside';
 }
 
+// A step's verb as the board talks about it. The button is labelled "Done", so
+// "Could not done this vehicle" used to be what a refused press said.
+var PREP_ACTION_VERBS = {
+  start: 'start', pause: 'pause', resume: 'resume', done: 'finish'
+};
+
+function prepActionVerb(action) {
+  return PREP_ACTION_VERBS[action] || String(action || 'run the timer on');
+}
+
 // Add (or refresh) the live clock on a "Now Working" card. A card created by a
 // Start click gets the same ticking clock a page load would have rendered.
 function addNowWorkerTimer(card, empId, state) {
@@ -558,16 +568,26 @@ function bindPrepButtons(root) {
 // nothing and left them unable to tell whether their clock had started. An
 // answer we cannot read comes back as {ok: false, unreadable: true} so the
 // caller can re-read the vehicle's real state instead of guessing.
+//
+// "unreadable" is not one thing, and the employee can act on each differently,
+// so what happened is carried along: a redirect to the name picker or the login
+// page means the session had already ended and the press was never recorded,
+// while no answer at all means the device lost the server.
 function postBoardAction(url, body) {
   return fetch(url, { method: 'POST', body: body }).then(function (r) {
     return r.text().then(function (text) {
       var data = null;
       try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
       if (data && typeof data === 'object') return data;
-      return { ok: false, unreadable: true };
+      return {
+        ok: false,
+        unreadable: true,
+        status: r.status,
+        signed_out: !!r.redirected && /(\/select|\/login)/.test(r.url || '')
+      };
     });
   }, function () {
-    return { ok: false, unreadable: true };
+    return { ok: false, unreadable: true, offline: true };
   });
 }
 
@@ -596,16 +616,19 @@ function runPrepAction(btn) {
     var row = prepRow(entryId);
     if (!data || !data.ok) {
       btn.disabled = false;
+      // A refused press still comes back with the vehicle's real state, so the
+      // row is repainted before the reason is read out. Otherwise the button
+      // that was just refused is still sitting there inviting the same press,
+      // and the clock beside it is whatever it was before somebody else's.
+      if (data && data.state) {
+        applyPrepState(row, data.state, data.entry_completed);
+        bindPrepButtons(row);
+      }
       if (data && data.error) {
         alert(data.error);
         return;
       }
-      // The press may or may not have landed, so re-read every clock rather
-      // than telling the employee to press again and risk starting a second
-      // clock: the re-sync paints the row with whatever is really recorded.
-      resyncPrepTimers();
-      alert('Could not ' + action + ' this vehicle right now. The board has ' +
-        'been re-checked — look at the clock before pressing again.');
+      explainUnreadableAction(entryId, scope, action, data);
       return;
     }
     var state = data.state;
@@ -672,36 +695,106 @@ function runPrepAction(btn) {
 
 // Re-sync the clocks from the server after a tab has been in the background,
 // so time spent hidden is added to the running timers instead of being lost.
+//
+// The returned promise settles with the board it read, or with null when the
+// re-check did not happen (offline, or the server answered something other than
+// the JSON this asks for). Callers that tell the employee the board was
+// re-checked have to be able to tell whether that is true, which is why the
+// failure is handed back instead of swallowed here.
 function resyncPrepTimers() {
   var url = '/prep/active';
   var match = /[?&]date=([\d-]+)/.exec(window.location.search);
   if (match) url += '?date=' + match[1];
-  fetch(url).then(function (r) { return r.json(); }).then(function (data) {
-    if (!data || !data.sessions) return;
-    serverOffset = data.now - Date.now();
-    Object.keys(data.sessions).forEach(function (entryId) {
-      var row = prepRow(entryId);
-      // Re-rendering a row replaces its buttons, so the fresh ones are bound
-      // again here the same way a press re-binds them.
-      if (row) { applyPrepState(row, data.sessions[entryId]); bindPrepButtons(row); }
-    });
-    // Each "Now Working" card holds its own employee's clock, matched by
-    // employee: a vehicle worked by a crew has one card per person.
-    document.querySelectorAll('.now-worker-timer[data-prep-employee]')
-      .forEach(function (el) {
-        var state = (data.workers || {})[el.getAttribute('data-prep-employee')];
-        if (state) applyClock(el, state);
+  return fetch(url, { headers: { 'Accept': 'application/json' } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      if (!data || !data.sessions) return null;
+      serverOffset = data.now - Date.now();
+      Object.keys(data.sessions).forEach(function (entryId) {
+        var row = prepRow(entryId);
+        // Re-rendering a row replaces its buttons, so the fresh ones are bound
+        // again here the same way a press re-binds them.
+        if (row) { applyPrepState(row, data.sessions[entryId]); bindPrepButtons(row); }
       });
-    // The card names the side being timed, and a card can be showing a clock
-    // for the other set of the same vehicle after a press.
-    document.querySelectorAll('.now-worker[data-employee]')
-      .forEach(function (card) {
-        var state = (data.workers || {})[card.getAttribute('data-employee')];
-        var unit = card.querySelector('.now-worker-unit');
-        if (state && unit) unit.textContent = nowWorkerUnit(state.vehicle, state);
-      });
-    tickPrepTimers();
-  }).catch(function () { /* keep the last known values */ });
+      // Each "Now Working" card holds its own employee's clock, matched by
+      // employee: a vehicle worked by a crew has one card per person.
+      document.querySelectorAll('.now-worker-timer[data-prep-employee]')
+        .forEach(function (el) {
+          var state = (data.workers || {})[el.getAttribute('data-prep-employee')];
+          if (state) applyClock(el, state);
+        });
+      // The card names the side being timed, and a card can be showing a clock
+      // for the other set of the same vehicle after a press.
+      document.querySelectorAll('.now-worker[data-employee]')
+        .forEach(function (card) {
+          var state = (data.workers || {})[card.getAttribute('data-employee')];
+          var unit = card.querySelector('.now-worker-unit');
+          if (state && unit) unit.textContent = nowWorkerUnit(state.vehicle, state);
+        });
+      tickPrepTimers();
+      return data;
+    })
+    .catch(function () { return null; });
+}
+
+// Say what is really true when the board could not read the answer to a press.
+//
+// The press may or may not have landed, so the vehicle is re-read from the
+// server first and the message is built out of what is really recorded. This
+// used to say "The board has been re-checked — look at the clock before pressing
+// again" while firing the re-check off without waiting for it, so an employee
+// reading a vehicle somebody else had already started was pointed at a clock
+// that had not moved and told to press again, when in fact the one thing worth
+// saying was that a colleague was already on that clock set.
+function explainUnreadableAction(entryId, scope, action, data) {
+  resyncPrepTimers().then(function (fresh) {
+    if (data && data.signed_out) {
+      alert('The board had lost your name, so that press was not recorded. ' +
+        'Pick your name again, then ' + prepActionVerb(action) + ' this vehicle.');
+      return;
+    }
+    var board = fresh && (fresh.sessions || {})[entryId];
+    var set = board && (board.scopes || {})[scope];
+    if (set) {
+      // The press did land: this employee holds a clock in that set. Saying so
+      // is the whole point -- asking them to press again here is what would
+      // risk a second clock.
+      var mine = (set.workers || []).filter(function (w) {
+        return w.active && String(w.employee_id) === String(CURRENT_EMPLOYEE);
+      })[0];
+      if (mine) {
+        alert('Your ' + prepScopeLabel(scope).toLowerCase() + ' clock for this ' +
+          'vehicle is ' + (mine.status === 'running' ? 'running' : 'paused') +
+          ' at ' + mine.clock_label + ', so the press did land. Nothing to do.');
+        return;
+      }
+      // Somebody else is already on that clock set, which is the case where a
+      // press is not a second clock at all: it is how a crew joins a vehicle.
+      var others = (set.workers || []).filter(function (w) { return w.active; });
+      if (others.length) {
+        var names = others.map(function (w) {
+          return w.employee || 'Someone else';
+        });
+        alert(capitalize(names.join(' and ')) + ' ' +
+          (others.length === 1 ? 'is' : 'are') + ' already working the ' +
+          prepScopeLabel(scope).toLowerCase() + ' of this vehicle. Press ' +
+          '"+ Add Me" to run a clock of your own on it.');
+        return;
+      }
+    }
+    // Nothing can be said about the vehicle, so do not claim the board was
+    // re-checked: if the re-read did not come back either, the clock on screen
+    // is the last one the server managed to send, not the current one.
+    alert('Could not ' + prepActionVerb(action) + ' this vehicle, and ' +
+      (fresh ? 'no clock is recorded for it on the server'
+             : 'the board could not be re-checked just now, so the clock on ' +
+               'screen may be out of date') + '. Reload the page to see what ' +
+      'was recorded before pressing again.');
+  });
+}
+
+function capitalize(text) {
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
 }
 
 function updateStats(counters) {
