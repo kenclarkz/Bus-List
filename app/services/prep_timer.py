@@ -24,6 +24,7 @@ a daylight-saving change keeps counting the same amount of real time.
 from app.models import (
     db, Employee, PrepSession, PrepSessionEvent, ScheduleEntry,
 )
+from sqlalchemy.exc import IntegrityError
 
 from . import timeutils
 
@@ -518,6 +519,58 @@ def _no_session_error(entry, how, action, scope=None):
     return "Timer is already finished"
 
 
+def _your_clock_error(unit, set_name, status):
+    """Refuse a second clock in a set this employee already holds.
+
+    The board is shared and a press is recorded against whoever is signed in,
+    so "for you" can be the wrong person: a colleague who walked up to a
+    vehicle somebody had already started is told about a clock of their own
+    they know nothing about. So the refusal says what to do either way -- let
+    it run, or take the board over and press again -- instead of leaving them
+    to work out that the board is not signed in as them.
+    """
+    if status in ("running", "paused"):
+        verb = "running" if status == "running" else "paused"
+        return PrepTimerError(
+            f"Vehicle {unit} {set_name} prep is already started "
+            f"for you (timer {verb}) — if that is you it is already "
+            f"counting and there is nothing to press; if it is not, press "
+            f"\"Not you? Switch name\" at the top of the board and press "
+            f"{set_name} again to run a clock of your own")
+    return PrepTimerError(
+        f"Vehicle {unit} {set_name} prep has already been finished "
+        f"for you — if that is you, this set of work is done; if it is "
+        f"not, press \"Not you? Switch name\" at the top of the board and "
+        f"press {set_name} again to run a clock of your own")
+
+
+def _refused_by_clock_rule(entry, employee_id, scope, unit, set_name):
+    """Why the database refused a clock this service had already allowed.
+
+    Two quite different things refuse an insert the service meant to allow,
+    and what is really recorded afterwards is what tells them apart:
+
+    - the press lost a race with another device, so this employee *does* hold a
+      clock in that set now. That is the same refusal the check before the
+      insert reports, word for word, because it is the same situation.
+    - the rule that refused it is not the one this service keeps. A database
+      that never finished the upgrade to two clock sets per vehicle still holds
+      a single clock per vehicle, so the second clock of a crew -- or of one
+      person working both sides -- is impossible to record. That used to
+      escape as an error page, which the board could only report as "Could not
+      start this vehicle" and a press again that failed exactly the same way.
+    """
+    mine = employee_sessions_for(entry, employee_id, scope)
+    if mine:
+        return _your_clock_error(unit, set_name, mine[-1].status)
+    return PrepTimerError(
+        f"Vehicle {unit} could not record the {set_name} clock for this press, "
+        f"so nothing was recorded and there is nothing to undo. The clock "
+        f"already running on this vehicle is the only one the board's database "
+        f"can hold: it has not been upgraded to time both sides of a bus at "
+        f"once. Restart the app once, then press {set_name} again")
+
+
 def _claim_vehicle(employee_id, entry, at=None):
     """Mark the employee as working on this vehicle (drives Now Working)."""
     employee = Employee.query.get(employee_id) if employee_id else None
@@ -566,29 +619,9 @@ def start(entry, employee_id=None, at=None, scope=INSIDE):
     # limits. The *other* set is a different clock with its own stamps, and so
     # is anybody else's, so a crew -- or a single person working both sides --
     # is never refused here.
-    #
-    # The board is shared and a press is recorded against whoever is signed in,
-    # so "for you" can be the wrong person: a colleague who walked up to a
-    # vehicle somebody had already started is told about a clock of their own
-    # they know nothing about. So the refusal says what to do either way -- let
-    # it run, or take the board over and press again -- instead of leaving them
-    # to work out that the board is not signed in as them.
     mine = employee_sessions_for(entry, employee_id, wanted)
     if mine:
-        session = mine[-1]
-        if session.status in ("running", "paused"):
-            verb = "running" if session.status == "running" else "paused"
-            raise PrepTimerError(
-                f"Vehicle {unit} {set_name} prep is already started "
-                f"for you (timer {verb}) — if that is you it is already "
-                f"counting and there is nothing to press; if it is not, press "
-                f"\"Not you? Switch name\" at the top of the board and press "
-                f"{set_name} again to run a clock of your own")
-        raise PrepTimerError(
-            f"Vehicle {unit} {set_name} prep has already been finished "
-            f"for you — if that is you, this set of work is done; if it is "
-            f"not, press \"Not you? Switch name\" at the top of the board and "
-            f"press {set_name} again to run a clock of your own")
+        raise _your_clock_error(unit, set_name, mine[-1].status)
 
     session = PrepSession(
         entry_id=entry.id,
@@ -600,8 +633,19 @@ def start(entry, employee_id=None, at=None, scope=INSIDE):
         last_event_at=timeutils.store_ts(moment),
         total_seconds=0,
     )
-    db.session.add(session)
-    db.session.flush()
+    try:
+        db.session.add(session)
+        db.session.flush()
+    except IntegrityError:
+        # The uniqueness rule is the last line of defence for "one clock per
+        # employee per clock set", so refusing here means the insert lost a
+        # race with a press from another device rather than that this one was
+        # wrong. Nothing was written, so it is answered like any other refused
+        # start instead of escaping as an error page the board cannot read
+        # (which is all the employee used to be told: "Could not start this
+        # vehicle", with a press again that failed the same way).
+        db.session.rollback()
+        raise _refused_by_clock_rule(entry, employee_id, wanted, unit, set_name)
     _record(session, START, moment, employee_id)
 
     # Starting a vehicle also puts it in progress on the board and marks the

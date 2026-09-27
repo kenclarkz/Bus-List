@@ -3916,6 +3916,148 @@ def test_prep_action_that_loses_the_database_answers_with_json(client, app,
     assert r.status_code == 200
 
 
+def _stale_prep_sessions_rule_to_one_clock_per_vehicle(db_path):
+    """Put prep_sessions on the rule from before a vehicle had two clock sets:
+    the same columns, so the app reads and writes it normally, but one clock per
+    vehicle and no more -- so neither a colleague's clock in the other clock
+    set nor this employee's own can be recorded at all."""
+    import sqlite3
+    con = sqlite3.connect(db_path)
+    current = con.execute("SELECT sql FROM sqlite_master WHERE type='table'"
+                          " AND name='prep_sessions'").fetchone()[0]
+    stale = current.replace(
+        "CONSTRAINT uq_prep_session_employee_scope "
+        "UNIQUE (entry_id, employee_id, scope)",
+        "UNIQUE (entry_id)")
+    assert "UNIQUE (entry_id)" in stale
+    con.execute("PRAGMA foreign_keys=OFF")
+    con.execute("PRAGMA legacy_alter_table=ON")
+    con.execute("ALTER TABLE prep_sessions RENAME TO prep_sessions_legacy")
+    con.execute(stale)
+    con.execute("INSERT INTO prep_sessions SELECT * FROM prep_sessions_legacy")
+    con.execute("DROP TABLE prep_sessions_legacy")
+    con.execute("PRAGMA legacy_alter_table=OFF")
+    con.commit()
+    con.close()
+
+
+def test_a_clock_the_database_refuses_answers_with_a_reason(client, app,
+                                                            tmp_path):
+    """The reported failure: a colleague presses Start on the outside of a bus
+    somebody is already working inside, and the board says "Could not start
+    this vehicle, and no clock is recorded for it on the server. Reload the
+    page ... before pressing again."
+
+    A database whose clock-set upgrade never landed still allows only one
+    clock per vehicle, so the insert of the second clock is refused by the
+    database itself -- the other clock set, and the colleague working it, are
+    not in the way at all. That refusal used to escape as an
+    error page, which the board cannot read, so all it could say was the
+    generic "press again" -- against a press that could never succeed, however
+    many times it was repeated. A refused insert is now answered like every
+    other refused press: a reason naming the vehicle and the clock set, and
+    the vehicle's real state, so the row repaints instead of inviting the very
+    same press again.
+    """
+    from app.models import PrepSession
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "940")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        prep_timer.start(ScheduleEntry.query.get(entry_id), ann, at=t0,
+                         scope=prep_timer.INSIDE)
+        db.session.commit()
+    _stale_prep_sessions_rule_to_one_clock_per_vehicle(
+        str(tmp_path / "test.db"))
+
+    r = client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(bob), "scope": "outside"})
+
+    assert r.status_code == 409
+    assert r.is_json
+    body = r.get_json()
+    assert body["ok"] is False
+    # Names the vehicle and the clock set that could not be recorded, and says
+    # the press was lost, so there is nothing to undo.
+    assert body["error"].startswith(
+        "Vehicle 940 could not record the Outside clock for this press")
+    assert "nothing was recorded" in body["error"]
+    assert "not been upgraded" in body["error"]
+    # The vehicle's real state comes with it, so the row is repainted: the
+    # clock that is running is still running, and the refused clock set is
+    # empty rather than pretending to hold a clock nobody started.
+    assert body["entry_completed"] is False
+    inside = body["state"]["scopes"]["inside"]
+    assert inside["worker_count"] == 1
+    assert inside["workers"][0]["employee"] == "Ann Alpha"
+    assert body["state"]["scopes"]["outside"]["worker_count"] == 0
+
+    with app.app_context():
+        assert PrepSession.query.count() == 1
+        session = PrepSession.query.one()
+        assert session.employee_id == ann
+        assert session.scope == prep_timer.INSIDE
+        assert session.status == "running"
+
+
+def test_a_clock_lost_to_another_device_says_it_is_already_running(client, app,
+                                                                   monkeypatch):
+    """Two devices pressing the same button at the same moment: the insert that
+    loses is refused by the very rule the check above it applies, and the
+    winning press really did record a clock -- so the loser is told the same
+    thing a plain second press is told, not that the database is broken.
+    """
+    from app.models import PrepSession
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "941")
+        ann = add_employee(app, "Ann Alpha")
+        entry = ScheduleEntry.query.get(entry_id)
+        # The clock another device's press recorded, written straight to the
+        # database: the check above the insert had already cleared the way.
+        db.session.execute(
+            PrepSession.__table__.insert().values(
+                entry_id=entry_id, vehicle_id=entry.vehicle_id,
+                employee_id=ann, scope=prep_timer.OUTSIDE, status="running",
+                started_at=timeutils.store_ts(timeutils.now_eastern()),
+                last_event_at=timeutils.store_ts(timeutils.now_eastern()),
+                total_seconds=0))
+        db.session.commit()
+
+    # That check reads the database just before the insert, which is the whole
+    # gap the other press came through.
+    real_check = prep_timer.employee_sessions_for
+    seen = []
+
+    def check_before_the_other_press_landed(entry, employee_id, scope):
+        seen.append(scope)
+        return [] if len(seen) == 1 else real_check(entry, employee_id, scope)
+
+    monkeypatch.setattr(prep_timer, "employee_sessions_for",
+                        check_before_the_other_press_landed)
+
+    r = client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(ann), "scope": "outside"})
+
+    assert r.status_code == 409
+    body = r.get_json()
+    assert body["ok"] is False
+    # The same refusal a second press of one button gets, because it is the
+    # same situation -- not the database-is-broken complaint, which would send
+    # the employee off to restart the app over a press that is already running.
+    assert "already started for you (timer running)" in body["error"]
+    assert "not been upgraded" not in body["error"]
+    # The clock that did get recorded is untouched and still running.
+    assert body["state"]["scopes"]["outside"]["worker_count"] == 1
+    with app.app_context():
+        assert PrepSession.query.count() == 1
+        assert PrepSession.query.one().status == "running"
+
+
 def test_one_employee_cannot_start_the_same_vehicle_twice(client, app):
     """Joining a vehicle somebody else works is fine; starting it again yourself
     is not."""
@@ -4277,6 +4419,72 @@ def test_existing_database_is_upgraded_to_allow_a_crew_per_vehicle(app, tmp_path
                     prep_timer.start(entry, who, at=t0 + timedelta(minutes=30),
                                      scope=wanted)
         assert len(PrepSession.query.all()) == 3
+
+
+def test_an_interrupted_upgrade_does_not_poison_the_next_boot(app, tmp_path):
+    """A half-finished upgrade leaves its scratch table behind, and the next
+    boot used to find that table, refuse to go on, and leave the database on the
+    old rule for good.
+
+    It failed quietly, too: the migration swallowed the failure, so nothing said
+    why a bus had gone back to refusing a second clock. The refusal then
+    escaped the request as an error page, and all the board could tell the
+    employee who pressed was "Could not start this vehicle, and no clock is
+    recorded for it on the server. Reload the page ... before pressing again."
+    -- a press that could never succeed, so the board looked stuck.
+
+    So the next boot has to pick the half-finished run up rather than trip over
+    it, which is what this leaves behind: the scratch table exactly as an
+    interrupted run leaves it, next to a database still on the old rule.
+    """
+    from app.models import PrepSession
+    from app.services import prep_timer
+    import sqlite3
+
+    db_path = str(tmp_path / "test.db")
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "945")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        prep_timer.start(ScheduleEntry.query.get(entry_id), ann, at=t0,
+                         scope=prep_timer.INSIDE)
+        db.session.commit()
+    _downgrade_prep_sessions_to_one_per_vehicle(db_path)
+
+    con = sqlite3.connect(db_path)
+    # The scratch table an upgrade interrupted between creating it and renaming
+    # it over the old one leaves behind, empty, since the copy never ran.
+    con.execute("CREATE TABLE prep_sessions_scoped (id INTEGER)")
+    con.commit()
+    con.close()
+    assert "UNIQUE (entry_id)" in _prep_sessions_ddl(db_path)
+
+    create_app({
+        "TESTING": True,
+        "SQLALCHEMY_DATABASE_URI": f"sqlite:///{db_path}",
+        "SECRET_KEY": "test",
+        "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+    })
+
+    # The upgrade ran instead of tripping over its own leftovers, so the stale
+    # rule is gone and the scratch table is not left behind for the next boot.
+    assert "UNIQUE (entry_id, employee_id, scope)" in _prep_sessions_ddl(db_path)
+    con = sqlite3.connect(db_path)
+    leftover = con.execute("SELECT name FROM sqlite_master"
+                           " WHERE name='prep_sessions_scoped'").fetchall()
+    con.close()
+    assert leftover == []
+
+    # And the vehicle it left behind is a normal one again: a colleague can
+    # work the other side, and the clock recorded before the failure is intact.
+    with app.app_context():
+        assert PrepSession.query.count() == 1
+        entry = ScheduleEntry.query.get(entry_id)
+        assert prep_timer.state(entry)["scopes"]["inside"]["worker_count"] == 1
+        prep_timer.start(entry, bob, at=t0 + timedelta(minutes=10),
+                         scope=prep_timer.OUTSIDE)
+        assert len(PrepSession.query.all()) == 2
 
 
 def _prep_sessions_ddl(db_path):

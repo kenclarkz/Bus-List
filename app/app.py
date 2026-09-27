@@ -237,9 +237,20 @@ def _migrate():
     path = uri.replace("sqlite:///", "", 1)
     if path == ":memory:":
         return
+    con = sqlite3.connect(path)
+    # The clock-set upgrade is kept apart from the column work below and never
+    # fails quietly. A database left on the old rule cannot hold a second clock
+    # on a vehicle at all, so a crew -- or one person working both sides of a
+    # bus -- silently loses every press; the only sign of it used to be a
+    # refused insert the board could not explain.
     try:
-        con = sqlite3.connect(path)
         _upgrade_prep_sessions(con)
+    except Exception:
+        current_app.logger.exception(
+            "Could not upgrade prep_sessions to one clock per employee per "
+            "clock set: this database can only hold one clock per vehicle, so "
+            "starting a second one is refused until the next restart.")
+    try:
         cols = {r[1] for r in con.execute("PRAGMA table_info(schedule_entries)")}
         if "prep_time" not in cols:
             con.execute("ALTER TABLE schedule_entries ADD COLUMN prep_time VARCHAR(40)")
@@ -338,9 +349,10 @@ def _migrate():
             if col not in icols:
                 con.execute(f"ALTER TABLE incident_reports ADD COLUMN {col} {ctype}")
                 con.commit()
-        con.close()
     except Exception:
-        pass
+        current_app.logger.exception("Database migration did not finish")
+    finally:
+        con.close()
 
 
 def _upgrade_prep_sessions(con):
@@ -358,6 +370,14 @@ def _upgrade_prep_sessions(con):
       employee per clock set). SQLite cannot drop a constraint with ALTER
       TABLE, so a table with a stale one is rebuilt with the current
       definition, keeping every session, every total and every recorded event.
+
+    An upgrade that is interrupted between creating the rebuilt table and
+    renaming it over the old one leaves that table behind, and the next boot
+    then found its own leftover and gave up -- which left the database on the
+    stale rule for good, so every second clock of a vehicle (a colleague
+    starting the other side, or one person working both) was refused by the
+    insert and the press was lost. The scratch table is therefore cleared
+    first, so a half-finished run is picked up rather than poisoning the app.
     """
     import re
 
@@ -383,6 +403,9 @@ def _upgrade_prep_sessions(con):
     # Legacy rename keeps prep_session_events pointing at "prep_sessions"
     # instead of rewriting it to the temporary table name.
     con.execute("PRAGMA legacy_alter_table=ON")
+    # What an interrupted earlier run left behind. It is never a table worth
+    # keeping: the copy below is about to recreate and refill it.
+    con.execute("DROP TABLE IF EXISTS prep_sessions_scoped")
     # The same definition the model creates, foreign keys included, so the
     # rebuild does not quietly drop the references SQLite enforces elsewhere.
     con.execute("""
