@@ -5,8 +5,14 @@ A vehicle carries **two independent clock sets**: one for the **Inside** work
 Bay Checked, Final Inspection). Each set keeps its own clocks, totals and event
 log, so the time spent inside a bus is never mixed up with the time spent
 washing it. Every clock is still recorded against the employee doing the work,
-so a crew can share a vehicle: within a set, every person who starts work gets
-their own :class:`PrepSession` with their own clock, total and event log.
+so a whole crew can share a vehicle: within a set, every person who starts work
+gets their own :class:`PrepSession` with their own clock, total and event log.
+
+Any number of employees can be on one vehicle at the same time, and each of
+them can be on either side of it: two people washing the outside while a third
+sweeps the inside, or one person running an inside clock *and* an outside clock
+side by side. The only thing still refused is a second clock in a set the person
+has already run that day, which their own stamps could not tell apart.
 
 The service owns the whole workflow and refuses invalid transitions (starting a
 clock you have already started, finishing one that was never started, ...).
@@ -380,10 +386,10 @@ def active_worker_states(sched, at=None):
 
     One vehicle can carry a whole crew, so the "Now Working" board asks for
     each employee's *own* clock rather than the vehicle total. Only running or
-    paused clocks are included: somebody who is done has left the floor. If
-    an employee somehow has more than one clock going (they cannot Start a
-    second running clock, but a clock may be left paused), the most recently
-    started one is the vehicle — and the clock set — they are on now.
+    paused clocks are included: somebody who is done has left the floor. A
+    person working both sides of one vehicle has a clock in each, and only one
+    card fits, so the most recently started one is the vehicle — and the clock
+    set — they are on now.
     """
     workers = {}
     for board_state in board_states(sched, at=at):
@@ -531,34 +537,6 @@ def _release_employee(employee_id, entry):
         employee.current_vehicle_id = None
 
 
-def _refuse_second_running_clock(entry, employee_id, scope, session=None):
-    """Refuse a second running clock for the same person on one vehicle.
-
-    A vehicle has two clock sets, but a person can only work one side of it at
-    a time, so the other set waits until this clock is paused. Paused time is
-    not active prep time, which is exactly what makes taking up the other side
-    the right thing to do.
-
-    The board is shared and a press is recorded against whoever is signed in at
-    the time, so the name of the person already on the clock is spelled out: a
-    colleague who pressed Start on the other side of the vehicle is then told
-    plainly that the clock is not theirs, and how to get a clock of their own
-    instead of being left with a bare "could not start this vehicle".
-    """
-    elsewhere = [s for s in employee_sessions_for(entry, employee_id)
-                 if s.status == "running" and s is not session]
-    if not elsewhere:
-        return
-    running = elsewhere[-1]
-    who = running.employee.name if running.employee else "Someone else"
-    raise PrepTimerError(
-        f"{who} already has a running {running.scope_label} clock on vehicle "
-        f"{_unit(entry)} — if that is you, pause it before working "
-        f"{scope_label(scope)} prep; if it is not, press "
-        f"\"Not you? Switch name\" at the top of the board to run a clock of "
-        f"your own")
-
-
 def start(entry, employee_id=None, at=None, scope=INSIDE):
     """Start this employee's prep timer in one clock set of a vehicle.
 
@@ -567,7 +545,9 @@ def start(entry, employee_id=None, at=None, scope=INSIDE):
     timer begins the instant Start is pressed, so the live clock and the
     recorded history can never drift apart. Other employees may already be
     working the same vehicle, inside or outside: each of them gets their own
-    clock.
+    clock, and so does this employee on the other side -- two people on the
+    outside and one on the inside is three clocks, and one person working both
+    sides is two.
     """
     if entry is None:
         raise PrepTimerError("Vehicle not found on today's board", 404)
@@ -583,7 +563,9 @@ def start(entry, employee_id=None, at=None, scope=INSIDE):
     employee_id = _employee_id(employee_id)
     unit = entry.vehicle.unit_number
     # One clock per employee per set: a run of your own in this set is off
-    # limits, and you can never run two sides of one vehicle at once.
+    # limits. The *other* set is a different clock with its own stamps, and so
+    # is anybody else's, so a crew -- or a single person working both sides --
+    # is never refused here.
     #
     # The board is shared and a press is recorded against whoever is signed in,
     # so "for you" can be the wrong person: a colleague who walked up to a
@@ -607,7 +589,6 @@ def start(entry, employee_id=None, at=None, scope=INSIDE):
             f"for you — if that is you, this set of work is done; if it is "
             f"not, press \"Not you? Switch name\" at the top of the board and "
             f"press {set_name} again to run a clock of your own")
-    _refuse_second_running_clock(entry, employee_id, wanted)
 
     session = PrepSession(
         entry_id=entry.id,
@@ -654,8 +635,10 @@ def pause(entry, employee_id=None, at=None, session_id=None, scope=INSIDE):
 def resume(entry, employee_id=None, at=None, session_id=None, scope=INSIDE):
     """Resume a paused clock without losing the work time already banked.
 
-    Resuming also needs the employee to be free: taking a paused clock back up
-    while their other clock set is running would be two clocks at once.
+    A paused clock is only ever waiting on its own person, so a resume is
+    recorded against whoever pressed it. Resuming one set of a vehicle never
+    disturbs the clocks anybody else is running on the same vehicle, inside or
+    outside -- a person can be paused on the inside and resumed on both sides.
     """
     session, how = _resolve_session(entry, employee_id, session_id, scope)
     if session is None:
@@ -667,8 +650,6 @@ def resume(entry, employee_id=None, at=None, session_id=None, scope=INSIDE):
         raise PrepTimerError("Timer is already finished")
     if session.status != "paused":
         raise PrepTimerError("Timer is not paused, so it cannot be resumed")
-    _refuse_second_running_clock(entry, session.employee_id,
-                                 session.scope, session=session)
     moment = _now(at)
     session.status = "running"
     _record(session, RESUME, moment, employee_id)

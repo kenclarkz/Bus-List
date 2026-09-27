@@ -207,7 +207,11 @@ class PrepSession(db.Model):
     A vehicle can be worked by a whole crew at once, and each side of it
     independently: there is one session per (vehicle, clock set, employee) on a
     day, so each person has their own clock per side, their own total and their
-    own event log, and stopping one clock never disturbs anybody else's.
+    own event log, and stopping one clock never disturbs anybody else's. Any
+    number of employees can hold a clock on either side of the same vehicle at
+    the same moment (two on the outside and one on the inside is three sessions),
+    and one employee can run an inside and an outside clock side by side,
+    because the two sets are timed apart.
 
     Timestamps are stored as ISO-8601 strings that carry their Eastern Time
     offset (see ``services/timeutils.py``) so they stay unambiguous across
