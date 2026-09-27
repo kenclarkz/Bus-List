@@ -460,6 +460,13 @@ function renderPrepWorkers(setEl, entryId, state) {
   });
 }
 
+// What a clock set's buttons are saying, under each of the states that set can
+// be in. Every one of them ends the same way, because the board is shared: any
+// employee may start either side of a vehicle, and one person may run an inside
+// and an outside clock at the same time.
+var PREP_HINT_FOOTER = ' Anyone can time either side of this vehicle, and one ' +
+  'person can run an inside and an outside clock at once.';
+
 function prepHint(state) {
   var label = prepScopeLabel(state.scope);
   var lower = label.toLowerCase();
@@ -483,7 +490,8 @@ function prepHint(state) {
 
 // Whether the acting employee already holds a clock in this clock set. They get
 // their own buttons in the list, not a button that would be refused. The other
-// set of the vehicle is a different clock, so it does not count.
+// set of the vehicle is a different clock they can always start as well, so it
+// does not count here.
 function prepHasMyClock(state) {
   var mine = CURRENT_EMPLOYEE;
   if (!mine) return false;
@@ -509,7 +517,7 @@ function renderPrepActions(setEl, entryId, scope, state, entryCompleted) {
     actions.insertBefore(prepJoinButton(entryId, scope), actions.firstChild);
   }
   var hint = actions.querySelector('.prep-hint');
-  if (hint) hint.textContent = prepHint(state);
+  if (hint) hint.textContent = prepHint(state) + PREP_HINT_FOOTER;
 }
 
 function renderPrepHistory(setEl, state, scope) {
@@ -681,8 +689,12 @@ function runPrepAction(btn) {
       }
       // Finishing a vehicle changes the day totals.
       updateStats(data.counters);
-      // This employee is free again, so leave the "Now Working" floor.
-      if (isMine) removeNowWorker(CURRENT_EMPLOYEE);
+      // This employee is only off the floor once they have no clock left. One
+      // person can be timing both sides of a vehicle, so finishing one of their
+      // clocks is not leaving work -- their card stays for the other.
+      if (isMine && !prepHasMyActiveClock(state, CURRENT_EMPLOYEE)) {
+        removeNowWorker(CURRENT_EMPLOYEE);
+      }
     }
     tickPrepTimers();
   }).catch(function () {
@@ -690,6 +702,16 @@ function runPrepAction(btn) {
     // longer reject. Re-sync so the row matches what is really recorded.
     btn.disabled = false;
     resyncPrepTimers();
+  });
+}
+
+// Whether this employee still has an open clock on a vehicle in this state. A
+// person working both sides of one vehicle holds a clock in each set, and a
+// press that finishes one of them leaves the other counting.
+function prepHasMyActiveClock(state, employeeId) {
+  if (!state || !employeeId) return false;
+  return (state.workers || []).some(function (w) {
+    return w.active && String(w.employee_id) === String(employeeId);
   });
 }
 

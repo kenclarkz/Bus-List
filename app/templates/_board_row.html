@@ -111,6 +111,7 @@
       {% elif clock_set.status == 'paused' %}Paused: paused time is not added to the {{ clock_set.scope_label|lower }} total.
       {% else %}{{ clock_set.scope_label }} complete — {{ clock_set.total_label }} of active {{ clock_set.scope_label|lower }} prep time.{% endif %}
       {% if clock_set.worker_count %}More than one employee can work the {{ clock_set.scope_label|lower }} of a vehicle at the same time.{% endif %}
+      Anyone can time either side of this vehicle, and one person can run an inside and an outside clock at once.
     </span>
   </div>
   {% endif %}

@@ -3326,30 +3326,23 @@ def test_each_clock_set_is_timed_separately(client, app):
         t0 = timeutils.now_eastern().replace(microsecond=0)
         inside = prep_timer.start(entry, emp_id, at=t0,
                                   scope=prep_timer.INSIDE)
-        # One person never runs two clocks at once, so the outside side is taken
-        # up after pausing the inside one.
-        with pytest.raises(prep_timer.PrepTimerError):
-            prep_timer.start(entry, emp_id, at=t0 + timedelta(minutes=1),
-                             scope=prep_timer.OUTSIDE)
-        prep_timer.pause(entry, emp_id, at=t0 + timedelta(minutes=5),
-                         session_id=inside.id)
-        outside = prep_timer.start(entry, emp_id, at=t0 + timedelta(minutes=5),
+        # The outside side is a second clock of its own, so the same person can
+        # take it up while the inside one is still running.
+        outside = prep_timer.start(entry, emp_id, at=t0 + timedelta(minutes=1),
                                    scope=prep_timer.OUTSIDE)
-        # And the paused inside clock cannot be resumed while the outside one
-        # runs, which would be two clocks at once.
-        with pytest.raises(prep_timer.PrepTimerError):
-            prep_timer.resume(entry, emp_id, at=t0 + timedelta(minutes=6),
-                              session_id=inside.id)
-        # Nor can a second outside clock be started over the running one.
+        # Only a second clock in the *same* set is off limits.
         with pytest.raises(prep_timer.PrepTimerError):
             prep_timer.start(entry, emp_id, at=t0 + timedelta(minutes=6),
                              scope=prep_timer.OUTSIDE)
 
+        prep_timer.pause(entry, emp_id, at=t0 + timedelta(minutes=5),
+                         session_id=inside.id)
+        # Pausing the inside clock holds nothing back: it comes back up while the
+        # outside one is still running, and the two keep counting apart.
+        prep_timer.resume(entry, emp_id, at=t0 + timedelta(minutes=6),
+                          session_id=inside.id)
         prep_timer.finish(entry, emp_id, at=t0 + timedelta(minutes=10),
                           session_id=outside.id)
-        # Now the inside side runs on its own again.
-        prep_timer.resume(entry, emp_id, at=t0 + timedelta(minutes=20),
-                          session_id=inside.id)
         prep_timer.finish(entry, emp_id, at=t0 + timedelta(minutes=30),
                           session_id=inside.id)
 
@@ -3364,14 +3357,16 @@ def test_each_clock_set_is_timed_separately(client, app):
         assert [e.event_type for e in sessions["outside"].events] == \
             ["start", "done"]
         state = prep_timer.state(entry)
-        assert state["scopes"]["inside"]["elapsed"] == 15 * 60   # 5 + 10
-        assert state["scopes"]["outside"]["elapsed"] == 5 * 60
-        assert state["elapsed"] == 20 * 60
+        # Inside banks 5 minutes, sits paused, then runs 24 more: 5 + 24.
+        assert state["scopes"]["inside"]["elapsed"] == 29 * 60
+        # Outside runs straight from minute 1 to minute 10.
+        assert state["scopes"]["outside"]["elapsed"] == 9 * 60
+        assert state["elapsed"] == 38 * 60
         assert state["worker_count"] == 2
         assert prep_timer.scope_totals(entry.schedule) == \
-            {"inside": 15 * 60, "outside": 5 * 60}
+            {"inside": 29 * 60, "outside": 9 * 60}
         # The day's two totals together are the day's total.
-        assert prep_timer.total_active_seconds(entry.schedule) == 20 * 60
+        assert prep_timer.total_active_seconds(entry.schedule) == 38 * 60
         # The service itself never closes the board row.
         assert entry.status == "in_progress"
 
@@ -3428,8 +3423,9 @@ def test_prep_route_acts_on_the_clock_set_it_is_given(client, app):
 
 
 def test_a_paused_clock_does_not_block_the_other_clock_set(client, app):
-    """Paused time is not active prep time, and the other set does not wait
-    for it: pausing the inside clock lets the same person time the outside."""
+    """Paused time is not active prep time, and the other set neither waits for
+    a running clock nor is held up by a paused one: the inside clock can be
+    paused and taken back up again while the same person times the outside."""
     from app.services import prep_timer
 
     with app.app_context():
@@ -3438,27 +3434,33 @@ def test_a_paused_clock_does_not_block_the_other_clock_set(client, app):
         entry = ScheduleEntry.query.get(entry_id)
         t0 = timeutils.now_eastern().replace(microsecond=0)
         inside = prep_timer.start(entry, emp_id, at=t0)
-        # A second running clock is refused while the first is running.
-        with pytest.raises(prep_timer.PrepTimerError):
-            prep_timer.start(entry, emp_id, at=t0, scope=prep_timer.OUTSIDE)
+        # The outside side is a clock of its own: a running inside clock does
+        # not stand in its way.
+        outside = prep_timer.start(entry, emp_id, at=t0, scope=prep_timer.OUTSIDE)
         prep_timer.pause(entry, emp_id, at=t0 + timedelta(minutes=5),
                          session_id=inside.id)
-        outside = prep_timer.start(entry, emp_id, at=t0 + timedelta(minutes=5),
-                                   scope=prep_timer.OUTSIDE)
         assert outside.scope == "outside"
+        # Pausing the inside clock left the outside one counting.
+        assert outside.status == "running"
+        # And the paused inside clock comes back up while the outside runs.
+        prep_timer.resume(entry, emp_id, at=t0 + timedelta(minutes=8),
+                          session_id=inside.id)
+        assert inside.status == "running"
 
-        # A finished clock cannot be started over either.
+        # A finished clock cannot be started over.
         prep_timer.finish(entry, emp_id, at=t0 + timedelta(minutes=10),
                           session_id=outside.id)
         with pytest.raises(prep_timer.PrepTimerError):
             prep_timer.start(entry, emp_id, at=t0 + timedelta(minutes=10),
                              scope=prep_timer.OUTSIDE)
+        prep_timer.finish(entry, emp_id, at=t0 + timedelta(minutes=10),
+                          session_id=inside.id)
         state = prep_timer.state(entry)
-        # The paused inside clock froze at 5 minutes; the outside one recorded
-        # its own 5 minutes. Neither set borrows the other's time.
-        assert state["scopes"]["inside"]["elapsed"] == 5 * 60
-        assert state["scopes"]["outside"]["elapsed"] == 5 * 60
-        assert state["elapsed"] == 10 * 60
+        # The inside clock banked 5 minutes, sat paused, then ran 2 more; the
+        # outside one recorded its own 10. Neither set borrows the other's time.
+        assert state["scopes"]["inside"]["elapsed"] == 7 * 60
+        assert state["scopes"]["outside"]["elapsed"] == 10 * 60
+        assert state["elapsed"] == 17 * 60
 
 
 def test_two_employees_time_different_sides_of_one_vehicle(client, app):
@@ -4244,18 +4246,14 @@ def test_existing_database_is_upgraded_to_allow_a_crew_per_vehicle(app, tmp_path
         # The constraint is gone: a second employee can join the same vehicle.
         prep_timer.start(entry, bob, at=t0 + timedelta(minutes=30))
         assert len(PrepSession.query.all()) == 2
-        # One employee never runs two clocks at once, so Bob pauses his inside
-        # clock before taking up the outside one; the two sets then keep
-        # separate clocks, totals and event logs.
-        with pytest.raises(prep_timer.PrepTimerError):
-            prep_timer.start(entry, bob, at=t0 + timedelta(minutes=30),
-                             scope=prep_timer.OUTSIDE)
+        # Bob can work both sides of the same vehicle at once, and the two sets
+        # then keep separate clocks, totals and event logs.
         bob_inside = [s for s in PrepSession.query.all()
                       if s.employee_id == bob and s.scope == "inside"][0]
+        bob_outside = prep_timer.start(entry, bob, at=t0 + timedelta(minutes=30),
+                                       scope=prep_timer.OUTSIDE)
         prep_timer.pause(entry, bob, at=t0 + timedelta(minutes=35),
                          session_id=bob_inside.id)
-        bob_outside = prep_timer.start(entry, bob, at=t0 + timedelta(minutes=40),
-                                       scope=prep_timer.OUTSIDE)
         prep_timer.finish(entry, bob, at=t0 + timedelta(minutes=50),
                           session_id=bob_outside.id)
         assert len(PrepSession.query.all()) == 3
@@ -4263,20 +4261,21 @@ def test_existing_database_is_upgraded_to_allow_a_crew_per_vehicle(app, tmp_path
         state = prep_timer.state(entry)
         assert state["worker_count"] == 3
         # The legacy clock counts in both set totals, but only once in the
-        # vehicle total: 20m legacy + 5m Bob inside + 10m Bob outside.
-        assert state["elapsed"] == 35 * 60
+        # vehicle total: 20m legacy + 5m Bob inside + 20m Bob outside.
+        assert state["elapsed"] == 45 * 60
         assert state["scopes"]["inside"]["elapsed"] == 25 * 60
-        assert state["scopes"]["outside"]["elapsed"] == 30 * 60
+        assert state["scopes"]["outside"]["elapsed"] == 40 * 60
         # Ann's legacy clock already stands for both sides, and Bob's two
         # clocks are independent of each other.
         assert state["scopes"]["inside"]["worker_count"] == 2   # Ann and Bob
         assert state["scopes"]["outside"]["worker_count"] == 2  # Ann and Bob
 
-        # Ann cannot run a second clock in either set either.
-        for wanted in (prep_timer.INSIDE, prep_timer.OUTSIDE):
-            with pytest.raises(prep_timer.PrepTimerError):
-                prep_timer.start(entry, ann, at=t0 + timedelta(minutes=30),
-                                 scope=wanted)
+        # A second clock in the same set is still refused, for Ann and for Bob.
+        for who in (ann, bob):
+            for wanted in (prep_timer.INSIDE, prep_timer.OUTSIDE):
+                with pytest.raises(prep_timer.PrepTimerError):
+                    prep_timer.start(entry, who, at=t0 + timedelta(minutes=30),
+                                     scope=wanted)
         assert len(PrepSession.query.all()) == 3
 
 
@@ -4403,6 +4402,49 @@ def test_join_button_is_hidden_for_the_employee_already_timing(client, app):
     assert 'data-prep-join="%d"' % entry_id in set_html(entry_id, "inside")
 
 
+def test_the_board_offers_the_other_side_to_someone_already_timing_one(client, app):
+    """A person working one side of a vehicle is still offered a clock on the
+    other side of the *same* vehicle, whether nobody has started it yet or a
+    colleague is already on it — running a clock on both sides at once is the
+    point, not something the board has to talk them out of."""
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "935")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        entry = ScheduleEntry.query.get(entry_id)
+        prep_timer.start(entry, ann, at=t0, scope=prep_timer.INSIDE)
+        # Bob is already washing the outside, so that set is not waiting for a
+        # first Start — but it is still Ann's to join.
+        prep_timer.start(entry, bob, at=t0, scope=prep_timer.OUTSIDE)
+        db.session.commit()
+
+    def set_html(scope):
+        html = client.get("/").data.decode()
+        start = html.index(f'id="prep-{entry_id}-{scope}"')
+        return html[start:html.index("</section>", start)]
+
+    client.post("/select", data={"employee_id": str(ann)})
+
+    # The set she is already timing: her own buttons, not a refused Start.
+    assert 'data-prep-join="%d"' % entry_id not in set_html("inside")
+    assert "Your inside clock for this vehicle is in the list above" \
+        in set_html("inside")
+    # The set a colleague is on: a clock of her own, and both sides at once are
+    # spelled out rather than discouraged.
+    outside = set_html("outside")
+    assert 'data-prep-join="%d"' % entry_id in outside
+    assert 'data-prep-scope="outside"' in outside
+    assert "run an inside and an outside clock at once" in outside
+    # The same goes for the other side of the coin, and the board says so on
+    # the vehicle as a whole.
+    assert "Anyone can time either side of this vehicle" in set_html("inside")
+    assert "one person can run an inside and an outside clock at once" \
+        in set_html("outside")
+
+
 def test_now_working_card_follows_the_employee_not_the_vehicle(client, app):
     """Each "Now Working" card shows that person's own clock, and a card
     disappears as soon as they press Done even if colleagues carry on."""
@@ -4466,63 +4508,95 @@ def test_board_offers_a_way_to_switch_the_working_employee(client, app):
     assert "Bob Beta" in board
 
 
-def test_second_employee_can_start_the_other_side_after_switching(client, app):
-    """The reported failure: one person is working the outside of a vehicle and
-    a colleague presses Start on the inside.
+def test_a_vehicle_can_be_worked_by_a_crew_from_both_sides_at_once(client, app):
+    """The reported failure: one person is working the outside of a vehicle and a
+    colleague presses Start on the inside.
 
-    A press is recorded against whoever is signed in, so on a shared board the
-    second person's Start was refused as a second clock for the colleague who
-    already had one. Taking the board over and pressing again gives them their
-    own inside clock, and both sides of the vehicle keep counting apart."""
+    A press is recorded against whoever the board is working as, and nothing
+    about the other side of the vehicle stands in the way any more, so the
+    second person gets their own inside clock straight away and both sides of
+    the vehicle keep counting apart. Two on the outside and one on the inside is
+    the same thing with one more colleague."""
     from app.services import prep_timer
 
     with app.app_context():
         entry_id, _ = prep_entry(app, "934")
         ann = add_employee(app, "Ann Alpha")
         bob = add_employee(app, "Bob Beta")
+        cid = add_employee(app, "Cal Gamma")
         t0 = timeutils.now_eastern().replace(microsecond=0)
-        prep_timer.start(ScheduleEntry.query.get(entry_id), ann, at=t0,
-                         scope=prep_timer.OUTSIDE)
+        entry = ScheduleEntry.query.get(entry_id)
+        prep_timer.start(entry, ann, at=t0, scope=prep_timer.OUTSIDE)
         db.session.commit()
-
-    # Ann is signed in and Bob presses Start on the inside: the board has no way
-    # of knowing that yet, so the start is refused.
-    client.post("/select", data={"employee_id": str(ann)})
-    r = client.post(f"/entry/{entry_id}/prep/start",
-                    data={"employee_id": str(ann), "scope": "inside"})
-    assert r.status_code == 409
-    # The refusal names whose clock is in the way and how to get one of your own,
-    # instead of leaving the employee with a bare "could not start this vehicle".
-    error = r.get_json()["error"]
-    assert "Ann Alpha already has a running Outside clock" in error
-    assert "Not you? Switch name" in error
 
     # A clock set nobody has started is rendered without a clock list at all, so
     # the browser builds the list when the first Start lands on that side.
+    client.post("/select", data={"employee_id": str(ann)})
     board = client.get("/").data.decode()
     start = board.index(f'id="prep-{entry_id}-inside"')
     inside_block = board[start:board.index("</section>", start)]
     assert "Start Inside" in inside_block
     assert 'class="prep-workers"' not in inside_block
 
-    # Bob takes the board over and presses Start on the inside.
-    client.post("/select", data={"employee_id": str(bob)})
+    # Ann presses Start on the inside while her outside clock runs: the inside
+    # set is hers for the taking, and the press is not refused.
     r = client.post(f"/entry/{entry_id}/prep/start",
-                    data={"employee_id": str(bob), "scope": "inside"})
+                    data={"employee_id": str(ann), "scope": "inside"})
     assert r.status_code == 200
     body = r.get_json()
     assert body["ok"] is True
-    assert body["state"]["scopes"]["inside"]["workers"][0]["employee"] == "Bob Beta"
+    assert body["state"]["scopes"]["inside"]["workers"][0]["employee"] == "Ann Alpha"
     assert body["state"]["scopes"]["outside"]["workers"][0]["employee"] == "Ann Alpha"
+
+    # Bob takes the board over and presses Start on the outside, joining Ann.
+    client.post("/select", data={"employee_id": str(bob)})
+    r = client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(bob), "scope": "outside"})
+    assert r.status_code == 200
+    assert r.get_json()["state"]["scopes"]["outside"]["worker_count"] == 2
+
+    # Two on the outside and one on the inside: a third person joins the
+    # outside, and can time the inside as well without stopping their own
+    # outside clock first.
+    client.post("/select", data={"employee_id": str(cid)})
+    r = client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(cid), "scope": "outside"})
+    assert r.status_code == 200
+    r = client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(cid), "scope": "inside"})
+    assert r.status_code == 200
 
     with app.app_context():
         entry = ScheduleEntry.query.get(entry_id)
         state = prep_timer.state(entry)
-        # Both sides of the vehicle are timed apart, each against its own person.
-        assert state["scopes"]["inside"]["worker_count"] == 1
-        assert state["scopes"]["outside"]["worker_count"] == 1
+        # Each side is timed apart, every employee carrying a clock of their own.
+        assert state["scopes"]["inside"]["worker_count"] == 2   # Ann and Cal
+        assert state["scopes"]["outside"]["worker_count"] == 3  # Ann, Bob, Cal
         assert {w.employee_id for w in prep_timer.active_sessions_for(entry)} == \
-            {ann, bob}
+            {ann, bob, cid}
+        # Five clocks, and each of them stamped its own start.
+        sessions = prep_timer.sessions_for(entry)
+        assert len(sessions) == 5
+        assert {s.employee_id for s in sessions} == {ann, bob, cid}
+        assert all(s.events for s in sessions)
+        # Cal holds a clock on each side at once, and both are still running.
+        assert len([s for s in sessions
+                    if s.employee_id == cid and s.status == "running"]) == 2
+
+    # The vehicle is only finished once the last clock on it is closed: closing
+    # one of Cal's two clocks leaves the other counting.
+    r = client.post(f"/entry/{entry_id}/prep/done",
+                    data={"employee_id": str(cid), "scope": "inside"})
+    assert r.get_json()["still_working"] is True
+    assert r.get_json()["entry_completed"] is False
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        assert prep_timer.sessions_for(entry, prep_timer.INSIDE)[-1].status == \
+            "finished"
+        assert prep_timer.sessions_for(entry, prep_timer.OUTSIDE)[-1].status == \
+            "running"
+        # Cal is still on the floor, so they are still claimed for the vehicle.
+        assert Employee.query.get(cid).current_vehicle_id == entry.vehicle_id
 
 
 def test_refused_press_answers_with_the_state_the_board_needs_to_repaint(client,
