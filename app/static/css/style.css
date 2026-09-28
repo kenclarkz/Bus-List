@@ -249,9 +249,6 @@ tr.row-inactive td { color: var(--muted); }
 .vrow.row-replaced .vmeta,
 .vrow.row-replaced .progress { color: var(--muted); }
 .vrow.row-transit { border-style: dashed; }
-/* the vehicle this employee has claimed: its Start buttons are open */
-.vrow.row-selected { border-color: var(--success); box-shadow: 0 0 0 2px var(--success-bg); }
-.select-btn[aria-pressed="true"] { border-color: var(--success); }
 .vnum { font-size: 1.25rem; font-weight: 800; }
 .driver-code {
   font-size: 1.3rem; font-weight: 800; color: var(--info);
@@ -362,11 +359,6 @@ tr.row-inactive td { color: var(--muted); }
 }
 .prep-meta { font-size: .8rem; color: var(--muted); }
 .prep-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-/* A clock set nobody has started stays closed until its vehicle is selected,
-   so the board is a list of vehicles rather than a wall of Start buttons. A
-   set that already has clocks on it is never locked: a colleague still has to
-   be able to join a vehicle they did not select. */
-.prep-actions[data-prep-locked="1"] { display: none; }
 .prep-hint { flex: 1 1 240px; }
 .prep-crew { font-size: .65rem; }
 /* the vehicle total: the sum of every employee working on it */

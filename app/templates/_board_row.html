@@ -7,12 +7,8 @@
 {# One clock set of a vehicle: the Inside clocks or the Outside clocks, with
    its own total, its own per-employee clocks and its own Start/Pause/Resume/
    Done buttons. The two sets of a vehicle are completely independent, so this
-   is rendered once per scope.
-
-   `selected` says the acting employee has claimed this vehicle, which is what
-   opens a clock set nobody has started: the board is a wall of vehicles, and
-   two Start buttons on every one of them is how it used to read. #}
-{% macro prep_set_block(r, clock_set, status_badge, selected) %}
+   is rendered once per scope. #}
+{% macro prep_set_block(r, clock_set, status_badge) %}
 {% set entry = r.entry %}
 {% set v = r.vehicle %}
 {% set tasks = r.prep_tasks.get(clock_set.scope, []) %}
@@ -95,12 +91,8 @@
   {% endif %}
   {% if entry.status != 'skipped' and not r.replaced_by %}
   {% set my_sessions = clock_set.workers | selectattr('employee_id', 'equalto', current_employee.id) | list if current_employee else [] %}
-  {# A set nobody has started waits for the vehicle to be selected; one that
-     already has clocks stays open, so a colleague can still join a vehicle
-     they never claimed. #}
-  {% set open = selected or clock_set.status != 'none' %}
-  <div class="prep-actions" data-prep-locked="{{ '0' if open else '1' }}"{% if selected %} data-prep-open="1"{% endif %}>
-    {% if clock_set.status == 'none' and selected %}
+  <div class="prep-actions">
+    {% if clock_set.status == 'none' and entry.status != 'completed' %}
     <button type="button" class="btn success start-btn" data-prep-action="start"
             data-entry="{{ entry.id }}" data-vehicle="{{ v.unit_number }}"
             data-prep-scope="{{ clock_set.scope }}"
@@ -113,15 +105,14 @@
             {{ 'disabled' if current_role == 'manager' }}>+ Add Me</button>
     {% endif %}
     <span class="muted small prep-hint">
-      {% if entry.status == 'completed' %}{% if clock_set.status == 'finished' %}{{ clock_set.scope_label }} complete — {{ clock_set.total_label }} of active {{ clock_set.scope_label|lower }} prep time.{% else %}This vehicle is complete, so it is no longer selected or started.{% endif %}
-      {% elif not open %}Select this vehicle to time the {{ clock_set.scope_label|lower }} work.
+      {% if entry.status == 'completed' %}{% if clock_set.status == 'finished' %}{{ clock_set.scope_label }} complete — {{ clock_set.total_label }} of active {{ clock_set.scope_label|lower }} prep time.{% else %}This vehicle is complete, so it is no longer started.{% endif %}
       {% elif clock_set.status == 'none' %}Press <strong>Start {{ clock_set.scope_label }}</strong> to time the {{ clock_set.scope_label|lower }} work on this vehicle.
       {% elif my_sessions %}Your {{ clock_set.scope_label|lower }} clock for this vehicle is in the list above.
       {% elif clock_set.status == 'running' %}{{ clock_set.running_count }} clock{{ 's' if clock_set.running_count != 1 else '' }} running — the {{ clock_set.scope_label|lower }} clock keeps counting if you close the page.
       {% elif clock_set.status == 'paused' %}Paused: paused time is not added to the {{ clock_set.scope_label|lower }} total.
       {% else %}{{ clock_set.scope_label }} complete — {{ clock_set.total_label }} of active {{ clock_set.scope_label|lower }} prep time.{% endif %}
-      {% if open and clock_set.worker_count %}More than one employee can work the {{ clock_set.scope_label|lower }} of a vehicle at the same time.{% endif %}
-      {% if open and entry.status != 'completed' %}Anyone can time either side of this vehicle, and one person can run an inside and an outside clock at once.{% endif %}
+      {% if clock_set.worker_count %}More than one employee can work the {{ clock_set.scope_label|lower }} of a vehicle at the same time.{% endif %}
+      {% if entry.status != 'completed' %}Anyone can time either side of this vehicle, and one person can run an inside and an outside clock at once.{% endif %}
     </span>
   </div>
   {% endif %}
@@ -145,11 +136,7 @@
 {% set entry = r.entry %}
 {% set v = r.vehicle %}
 {% set prep = r.prep %}
-{# Has the acting employee claimed this vehicle? The claim is what opens the
-   clock sets nobody has started, and it is theirs alone: on a shared board
-   every employee picks the vehicle they are walking up to. #}
-{% set selected = current_employee is not none and current_employee.current_vehicle_id == v.id %}
-<div class="vrow {{ 'row-replacement' if entry.is_replacement }}{{ ' row-replaced' if r.replaced_by }}{{ ' row-transit' if r.is_transit }}{{ ' row-selected' if selected }}" id="row-{{ entry.id }}">
+<div class="vrow {{ 'row-replacement' if entry.is_replacement }}{{ ' row-replaced' if r.replaced_by }}{{ ' row-transit' if r.is_transit }}" id="row-{{ entry.id }}">
   <div class="vrow-header">
     <span class="vnum">{{ v.unit_number }}</span>
     {% if entry.is_replacement and r.replacement_of %}
@@ -177,24 +164,9 @@
     </span>
     {% set workers = active_employees|selectattr('current_vehicle', 'equalto', v.unit_number)|list %}
     {% if workers %}
-    {# "working" only once somebody has a clock on it: claiming a vehicle is
-       what opens its Start buttons, not proof that anybody has started. #}
     <span class="badge success" style="font-size:.6rem">
-      {% for w in workers %}{{ w.initials }}{% if not loop.last %}, {% endif %}{% endfor %}
-      {{ 'working' if workers|selectattr('prep')|list else 'selected' }}
+      {% for w in workers %}{{ w.initials }}{% if not loop.last %}, {% endif %}{% endfor %} working
     </span>
-    {% endif %}
-    {# Every vehicle is selected before its Start buttons show up, so this is
-       the one control the whole board waits on. It toggles: a second press
-       hands the vehicle back and closes its buttons again. #}
-    {% if entry.status not in ('skipped', 'completed') and not r.replaced_by %}
-    <button type="button"
-            class="btn small {{ 'secondary' if selected else 'success' }} select-btn"
-            data-select-entry="{{ entry.id }}" data-vehicle-id="{{ v.id }}"
-            data-selected="{{ '1' if selected else '0' }}"
-            aria-pressed="{{ 'true' if selected else 'false' }}"
-            title="{{ 'You have claimed this vehicle — press to hand it back' if selected else 'Select this vehicle to show its Start buttons' }}"
-            {{ 'disabled' if current_role == 'manager' }}>{{ 'Selected ✓' if selected else 'Select Vehicle' }}</button>
     {% endif %}
     <span class="spacer"></span>
     <span class="{{ r.indicator[1] }}">{{ r.indicator[0] }}</span>
@@ -255,8 +227,8 @@
       {% else %}<span class="muted">No employee recorded</span>{% endif %}
     </div>
     <div class="prep-sets">
-      {{ prep_set_block(r, prep.scopes.inside, status_badge, selected) }}
-      {{ prep_set_block(r, prep.scopes.outside, status_badge, selected) }}
+      {{ prep_set_block(r, prep.scopes.inside, status_badge) }}
+      {{ prep_set_block(r, prep.scopes.outside, status_badge) }}
     </div>
   </div>
 

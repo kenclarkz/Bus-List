@@ -1107,59 +1107,6 @@ def register_routes(app):
         flash("You have been logged out", "success")
         return redirect(url_for("login"))
 
-    @app.route("/entry/<int:entry_id>/select", methods=["POST"],
-               endpoint="select_vehicle")
-    def select_vehicle(entry_id):
-        """Select (or hand back) a vehicle before any clock is started on it.
-
-        The board is a wall of vehicles and every one of them used to carry two
-        Start buttons, so a vehicle is claimed first and only then do its
-        Inside and Outside Starts appear. The claim lives on the employee, so
-        on a shared board it is per person and survives a refresh, and pressing
-        Start claims the same vehicle anyway -- the button and the claim can
-        never disagree.
-        """
-        if session.get("user") != "employee":
-            return jsonify(ok=False, error="Manager view is read-only"), 403
-        entry = ScheduleEntry.query.get(entry_id)
-        if entry is None:
-            return jsonify(ok=False, error="Vehicle not found"), 404
-        employee_id = _acting_employee_id()
-        if not employee_id:
-            return jsonify(
-                ok=False,
-                error="Pick your name at the top of the board first"), 400
-        source = request.json if request.is_json else request.form
-        wanted = str(source.get("selected", "1")).strip().lower()
-        selecting = wanted not in ("0", "false", "no", "off", "")
-        try:
-            if selecting:
-                employee = prep_timer.select(entry, employee_id)
-            else:
-                employee = prep_timer.unselect(entry, employee_id)
-        except prep_timer.PrepTimerError as err:
-            return jsonify(ok=False, error=err.message), err.code
-        except _DATABASE_BUSY_ERRORS:
-            db.session.rollback()
-            return jsonify(ok=False, error=(
-                "The board is busy with another employee's action. "
-                "Press the button again in a moment.")), 503
-        # The vehicle's state comes back with it, because selecting is what
-        # opens a clock set nobody has started: the board has to build the
-        # Start button the button it just hid was not allowed to render. The
-        # claim comes back with it so a client can confirm where the employee
-        # now stands, the same way the prep actions report it.
-        return jsonify(
-            ok=True,
-            entry_id=entry.id,
-            vehicle=entry.vehicle.unit_number,
-            selected=selecting,
-            current_vehicle_id=(employee.current_vehicle_id
-                                if employee else None),
-            state=prep_timer.state(entry),
-            entry_completed=entry.status == "completed",
-        )
-
     def _acting_employee_id():
         """Who is driving a board action: the employee the board posted (the
         board sends the signed-in employee's id), or the signed-in employee
@@ -1267,13 +1214,6 @@ def register_routes(app):
             payload["worker"] = worker
             payload["employee"] = worker["employee"]
             payload["initials"] = worker["initials"]
-        # Which vehicle this employee holds after the press. Closing their last
-        # clock hands it back, and the board needs to know that without a
-        # refresh so the next vehicle is selected before its Starts show up.
-        if str(employee_id or "").isdigit():
-            acting = Employee.query.get(int(employee_id))
-            payload["current_vehicle_id"] = (
-                acting.current_vehicle_id if acting else None)
         if action == "done":
             sched = db.session.get(DailySchedule, entry.schedule_id)
             done, total, pct = sched_svc.entry_progress(entry)
