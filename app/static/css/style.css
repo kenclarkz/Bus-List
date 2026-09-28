@@ -274,6 +274,35 @@ details.vrow[open] > .vrow-summary {
 }
 details.vrow > .vrow-summary .driver-code { font-size: .95rem; }
 
+/* The state mark on the folded line: one ringed check, pushed to the far right
+   so it sits in the same column on every row and can be read down the board.
+   Green is a completed vehicle, orange one somebody skipped by hand. It is
+   drawn from the theme's own success / warn pair, so every theme gets a mark
+   that matches the badges beside it without a rule per theme. */
+.vrow-mark {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.vrow-mark-complete {
+  background: var(--success-bg);
+  color: var(--success);
+  box-shadow: inset 0 0 0 2px var(--success);
+}
+.vrow-mark-skipped {
+  background: var(--warn-bg);
+  color: var(--warn);
+  box-shadow: inset 0 0 0 2px var(--warn);
+}
+
 /* The type and the report time, as they read on the folded line. They reuse
    .vmeta so every theme's existing .vmeta styling -- and the dimming a
    replaced row gets -- applies to them without a rule per theme. */
@@ -656,6 +685,7 @@ code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
   .vrow { padding: 10px; }
   details.vrow > .vrow-summary { padding: 12px 10px; }
   details.vrow > .vrow-body { padding: 0 10px 10px; }
+  .vrow-mark { width: 22px; height: 22px; font-size: .85rem; }
   .progress { font-size: .8rem; }
   .row-actions { gap: 6px; }
   .row-actions .btn { padding: 5px 8px; font-size: .7rem; }

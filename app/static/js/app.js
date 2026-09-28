@@ -711,6 +711,7 @@ function runPrepAction(btn) {
             statusBadge.textContent = 'Completed';
             statusBadge.className = 'badge entry-status success';
           }
+          setVrowMark(vrow, 'completed');
           vrow.querySelectorAll('.ck input').forEach(function (chk) { chk.disabled = true; });
           var replaceBtn = vrow.querySelector('[data-modal-target^="modal-replace-"]');
           if (replaceBtn) replaceBtn.remove();
@@ -866,6 +867,39 @@ function updateStats(counters) {
   });
 }
 
+// The state mark on a row's folded summary: one ringed check, green for a
+// completed vehicle and orange for one somebody skipped by hand. The server
+// renders the same mark in the same place (_board_row.html), so this only has
+// to add it, swap it or take it away on the presses that repaint a row without
+// a reload. A row still being worked, and a transit bus the importer skipped on
+// its own, carry no mark at all -- which is what a status we don't know says
+// here, so any other status simply clears the mark.
+var VROW_MARKS = {
+  completed: { cls: 'vrow-mark-complete', label: 'Completed' },
+  skipped: { cls: 'vrow-mark-skipped', label: 'Skipped' }
+};
+
+function setVrowMark(row, status) {
+  if (!row) return;
+  var summary = row.querySelector('.vrow-summary');
+  if (!summary) return;
+  var mark = summary.querySelector('.vrow-mark');
+  var want = VROW_MARKS[status];
+  if (!want) {
+    if (mark) mark.remove();
+    return;
+  }
+  if (!mark) {
+    mark = document.createElement('span');
+    mark.className = 'vrow-mark';
+    mark.textContent = '✔';
+    summary.appendChild(mark);
+  }
+  mark.className = 'vrow-mark ' + want.cls;
+  mark.title = want.label;
+  mark.setAttribute('aria-label', want.label);
+}
+
 // Strip one prep block (a vehicle or one of its clock sets) of everything that
 // could start or move a clock, and label it skipped.
 function markPrepSkipped(block) {
@@ -924,6 +958,7 @@ function markSkipped(row, entryId, reason, unskipUrl) {
     badge.textContent = 'Skipped';
     badge.className = 'badge entry-status warn';
   }
+  setVrowMark(row, 'skipped');
   var fill = row.querySelector('.progress-fill');
   if (fill) fill.classList.add('fill-warn');
   var pct = row.querySelector('.pct');
@@ -1013,6 +1048,10 @@ document.addEventListener('DOMContentLoaded', function () {
             if (label) label.textContent = data.done + '/' + data.total + ' — ' + data.pct + '%';
           }
         }
+        // Checking the last task off completes the vehicle, and un-checking one
+        // opens it back up, so the row's mark follows the status the server
+        // reports rather than the checkbox that happened to be pressed.
+        setVrowMark(chk.closest('.vrow'), data.entry_status);
         wrap.classList.toggle('done', checked);
       }).catch(function () {
         chk.checked = !checked;

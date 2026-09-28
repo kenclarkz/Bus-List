@@ -2,6 +2,7 @@
 import io
 import json
 from datetime import date, datetime, timedelta
+from urllib.parse import quote
 
 import pytest
 from sqlalchemy.exc import OperationalError
@@ -2674,6 +2675,104 @@ def test_transit_vehicles_in_own_dropdown_on_dashboard(client, app):
 
     # The filtered count includes the transit dropdown.
     assert "Showing 1 of 2" in filtered
+
+
+def test_board_marks_completed_and_skipped_vehicles(client, app):
+    """The folded board line carries one check mark per settled vehicle, so a
+    column of forty can be read without opening any of it: green once a vehicle
+    is complete, orange once somebody has skipped it by hand. A vehicle still
+    being worked carries no mark, and neither does a transit bus the importer
+    skipped on its own -- that one is excluded from the day totals rather than
+    settled by a person."""
+    from app.services import schedule as ss
+    from app.services.vehicles import TRANSIT_SKIP_REASON, find_or_create_vehicle
+
+    def board_row(html, unit):
+        """The one board row for a unit, summary line and body, off the page."""
+        vnum = 'class="vnum">%s<' % unit
+        start = html.index(vnum)
+        opened = html.rindex("<details", 0, start)
+        nxt = html.find('id="row-', start)
+        return html[opened:nxt if nxt != -1 else len(html)]
+
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+
+        done_bus, _ = find_or_create_vehicle("1101", vehicle_type="Coach",
+                                             location_id=loc.id)
+        done_entry = ss.ensure_entry(sched, done_bus)
+        for t in list(done_entry.tasks):
+            ss.toggle_task(done_entry.id, t.task_name, True)
+
+        skipped_bus, _ = find_or_create_vehicle("1102", vehicle_type="Coach",
+                                                location_id=loc.id)
+        ss.set_entry_skipped(ss.ensure_entry(sched, skipped_bus),
+                             skipped=True, reason="Maintenance")
+
+        transit, _ = find_or_create_vehicle("1103", vehicle_type="TRANSITB",
+                                            location_id=loc.id)
+        ss.set_entry_skipped(ss.ensure_entry(sched, transit), skipped=True,
+                             reason=TRANSIT_SKIP_REASON)
+
+        started, _ = find_or_create_vehicle("1104", vehicle_type="Coach",
+                                            location_id=loc.id)
+        started_entry = ss.ensure_entry(sched, started)
+        ss.toggle_task(started_entry.id, started_entry.tasks[0].task_name, True)
+
+        waiting, _ = find_or_create_vehicle("1105", vehicle_type="Coach",
+                                            location_id=loc.id)
+        ss.ensure_entry(sched, waiting)
+
+    html = client.get("/").data.decode()
+
+    assert 'class="vrow-mark vrow-mark-complete"' in board_row(html, "1101")
+    assert "vrow-mark-skipped" not in board_row(html, "1101")
+
+    assert 'class="vrow-mark vrow-mark-skipped"' in board_row(html, "1102")
+    assert "vrow-mark-complete" not in board_row(html, "1102")
+
+    assert "vrow-mark" not in board_row(html, "1103")
+    assert "vrow-mark" not in board_row(html, "1104")
+    assert "vrow-mark" not in board_row(html, "1105")
+
+    # The mark sits on the folded summary line, so it shows without the row
+    # being opened, and it says what it is on hover.
+    summary = board_row(html, "1101").split("</summary>")[0]
+    assert "vrow-mark" in summary
+    assert 'title="Completed"' in summary
+
+
+def test_task_toggle_reports_entry_status_for_the_row_mark(client, app):
+    """Checking the last task off completes a vehicle and un-checking one opens
+    it back up, so the toggle hands the client the status its row mark follows."""
+    from app.services import schedule as ss
+    from app.services.vehicles import find_or_create_vehicle
+
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        bus, _ = find_or_create_vehicle("1201", vehicle_type="Coach",
+                                        location_id=loc.id)
+        entry = ss.ensure_entry(sched, bus)
+        entry_id = entry.id
+        names = [t.task_name for t in entry.tasks]
+
+    def toggle(name, checked):
+        # The board's own JS encodes the task name, which can hold a space.
+        r = client.post(f"/task/{entry_id}/{quote(name, safe='')}",
+                        data={"checked": "true" if checked else "false"})
+        assert r.status_code == 200
+        return json.loads(r.data)
+
+    assert toggle(names[0], True)["entry_status"] == "in_progress"
+    for name in names[1:-1]:
+        assert toggle(name, True)["entry_status"] == "in_progress"
+    # The last task off is what completes the vehicle.
+    assert toggle(names[-1], True)["entry_status"] == "completed"
+    # Un-checking it takes the vehicle back off the completed list, so the mark
+    # has to come back off with it.
+    assert toggle(names[-1], False)["entry_status"] == "in_progress"
 
 
 def test_report_type_transit_wins_over_stored_type(client, app):
