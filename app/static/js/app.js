@@ -74,8 +74,8 @@ function removeNowWorker(empId) {
     empty.className = 'muted';
     empty.id = 'now-working-empty';
     empty.style.margin = '0';
-    empty.innerHTML = 'No vehicles in progress right now. Click <strong>Start</strong> ' +
-      'on a vehicle to begin.';
+    empty.innerHTML = 'Nobody is on a vehicle yet. Pick a vehicle on the board ' +
+      'to open its Start buttons, then press Start.';
     grid.appendChild(empty);
   }
 }
@@ -464,12 +464,22 @@ function renderPrepWorkers(setEl, entryId, state) {
 // be in. Every one of them ends the same way, because the board is shared: any
 // employee may start either side of a vehicle, and one person may run an inside
 // and an outside clock at the same time.
+//
+// `done` is a vehicle that is complete rather than a finished clock set: it
+// cannot be started at all, so it is never told to be.
 var PREP_HINT_FOOTER = ' Anyone can time either side of this vehicle, and one ' +
   'person can run an inside and an outside clock at once.';
 
-function prepHint(state) {
+function prepHint(state, done) {
   var label = prepScopeLabel(state.scope);
   var lower = label.toLowerCase();
+  if (state.status === 'finished') {
+    return label + ' complete — total active ' + lower + ' prep time ' +
+      state.total_label + '.';
+  }
+  if (done) {
+    return 'This vehicle is complete, so it is no longer started.';
+  }
   if (state.status === 'none') {
     return 'Press Start ' + label + ' to time the ' + lower +
       ' work on this vehicle.';
@@ -511,13 +521,17 @@ function renderPrepActions(setEl, entryId, scope, state, entryCompleted) {
   var done = entryCompleted === undefined
     ? state.status === 'finished' : !!entryCompleted;
   if (state.status === 'none') {
-    actions.insertBefore(prepButton('start', entryId, null, null, scope),
-      actions.firstChild);
+    if (!done) {
+      actions.insertBefore(prepButton('start', entryId, null, null, scope),
+        actions.firstChild);
+    }
   } else if (!done && !prepHasMyClock(state)) {
     actions.insertBefore(prepJoinButton(entryId, scope), actions.firstChild);
   }
   var hint = actions.querySelector('.prep-hint');
-  if (hint) hint.textContent = prepHint(state) + PREP_HINT_FOOTER;
+  if (hint) {
+    hint.textContent = prepHint(state, done) + PREP_HINT_FOOTER;
+  }
 }
 
 function renderPrepHistory(setEl, state, scope) {

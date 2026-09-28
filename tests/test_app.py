@@ -3596,6 +3596,7 @@ def test_prep_board_shows_buttons_for_the_current_state(client, app):
     with app.app_context():
         entry_id, _ = prep_entry(app, "909")
         emp_id = add_employee(app)
+    client.post("/select", data={"employee_id": str(emp_id)})
 
     def row_html():
         html = client.get("/").data.decode()
@@ -3607,7 +3608,8 @@ def test_prep_board_shows_buttons_for_the_current_state(client, app):
         start = html.index(f'id="prep-{entry_id}-{scope}"')
         return html[start:html.index("</section>", start)]
 
-    # Both clock sets wait for a Start, each naming the set it times.
+    # Nothing has been started yet, so both clock sets offer a Start, each
+    # naming the set it times.
     assert 'data-prep-scope="inside"' in row_html()
     assert 'data-prep-scope="outside"' in row_html()
     assert "Start Inside" in set_html("inside")
@@ -3640,9 +3642,10 @@ def test_prep_board_shows_buttons_for_the_current_state(client, app):
     assert "Completed" in html
     assert "Inside prep history (4)" in html    # start, pause, resume, done
     assert "Started" in html and "Resumed" in html
-    # The finished set offers nothing; the untouched one still does.
+    # The finished set offers nothing, and closing the last clock completed the
+    # vehicle, so there is no Start left to offer.
     assert 'data-prep-action="start"' not in set_html("inside")
-    assert 'data-prep-action="start"' in set_html("outside")
+    assert 'data-prep-action="start"' not in set_html("outside")
 
 
 def test_prep_report_shows_history_and_total(client, app):

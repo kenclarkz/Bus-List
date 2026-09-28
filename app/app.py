@@ -1221,18 +1221,6 @@ def register_routes(app):
         flash("You have been logged out", "success")
         return redirect(url_for("login"))
 
-    @app.route("/set-current-vehicle", methods=["POST"])
-    def set_current_vehicle():
-        emp_id = request.form.get("employee_id")
-        vehicle_id = request.form.get("vehicle_id") or None
-        if emp_id:
-            emp = Employee.query.get(int(emp_id))
-            if emp:
-                emp.current_vehicle_id = int(vehicle_id) if vehicle_id else None
-                emp.current_vehicle_set_on = date.today() if vehicle_id else None
-                db.session.commit()
-        return redirect(request.referrer or url_for("dashboard"))
-
     def _acting_employee_id():
         """Who is driving a board action: the employee the board posted (the
         board sends the signed-in employee's id), or the signed-in employee

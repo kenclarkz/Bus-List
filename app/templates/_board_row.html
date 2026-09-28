@@ -92,12 +92,12 @@
   {% if entry.status != 'skipped' and not r.replaced_by %}
   {% set my_sessions = clock_set.workers | selectattr('employee_id', 'equalto', current_employee.id) | list if current_employee else [] %}
   <div class="prep-actions">
-    {% if clock_set.status == 'none' %}
+    {% if clock_set.status == 'none' and entry.status != 'completed' %}
     <button type="button" class="btn success start-btn" data-prep-action="start"
             data-entry="{{ entry.id }}" data-vehicle="{{ v.unit_number }}"
             data-prep-scope="{{ clock_set.scope }}"
             {{ 'disabled' if current_role == 'manager' }}>Start {{ clock_set.scope_label }}</button>
-    {% elif entry.status != 'completed' and not my_sessions %}
+    {% elif clock_set.status != 'none' and entry.status != 'completed' and not my_sessions %}
     {# Somebody is already on this side: anyone else can run their own clock. #}
     <button type="button" class="btn success join-btn" data-prep-join="{{ entry.id }}"
             data-entry="{{ entry.id }}" data-vehicle="{{ v.unit_number }}"
@@ -105,13 +105,14 @@
             {{ 'disabled' if current_role == 'manager' }}>+ Add Me</button>
     {% endif %}
     <span class="muted small prep-hint">
-      {% if clock_set.status == 'none' %}Press <strong>Start {{ clock_set.scope_label }}</strong> to time the {{ clock_set.scope_label|lower }} work on this vehicle.
+      {% if entry.status == 'completed' %}{% if clock_set.status == 'finished' %}{{ clock_set.scope_label }} complete — {{ clock_set.total_label }} of active {{ clock_set.scope_label|lower }} prep time.{% else %}This vehicle is complete, so it is no longer started.{% endif %}
+      {% elif clock_set.status == 'none' %}Press <strong>Start {{ clock_set.scope_label }}</strong> to time the {{ clock_set.scope_label|lower }} work on this vehicle.
       {% elif my_sessions %}Your {{ clock_set.scope_label|lower }} clock for this vehicle is in the list above.
       {% elif clock_set.status == 'running' %}{{ clock_set.running_count }} clock{{ 's' if clock_set.running_count != 1 else '' }} running — the {{ clock_set.scope_label|lower }} clock keeps counting if you close the page.
       {% elif clock_set.status == 'paused' %}Paused: paused time is not added to the {{ clock_set.scope_label|lower }} total.
       {% else %}{{ clock_set.scope_label }} complete — {{ clock_set.total_label }} of active {{ clock_set.scope_label|lower }} prep time.{% endif %}
       {% if clock_set.worker_count %}More than one employee can work the {{ clock_set.scope_label|lower }} of a vehicle at the same time.{% endif %}
-      Anyone can time either side of this vehicle, and one person can run an inside and an outside clock at once.
+      {% if entry.status != 'completed' %}Anyone can time either side of this vehicle, and one person can run an inside and an outside clock at once.{% endif %}
     </span>
   </div>
   {% endif %}

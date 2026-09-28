@@ -584,12 +584,18 @@ def _claim_vehicle(employee_id, entry, at=None):
 
 
 def _release_employee(employee_id, entry):
-    """Free an employee from a vehicle they are no longer working on."""
+    """Free an employee from a vehicle they are no longer working on.
+
+    Only the vehicle they are actually on is released, so closing a clock on
+    somebody else's vehicle (a crew member pressing Done) cannot take their
+    claim away.
+    """
     if not employee_id:
-        return
+        return None
     employee = Employee.query.get(employee_id)
     if employee is not None and employee.current_vehicle_id == entry.vehicle_id:
         employee.current_vehicle_id = None
+    return employee
 
 
 def start(entry, employee_id=None, at=None, scope=INSIDE):

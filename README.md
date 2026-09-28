@@ -41,22 +41,24 @@ report. It is not a static mockup.
 4. **Per-vehicle prep timer (Start / Pause / Resume / Done)** — each vehicle on
    the board gets **two independent clock sets, one for the inside work and one
    for the outside work**, and each clock is recorded against the employee doing
-   the work. **Start** begins the clock and puts the vehicle in progress;
+   the work. Every vehicle's Inside and Outside **Start** buttons are on the
+   board from the start, so anyone can press one without any further step.
+   **Start** begins the clock and puts the vehicle in progress;
    **Pause** and **Resume** stop and restart it without ever losing the time
    already worked; **Done** stops the clock, freezes that person's total active
-   prep time, and finishes the vehicle once no clock of either set is still
-   running. The two sets never borrow time from each other: working the outside
-   of a vehicle does not advance its inside clock, and the vehicle's headline
-   number is the sum of both sides. **Several employees can work the same
-   vehicle at the same time**, on the same side or on opposite sides: the row
-   shows a clock per employee per set, a combined vehicle clock, and an
-   **+ Add Me** button for anyone else to start their own clock, and each
-   person's Pause/Resume/Done only ever touches their own clock. One employee
-   can run an inside and an outside clock at the same time, and a second clock
-   in the *same* set must be paused (or finished) first. Only the buttons valid
-   for the current state are shown, and an out-of-order action (starting a set
-   that is already running for you, finishing one that was never started,
-   resuming a running timer) is refused with a clear reason instead of
+   prep time, finishes the vehicle once no clock of either set is still
+   running, and hands the vehicle back. The two sets never borrow time from each
+   other: working the outside of a vehicle does not advance its inside clock,
+   and the vehicle's headline number is the sum of both sides. **Several
+   employees can work the same vehicle at the same time**, on the same side or
+   on opposite sides: the row shows a clock per employee per set, a combined
+   vehicle clock, and an **+ Add Me** button for anyone else to start their own
+   clock, and each person's Pause/Resume/Done only ever touches their own clock.
+   One employee can run an inside and an outside clock at the same time, and a
+   second clock in the *same* set must be paused (or finished) first. Only the
+   buttons valid for the current state are shown, and an out-of-order action
+   (starting a set that is already running for you, finishing one that was never
+   started, resuming a running timer) is refused with a clear reason instead of
    corrupting the record. Time
    is tracked while the page is closed — the server owns the clock, so a
    refresh, a backgrounded tab, or a device with a wrong clock never loses or
@@ -79,7 +81,9 @@ report. It is not a static mockup.
    overdue, replacements, worst overall completion %, and the day's total
    **active prep time** (all employees' clocks added together, so two people
    working the same vehicle count as two workers). A "Now Working" strip shows
-   every employee currently on the floor with their vehicle and a live clock. Search & filter by unit
+   every employee currently on the floor with their vehicle and a live clock —
+   including one who has picked a vehicle but not started a clock on it yet.
+   Search & filter by unit
    number, type, route, and status. Each vehicle row shows its report (prep)
    time, pickup time, and driver code when the wash report supplied them
    (displayed as 12-hour AM/PM Eastern time).
@@ -221,12 +225,7 @@ upgrade of an older database to allow a crew per vehicle, and the two clock
 sets per vehicle: each side timing apart, a paused clock not blocking the other
 side, one employee running both sides of one vehicle at once, two employees
 working opposite sides of one vehicle, three employees on one vehicle at once,
-each of them keeping their own start/pause/resume/finish history while the
-vehicle and day totals add everybody's labour up, every older per-vehicle key
-rebuilt to include the employee (the rebuild staying idempotent, and a key held
-by a unique index or sitting beside a current one being rebuilt just as
-thoroughly as a lone inline one), and the
-board/end-of-day/print report splitting the day
+and the board/end-of-day/print report splitting the day
 by clock set.
 
 ---
