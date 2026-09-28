@@ -323,7 +323,11 @@ is eventually reported.
   the inside and the outside totals while still being reported only once, and
   the first launch after this change rebuilds that one table to keep every
   session, every total and every recorded event before the per-employee, per-set
-  constraint takes over.
+  constraint takes over. A table is only considered current when the key it
+  enforces covers the vehicle, **the employee** and the clock set, so a database
+  left on an older key — one clock per vehicle per side, say — is rebuilt too
+  instead of quietly going on refusing the second employee on a bus. The rebuild
+  is idempotent, so later launches leave the table alone.
 - **Active time is the sum of the active segments only.** Pausing banks the
   seconds worked so far; the paused stretch is never billed. Resuming starts a
   new segment on top of the banked total, so previous work is never lost.

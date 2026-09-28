@@ -3937,11 +3937,13 @@ def test_prep_action_that_loses_the_database_answers_with_json(client, app,
     assert r.status_code == 200
 
 
-def _stale_prep_sessions_rule_to_one_clock_per_vehicle(db_path):
-    """Put prep_sessions on the rule from before a vehicle had two clock sets:
-    the same columns, so the app reads and writes it normally, but one clock per
-    vehicle and no more -- so neither a colleague's clock in the other clock
-    set nor this employee's own can be recorded at all."""
+def _rewrite_prep_sessions_rule(db_path, rule):
+    """Put prep_sessions on an older uniqueness rule.
+
+    The app reads and writes the table normally afterwards -- same columns, same
+    data, same events -- but the database itself refuses whatever combinations
+    the given ``UNIQUE (...)`` rule does not allow, which is what a board that
+    never finished its upgrade behaves like."""
     import sqlite3
     con = sqlite3.connect(db_path)
     current = con.execute("SELECT sql FROM sqlite_master WHERE type='table'"
@@ -3949,9 +3951,10 @@ def _stale_prep_sessions_rule_to_one_clock_per_vehicle(db_path):
     stale = current.replace(
         "CONSTRAINT uq_prep_session_employee_scope "
         "UNIQUE (entry_id, employee_id, scope)",
-        "UNIQUE (entry_id)")
-    assert "UNIQUE (entry_id)" in stale
+        f"CONSTRAINT uq_prep_session_stale {rule}")
+    assert rule in stale, f"could not rewrite the rule to {rule}"
     con.execute("PRAGMA foreign_keys=OFF")
+    # Keeps prep_session_events pointing at "prep_sessions" while we swap it.
     con.execute("PRAGMA legacy_alter_table=ON")
     con.execute("ALTER TABLE prep_sessions RENAME TO prep_sessions_legacy")
     con.execute(stale)
@@ -3960,6 +3963,14 @@ def _stale_prep_sessions_rule_to_one_clock_per_vehicle(db_path):
     con.execute("PRAGMA legacy_alter_table=OFF")
     con.commit()
     con.close()
+
+
+def _stale_prep_sessions_rule_to_one_clock_per_vehicle(db_path):
+    """Put prep_sessions on the rule from before a vehicle had two clock sets:
+    the same columns, so the app reads and writes it normally, but one clock per
+    vehicle and no more -- so neither a colleague's clock in the other clock
+    set nor this employee's own can be recorded at all."""
+    _rewrite_prep_sessions_rule(db_path, "UNIQUE (entry_id)")
 
 
 def test_a_clock_the_database_refuses_answers_with_a_reason(client, app,
@@ -4001,12 +4012,14 @@ def test_a_clock_the_database_refuses_answers_with_a_reason(client, app,
     assert r.is_json
     body = r.get_json()
     assert body["ok"] is False
-    # Names the vehicle and the clock set that could not be recorded, and says
-    # the press was lost, so there is nothing to undo.
+    # Names the vehicle and the clock set that could not be recorded, says the
+    # press was lost so there is nothing to undo, and blames the rule the
+    # database is still on rather than the colleague who pressed.
     assert body["error"].startswith(
-        "Vehicle 940 could not record the Outside clock for this press")
+        "Vehicle 940 could not record an outside clock of your own")
     assert "nothing was recorded" in body["error"]
-    assert "not been upgraded" in body["error"]
+    assert "one outside clock per vehicle" in body["error"]
+    assert "Restart the app once to finish the upgrade" in body["error"]
     # The vehicle's real state comes with it, so the row is repainted: the
     # clock that is running is still running, and the refused clock set is
     # empty rather than pretending to hold a clock nobody started.
@@ -5160,3 +5173,272 @@ def test_a_refusal_on_a_shared_board_says_how_to_get_a_clock_of_your_own(client,
     with app.app_context():
         entry = ScheduleEntry.query.get(entry_id)
         assert len(prep_timer.sessions_for(entry, prep_timer.OUTSIDE)) == 1
+
+
+def _booted_against(db_path, tmp_path):
+    """The app started against an existing database file, which is the upgrade."""
+    from app.app import create_app
+    return create_app({
+        "TESTING": True,
+        "SQLALCHEMY_DATABASE_URI": f"sqlite:///{db_path}",
+        "SECRET_KEY": "test",
+        "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+    })
+
+
+def _own_clock(entry, employee_id, scope=None):
+    """The id of one employee's own clock, the way a press carrying their name
+    on the board finds it."""
+    from app.services import prep_timer
+    return prep_timer.employee_sessions_for(entry, employee_id, scope)[-1].id
+
+
+def test_database_keyed_on_vehicle_and_scope_is_upgraded_to_a_key_per_employee(
+        client, app, tmp_path):
+    """The reported failure, at its source: a database whose clocks are keyed on
+    the vehicle and the clock set -- one clock per bus, per side, whoever pressed
+    it -- refuses the second employee who starts on that side of a bus.
+
+    The upgrade is supposed to clear exactly this, but it decided whether a rule
+    was stale by looking for the word "scope" in it. A rule keyed on the vehicle
+    *and* the scope mentions scope, so the upgrade skipped it and the board was
+    left refusing a crew for good, press after press, and every restart.
+
+    Booting the app has to rebuild the key so the employee is part of it, keep
+    every recorded second, and let a second employee start.
+    """
+    from app.models import PrepSession
+    from app.services import prep_timer
+
+    db_path = str(tmp_path / "test.db")
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "950")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        entry = ScheduleEntry.query.get(entry_id)
+        prep_timer.start(entry, ann, at=t0, scope=prep_timer.INSIDE)
+        prep_timer.finish(entry, ann, at=t0 + timedelta(minutes=20),
+                          session_id=prep_timer.sessions_for(entry)[-1].id)
+        db.session.commit()
+    # The rule from the two-clock-set era: one clock per vehicle per side, so a
+    # colleague can never be timed on the same side of the same bus.
+    _rewrite_prep_sessions_rule(db_path, "UNIQUE (entry_id, scope)")
+    assert "UNIQUE (entry_id, scope)" in _prep_sessions_ddl(db_path)
+
+    upgraded = _booted_against(db_path, tmp_path)
+    with upgraded.app_context():
+        # Ann's clock and its total survived the rebuild.
+        sessions = PrepSession.query.all()
+        assert len(sessions) == 1
+        assert sessions[0].employee_id == ann
+        assert sessions[0].total_seconds == 20 * 60
+        assert sessions[0].events, "the recorded event log was dropped"
+
+        # The key covers the employee now, so Bob can start on the same side.
+        entry = ScheduleEntry.query.get(entry_id)
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        prep_timer.start(entry, ann, at=t0, scope=prep_timer.OUTSIDE)
+        bob_clock = prep_timer.start(entry, bob, at=t0, scope=prep_timer.OUTSIDE)
+        assert bob_clock.employee_id == bob
+        assert {s.employee_id for s in prep_timer.active_sessions_for(entry)} == \
+            {ann, bob}
+
+
+@pytest.mark.parametrize("stale_rule", [
+    "UNIQUE (entry_id, scope)",            # vehicle + clock set: a crew refused
+    "UNIQUE (vehicle_id, scope)",          # the same, keyed on the vehicle
+    "UNIQUE (scope, entry_id)",            # the same, columns in another order
+    "UNIQUE (entry_id, employee_id)",      # per employee, both sides refused
+    "UNIQUE (entry_id)",                   # one clock per vehicle
+])
+def test_every_stale_prep_session_key_is_rebuilt_to_include_the_employee(
+        client, app, tmp_path, stale_rule):
+    """Any rule that leaves the employee out of the key has to be rebuilt.
+
+    The key a press needs is the vehicle, the employee *and* the clock set, so
+    the upgrade is decided by the columns the rule actually covers. A rule that
+    merely mentions the scope is still a rule that cannot hold a crew, and
+    leaving it in place is what made the second employee's press fail for good.
+    """
+    from app.models import PrepSession
+    from app.services import prep_timer
+
+    db_path = str(tmp_path / "test.db")
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "951")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        db.session.commit()
+    _rewrite_prep_sessions_rule(db_path, stale_rule)
+
+    upgraded = _booted_against(db_path, tmp_path)
+    with upgraded.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        # Two employees, the same vehicle, the same side, at the same moment.
+        prep_timer.start(entry, ann, at=t0, scope=prep_timer.INSIDE)
+        prep_timer.start(entry, bob, at=t0, scope=prep_timer.INSIDE)
+        assert len(PrepSession.query.all()) == 2
+        assert len(prep_timer.active_sessions_for(entry)) == 2
+
+
+def test_the_prep_session_upgrade_is_idempotent(client, app, tmp_path):
+    """Booting again must leave the rebuilt table alone.
+
+    A key that got rebuilt once and then rebuilt again on every boot would drop
+    and recopy the table on each restart, so this checks the upgrade recognises
+    its own result and the clocks recorded after the first boot are still there
+    on the second."""
+    from app.models import PrepSession
+    from app.services import prep_timer
+
+    db_path = str(tmp_path / "test.db")
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "952")
+        ann = add_employee(app, "Ann Alpha")
+        db.session.commit()
+    _rewrite_prep_sessions_rule(db_path, "UNIQUE (entry_id, scope)")
+
+    upgraded = _booted_against(db_path, tmp_path)
+    with upgraded.app_context():
+        prep_timer.start(ScheduleEntry.query.get(entry_id), ann,
+                         scope=prep_timer.INSIDE)
+    upgraded_ddl = _prep_sessions_ddl(db_path)
+    with upgraded.app_context():
+        assert PrepSession.query.count() == 1
+
+    again = _booted_against(db_path, tmp_path)
+    with again.app_context():
+        assert _prep_sessions_ddl(db_path) == upgraded_ddl
+        assert PrepSession.query.count() == 1
+
+
+def test_three_employees_work_one_vehicle_at_once_and_each_is_totalled(client, app):
+    """Three people on one bus, all at the same time, each with their own clock.
+
+    This is the case the issue asks about: nobody is refused, every step only
+    touches the presser's own clock, and the vehicle's total is the sum of the
+    labour everybody actually put in.
+    """
+    from app.models import PrepSession
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "953")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        cid = add_employee(app, "Cal Gamma")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        entry = ScheduleEntry.query.get(entry_id)
+        # All three press Start within a minute of each other.
+        prep_timer.start(entry, ann, at=t0, scope=prep_timer.INSIDE)
+        prep_timer.start(entry, bob, at=t0 + timedelta(minutes=1),
+                         scope=prep_timer.INSIDE)
+        prep_timer.start(entry, cid, at=t0 + timedelta(minutes=2),
+                         scope=prep_timer.INSIDE)
+        assert len(PrepSession.query.all()) == 3
+
+        # 10 minutes in, each has their own time and the vehicle has the sum.
+        at = t0 + timedelta(minutes=10)
+        state = prep_timer.state(entry, at=at)
+        assert [w["elapsed"] for w in state["workers"]] == \
+            [10 * 60, 9 * 60, 8 * 60]
+        assert state["elapsed"] == 27 * 60
+        assert state["scopes"]["inside"]["elapsed"] == 27 * 60
+        assert state["scopes"]["outside"]["elapsed"] == 0
+        assert state["worker_count"] == 3
+        assert state["running_count"] == 3
+
+        # A pause only stops its own presser's clock, and the pause itself is
+        # not billed as work: Bob banks the 9 minutes since he started, and the
+        # 5 minutes he spends paused are not prep time.
+        prep_timer.pause(entry, bob, at=at)
+        state = prep_timer.state(entry, at=at + timedelta(minutes=5))
+        assert {w["employee_id"]: w["status"] for w in state["workers"]} == \
+            {ann: "running", bob: "paused", cid: "running"}
+        assert {w["employee_id"]: w["elapsed"] for w in state["workers"]} == \
+            {ann: 15 * 60, bob: 9 * 60, cid: 13 * 60}
+        assert state["elapsed"] == 37 * 60
+
+        # Resuming Bob adds a new segment without losing what he had banked.
+        prep_timer.resume(entry, bob, at=at + timedelta(minutes=5))
+        state = prep_timer.state(entry, at=at + timedelta(minutes=20))
+        assert {w["employee_id"]: w["elapsed"] for w in state["workers"]} == \
+            {ann: 30 * 60, bob: 24 * 60, cid: 28 * 60}
+        assert state["elapsed"] == 82 * 60
+
+        # Each of them finishes in their own time; the vehicle is not complete
+        # until the last clock on it is closed.
+        prep_timer.finish(entry, ann, at=at + timedelta(minutes=20),
+                          session_id=_own_clock(entry, ann))
+        prep_timer.finish(entry, cid, at=at + timedelta(minutes=30),
+                          session_id=_own_clock(entry, cid))
+        state = prep_timer.state(entry, at=at + timedelta(minutes=30))
+        assert [w["status"] for w in state["workers"]] == \
+            ["finished", "running", "finished"]
+        prep_timer.finish(entry, bob, at=at + timedelta(minutes=40),
+                          session_id=_own_clock(entry, bob))
+
+        final = prep_timer.state(entry, at=at + timedelta(minutes=41))
+        assert final["status"] == "finished"
+        # 30m Ann, 44m Bob (9m before the pause plus 35m after) and 38m Cal.
+        assert {w["employee_id"]: w["elapsed"] for w in final["workers"]} == \
+            {ann: 30 * 60, bob: 44 * 60, cid: 38 * 60}
+        assert final["elapsed"] == 112 * 60
+        assert final["scopes"]["inside"]["elapsed"] == 112 * 60
+        # Every one of them recorded their own whole story, start to done.
+        for worker in final["workers"]:
+            assert [e["type"] for e in worker["events"]] == \
+                ["start", "pause", "resume", "done"] or \
+                [e["type"] for e in worker["events"]] == ["start", "done"]
+            assert worker["started"] and worker["finished"]
+
+
+def test_a_crew_on_one_vehicle_adds_up_on_the_board_and_the_reports(client, app):
+    """A crew's labour is counted once per employee everywhere it is totalled.
+
+    The vehicle total, the day's total and each clock set's total all add the
+    clocks together, so two people on a bus for ten minutes is twenty minutes of
+    prep time rather than one clock being counted twice or one being dropped."""
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "954")
+        other_entry_id, _ = prep_entry(app, "955")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        entry = ScheduleEntry.query.get(entry_id)
+        other = ScheduleEntry.query.get(other_entry_id)
+        prep_timer.start(entry, ann, at=t0, scope=prep_timer.INSIDE)
+        prep_timer.start(entry, bob, at=t0, scope=prep_timer.INSIDE)
+        prep_timer.start(other, ann, at=t0, scope=prep_timer.INSIDE)
+
+        at = t0 + timedelta(minutes=10)
+        # 10m Ann + 10m Bob on 954, 10m Ann on 955.
+        assert prep_timer.entry_elapsed_seconds(entry, at=at) == 20 * 60
+        assert prep_timer.entry_elapsed_seconds(other, at=at) == 10 * 60
+        assert prep_timer.total_active_seconds(entry.schedule, at=at) == 30 * 60
+        assert prep_timer.scope_totals(entry.schedule, at=at) == {
+            "inside": 30 * 60, "outside": 0}
+        # A crew member's own clock is their own time, not the vehicle's.
+        assert prep_timer.entry_scope_totals(entry, at=at) == {
+            "inside": 20 * 60, "outside": 0}
+        # Closing the crew out freezes the vehicle total at the labour put in.
+        prep_timer.finish(entry, ann, at=at, session_id=_own_clock(entry, ann))
+        prep_timer.finish(entry, bob, at=at, session_id=_own_clock(entry, bob))
+        prep_timer.finish(other, ann, at=at, session_id=_own_clock(other, ann))
+        sched = entry.schedule
+        assert prep_timer.total_active_seconds(sched) == 30 * 60
+        assert prep_timer.scope_totals(sched) == {
+            "inside": 30 * 60, "outside": 0}
+
+    # The board and the printed report each carry a clock per employee, so a
+    # reader can see who did what rather than only the sum.
+    board = client.get("/").data.decode()
+    inside = board[board.index(f'id="prep-{entry_id}-inside"'):]
+    inside = inside[:inside.index("</section>")]
+    assert "Ann Alpha" in inside and "Bob Beta" in inside
+    report = client.get(f"/print/{t0.date().isoformat()}").data.decode()
+    assert "Ann Alpha" in report and "Bob Beta" in report
