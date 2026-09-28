@@ -223,7 +223,9 @@ side, one employee running both sides of one vehicle at once, two employees
 working opposite sides of one vehicle, three employees on one vehicle at once,
 each of them keeping their own start/pause/resume/finish history while the
 vehicle and day totals add everybody's labour up, every older per-vehicle key
-rebuilt to include the employee (and the rebuild staying idempotent), and the
+rebuilt to include the employee (the rebuild staying idempotent, and a key held
+by a unique index or sitting beside a current one being rebuilt just as
+thoroughly as a lone inline one), and the
 board/end-of-day/print report splitting the day
 by clock set.
 
@@ -302,11 +304,18 @@ is eventually reported.
   the inside and the outside totals while still being reported only once, and
   the first launch after this change rebuilds that one table to keep every
   session, every total and every recorded event before the per-employee, per-set
-  constraint takes over. A table is only considered current when the key it
-  enforces covers the vehicle, **the employee** and the clock set, so a database
-  left on an older key — one clock per vehicle per side, say — is rebuilt too
-  instead of quietly going on refusing the second employee on a bus. The rebuild
-  is idempotent, so later launches leave the table alone.
+  constraint takes over. The rebuilt table is the model's own definition, so the
+  key it lands on cannot drift from the one the app relies on. A table is only
+  considered current when **every** key it enforces covers the vehicle, **the
+  employee** and the clock set, so a database left on an older key — one clock
+  per vehicle per side, say — is rebuilt too instead of quietly going on
+  refusing the second employee on a bus. Those keys are read from the database
+  itself rather than from the table's `CREATE TABLE` text, because a key does not
+  have to be written there: a `CREATE UNIQUE INDEX` is invisible in the DDL and
+  refuses exactly the same inserts, and a stale key sitting *beside* a current
+  one is just as capable of refusing a crew as a lone one. The rebuild is
+  idempotent, so later launches leave the table alone. Nothing has to be done by
+  hand, on any of these.
 - **Active time is the sum of the active segments only.** Pausing banks the
   seconds worked so far; the paused stretch is never billed. Resuming starts a
   new segment on top of the banked total, so previous work is never lost.

@@ -5012,6 +5012,319 @@ def test_every_stale_prep_session_key_is_rebuilt_to_include_the_employee(
         assert len(prep_timer.active_sessions_for(entry)) == 2
 
 
+def _add_prep_sessions_index(db_path, statement):
+    """Enforce a uniqueness rule on prep_sessions with an index.
+
+    A rule does not have to be written into the table's CREATE TABLE text to
+    refuse an insert, and an older release could leave it behind as a standalone
+    ``CREATE UNIQUE INDEX``: the columns, the rows and the recorded events are
+    then exactly as the model made them, and the database still holds one clock
+    per vehicle per side."""
+    import sqlite3
+    con = sqlite3.connect(db_path)
+    try:
+        con.execute(statement)
+        con.commit()
+    finally:
+        con.close()
+
+
+def _prep_sessions_indexes(db_path):
+    """The indexes standing on prep_sessions that somebody created.
+
+    The implicit index behind a table's own ``UNIQUE (...)`` is left out: it is
+    named ``sqlite_autoindex_...`` and exists only because of the constraint
+    beside it, so it is the constraints that are worth naming here."""
+    import sqlite3
+    con = sqlite3.connect(db_path)
+    try:
+        return [r[0] for r in con.execute("SELECT name FROM sqlite_master"
+                                          " WHERE type='index'"
+                                          " AND tbl_name='prep_sessions'"
+                                          " AND sql IS NOT NULL")]
+    finally:
+        con.close()
+
+
+def _client_for(upgraded, employee_id):
+    """A board session on the app that was just booted, working as ``employee_id``."""
+    board = upgraded.test_client()
+    board.post("/login", data={"username": "employee", "password": "employee"})
+    board.post("/select", data={"employee_id": str(employee_id)})
+    return board
+
+
+def test_a_clock_keyed_by_a_unique_index_is_upgraded_to_a_key_per_employee(
+        client, app, tmp_path):
+    """The reported failure, on a database that keys its clocks with an index.
+
+    "Vehicle 9417 could not record an outside clock of your own ... The board's
+    database still holds only one outside clock per vehicle" is what a
+    ``UNIQUE (entry_id, scope)`` does to the second employee who starts on the
+    same side of a bus. The upgrade decided whether a rule was stale by reading
+    the table's CREATE TABLE text, and a rule enforced by an index is not in
+    that text at all: so the upgrade found no rule, decided there was nothing
+    to rebuild, and the index went on refusing the second employee on every
+    press and on every restart until the database was edited by hand.
+
+    Booting the app has to clear it, with nothing to do by hand: the key covers
+    the employee, both of them clock Outside on 9417, the two timers run apart,
+    each is timed and totalled on their own, the vehicle counts them both, and
+    the clock Ann had already recorded comes through the rebuild intact.
+    """
+    from app.models import PrepSession
+    from app.services import prep_timer
+
+    db_path = str(tmp_path / "test.db")
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "9417")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        cal = add_employee(app, "Cal Gamma")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        entry = ScheduleEntry.query.get(entry_id)
+        # A clock the database has to carry through the rebuild.
+        prep_timer.start(entry, cal, at=t0, scope=prep_timer.OUTSIDE)
+        prep_timer.finish(entry, cal, at=t0 + timedelta(minutes=20),
+                          session_id=prep_timer.sessions_for(entry)[-1].id)
+        db.session.commit()
+        old_clock_id = PrepSession.query.one().id
+    # The rule the two-clock-set era left behind, enforced by an index rather
+    # than by the table, so the DDL the upgrade was reading says nothing wrong.
+    _add_prep_sessions_index(
+        db_path, "CREATE UNIQUE INDEX ux_prep_sessions_vehicle_scope"
+                " ON prep_sessions (entry_id, scope)")
+    ddl = _prep_sessions_ddl(db_path)
+    assert "UNIQUE (entry_id, employee_id, scope)" in ddl
+    assert "(entry_id, scope)" not in ddl   # the stale rule is nowhere in it
+
+    upgraded = _booted_against(db_path, tmp_path)
+    with upgraded.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        # Cal's clock, its 20 minutes and its event log all survived.
+        kept = PrepSession.query.get(old_clock_id)
+        assert kept.employee_id == cal
+        assert kept.total_seconds == 20 * 60
+        assert [e.event_type for e in kept.events] == ["start", "done"]
+        # The index is gone and the key is the model's.
+        assert "ux_prep_sessions_vehicle_scope" not in _prep_sessions_indexes(db_path)
+        assert "UNIQUE (entry_id, employee_id, scope)" in _prep_sessions_ddl(db_path)
+
+        # Both employees clock Outside on 9417, a minute apart.
+        ann_clock = prep_timer.start(entry, ann, at=t0 + timedelta(minutes=30),
+                                     scope=prep_timer.OUTSIDE)
+        bob_clock = prep_timer.start(entry, bob, at=t0 + timedelta(minutes=31),
+                                     scope=prep_timer.OUTSIDE)
+        assert bob_clock.employee_id == bob
+        assert ann_clock.id != bob_clock.id
+
+        # Ten minutes later each timer has counted its own time from its own
+        # start, and the vehicle carries the whole crew's labour.
+        at = t0 + timedelta(minutes=41)
+        clocks = PrepSession.query.all()
+        assert {c.id: prep_timer.elapsed_seconds(c, at) for c in clocks} == {
+            kept.id: 20 * 60, ann_clock.id: 11 * 60, bob_clock.id: 10 * 60}
+        state = prep_timer.state(entry, at=at)
+        assert state["worker_count"] == 3
+        assert state["scopes"]["outside"]["elapsed"] == 41 * 60
+        assert state["elapsed"] == 41 * 60
+        # Every employee's history is their own story, told on their own clock.
+        assert {c.id: [e.event_type for e in c.events] for c in clocks} == {
+            kept.id: ["start", "done"],
+            ann_clock.id: ["start"],
+            bob_clock.id: ["start"]}
+        assert prep_timer.vehicle_scope_totals(entry.vehicle, at) == {
+            "inside": 0, "outside": 41 * 60}
+
+
+def test_the_board_lets_two_employees_clock_the_same_side_after_the_upgrade(
+        client, app, tmp_path):
+    """The issue's two presses, on the vehicle the issue names.
+
+    Both of them are on the board as real presses rather than as service calls:
+    employee A takes the board and clocks Outside on 9417, hands the board to
+    employee B, and B clocks Outside on the same side of the same vehicle. The
+    second press is the one the stale key used to refuse, so the board answering
+    it with the vehicle's two clocks is the whole of the fix seen from where it
+    was reported.
+    """
+    db_path = str(tmp_path / "test.db")
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "9417")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        db.session.commit()
+    _add_prep_sessions_index(
+        db_path, "CREATE UNIQUE INDEX ux_prep_sessions_vehicle_scope"
+                " ON prep_sessions (entry_id, scope)")
+
+    upgraded = _booted_against(db_path, tmp_path)
+
+    # Employee A clocks Outside on 9417.
+    board = _client_for(upgraded, ann)
+    r = board.post(f"/entry/{entry_id}/prep/start",
+                   data={"employee_id": str(ann), "scope": "outside"})
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()["state"]["scopes"]["outside"]["worker_count"] == 1
+
+    # Employee B takes the board over and clocks Outside on it too. This press is
+    # the one the old key refused outright.
+    board = _client_for(upgraded, bob)
+    r = board.post(f"/entry/{entry_id}/prep/start",
+                   data={"employee_id": str(bob), "scope": "outside"})
+    assert r.status_code == 200, r.get_json()
+    outside = r.get_json()["state"]["scopes"]["outside"]
+    assert outside["worker_count"] == 2
+    assert {w["employee"] for w in outside["workers"]} == {"Ann Alpha", "Bob Beta"}
+    # Both timers are running at once, each against the employee who pressed it.
+    assert {w["status"] for w in outside["workers"]} == {"running"}
+
+    # The board itself lists the crew on the vehicle, both names and both clocks.
+    page = board.get("/").data.decode()
+    start = page.index(f'id="prep-{entry_id}-outside"')
+    block = page[start:page.index("</section>", start)]
+    assert "Ann Alpha" in block and "Bob Beta" in block
+
+
+@pytest.mark.parametrize("extra_rule", [
+    "CREATE UNIQUE INDEX ux_stale ON prep_sessions (vehicle_id, scope)",
+    pytest.param(None, id="a second inline rule"),
+    pytest.param(["CREATE UNIQUE INDEX ux_one ON prep_sessions (entry_id)",
+                  "CREATE UNIQUE INDEX ux_two ON prep_sessions (entry_id, scope)"],
+                 id="two stale rules"),
+])
+def test_a_stale_rule_beside_a_current_one_is_rebuilt_too(client, app, tmp_path,
+                                                          extra_rule):
+    """A table is only finished when *every* rule it carries is a per-employee
+    key, not when one of them is.
+
+    Asking whether any of the rules was the key let a current rule vouch for a
+    stale one sitting beside it, and the stale one went on refusing the second
+    employee on a vehicle exactly as before -- press after press, restart after
+    restart, the only cure a manual edit of the database.
+    """
+    from app.models import PrepSession
+    from app.services import prep_timer
+
+    db_path = str(tmp_path / "test.db")
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "956")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        db.session.commit()
+    if extra_rule is None:
+        # The model's own key, plus a second rule beside it in the same DDL.
+        import sqlite3
+        con = sqlite3.connect(db_path)
+        ddl = _prep_sessions_ddl(db_path)
+        con.execute("PRAGMA foreign_keys=OFF")
+        con.execute("PRAGMA legacy_alter_table=ON")
+        con.execute("ALTER TABLE prep_sessions RENAME TO prep_sessions_legacy")
+        con.execute(ddl.replace(
+            "CONSTRAINT uq_prep_session_employee_scope UNIQUE (entry_id, employee_id, scope)",
+            "CONSTRAINT uq_prep_session_employee_scope UNIQUE (entry_id, employee_id, scope),\n"
+            "\tCONSTRAINT uq_stale_rule UNIQUE (entry_id, scope)"))
+        con.execute("INSERT INTO prep_sessions SELECT * FROM prep_sessions_legacy")
+        con.execute("DROP TABLE prep_sessions_legacy")
+        con.execute("PRAGMA legacy_alter_table=OFF")
+        con.commit()
+        con.close()
+        assert "UNIQUE (entry_id, scope)" in _prep_sessions_ddl(db_path)
+        assert "UNIQUE (entry_id, employee_id, scope)" in _prep_sessions_ddl(db_path)
+    else:
+        for statement in ([extra_rule] if isinstance(extra_rule, str)
+                          else extra_rule):
+            _add_prep_sessions_index(db_path, statement)
+
+    upgraded = _booted_against(db_path, tmp_path)
+    with upgraded.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        prep_timer.start(entry, ann, at=t0, scope=prep_timer.OUTSIDE)
+        prep_timer.start(entry, bob, at=t0, scope=prep_timer.OUTSIDE)
+        assert len(PrepSession.query.all()) == 2
+        ddl = _prep_sessions_ddl(db_path)
+        assert "UNIQUE (entry_id, employee_id, scope)" in ddl
+        assert "UNIQUE (entry_id, scope)" not in ddl
+        assert "UNIQUE (vehicle_id, scope)" not in ddl
+        # Only the model is left enforcing anything on the table.
+        assert _prep_sessions_indexes(db_path) == ["ix_prep_sessions_entry_id"]
+
+
+def test_a_table_from_before_a_column_existed_is_still_rebuilt(client, app,
+                                                                tmp_path):
+    """A rebuild that gives up half way leaves the stale rule exactly where it
+    was, and the press that reported it is still lost.
+
+    Copying an older table into the model's own definition therefore has to
+    cope with the columns that table never had: the vehicle is taken from the
+    entry the clock was recorded against and a clock with no status of its own
+    is running or finished by whether it was ever closed. The clocks already
+    recorded come through, and the crew the issue asks for is timed afterwards.
+    """
+    from app.models import PrepSession
+    from app.services import prep_timer
+
+    db_path = str(tmp_path / "test.db")
+    with app.app_context():
+        entry_id, vehicle_id = prep_entry(app, "957")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        entry = ScheduleEntry.query.get(entry_id)
+        prep_timer.start(entry, ann, at=t0, scope=prep_timer.OUTSIDE)
+        db.session.commit()
+        old_id = PrepSession.query.one().id
+
+    import sqlite3
+    con = sqlite3.connect(db_path)
+    con.execute("PRAGMA foreign_keys=OFF")
+    con.execute("PRAGMA legacy_alter_table=ON")
+    con.execute("ALTER TABLE prep_sessions RENAME TO prep_sessions_legacy")
+    con.execute("""
+        CREATE TABLE prep_sessions (
+            id INTEGER NOT NULL,
+            entry_id INTEGER NOT NULL,
+            employee_id INTEGER,
+            scope VARCHAR(10) NOT NULL,
+            status VARCHAR(20) NOT NULL,
+            started_at VARCHAR(32) NOT NULL,
+            last_event_at VARCHAR(32) NOT NULL,
+            finished_at VARCHAR(32),
+            created_at DATETIME,
+            updated_at DATETIME,
+            PRIMARY KEY (id),
+            FOREIGN KEY(entry_id) REFERENCES schedule_entries (id),
+            FOREIGN KEY(employee_id) REFERENCES employees (id),
+            CONSTRAINT uq_stale UNIQUE (entry_id, scope)
+        )""")
+    con.execute("INSERT INTO prep_sessions (id, entry_id, employee_id, scope,"
+                " status, started_at, last_event_at, finished_at, created_at,"
+                " updated_at) SELECT id, entry_id, employee_id, scope, status,"
+                " started_at, last_event_at, finished_at, created_at, updated_at"
+                " FROM prep_sessions_legacy")
+    con.execute("DROP TABLE prep_sessions_legacy")
+    con.execute("PRAGMA legacy_alter_table=OFF")
+    con.commit()
+    con.close()
+
+    upgraded = _booted_against(db_path, tmp_path)
+    with upgraded.app_context():
+        kept = PrepSession.query.get(old_id)
+        assert kept.employee_id == ann
+        # The vehicle the clock was recorded against is filled in from its entry
+        # rather than left NULL, which the rebuilt table forbids.
+        assert kept.vehicle_id == vehicle_id
+        assert kept.status == "running"
+        assert kept.total_seconds == 0
+        assert kept.events
+
+        entry = ScheduleEntry.query.get(entry_id)
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        prep_timer.start(entry, bob, at=t0, scope=prep_timer.OUTSIDE)
+        assert len(PrepSession.query.all()) == 2
+
+
 def test_the_prep_session_upgrade_is_idempotent(client, app, tmp_path):
     """Booting again must leave the rebuilt table alone.
 
