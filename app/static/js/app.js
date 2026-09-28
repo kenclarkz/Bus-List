@@ -291,7 +291,7 @@ function applyPrepSetState(setEl, state, setState, entryCompleted) {
   var meta = setEl.querySelector('.prep-meta');
   if (meta) meta.innerHTML = prepSetMetaHtml(setState);
   renderPrepWorkers(setEl, entryId, setState);
-  renderPrepActions(setEl, entryId, scope, setState, entryCompleted);
+  renderPrepActions(setEl, entryId, scope, state, setState, entryCompleted);
   renderPrepHistory(setEl, setState, scope);
 }
 
@@ -317,6 +317,7 @@ function applyPrepBadge(block, state) {
 function prepBadgeClass(status) {
   if (status === 'finished') return 'success';
   if (status === 'running') return 'info';
+  if (status === 'partial') return 'warn';
   if (status === 'paused') return 'warn';
   return 'muted';
 }
@@ -380,6 +381,10 @@ function prepMetaHtml(state) {
     parts.push('(inside ' + scopes.inside.total_label +
       ' · outside ' + scopes.outside.total_label + ')');
   }
+  // A vehicle is only complete once both of its sides are, so the head says
+  // which one it is still waiting on rather than leaving the row looking done.
+  var outstanding = state.scopes_outstanding || [];
+  if (outstanding.length) parts.push('waiting on ' + outstanding.join(' and '));
   return parts.join(' · ');
 }
 
@@ -466,16 +471,25 @@ function renderPrepWorkers(setEl, entryId, state) {
 // and an outside clock at the same time.
 //
 // `done` is a vehicle that is complete rather than a finished clock set: it
-// cannot be started at all, so it is never told to be.
+// cannot be started at all, so it is never told to be. A finished clock set on
+// a vehicle that is not complete is the other way round, and says so: the other
+// side still has to be started and finished before the vehicle is done.
 var PREP_HINT_FOOTER = ' Anyone can time either side of this vehicle, and one ' +
   'person can run an inside and an outside clock at once.';
 
-function prepHint(state, done) {
+function prepOutstandingSentence(vehicleState) {
+  var names = (vehicleState && vehicleState.scopes_outstanding) || [];
+  if (!names.length) return '';
+  return ' The vehicle is not complete until ' + names.join(' and ') +
+    ' is finished too.';
+}
+
+function prepHint(state, done, vehicleState) {
   var label = prepScopeLabel(state.scope);
   var lower = label.toLowerCase();
   if (state.status === 'finished') {
     return label + ' complete — total active ' + lower + ' prep time ' +
-      state.total_label + '.';
+      state.total_label + '.' + prepOutstandingSentence(vehicleState);
   }
   if (done) {
     return 'This vehicle is complete, so it is no longer started.';
@@ -495,7 +509,7 @@ function prepHint(state, done) {
     return 'Paused: paused time is not added to the ' + lower + ' total.';
   }
   return label + ' complete — total active ' + lower + ' prep time ' +
-    state.total_label + '.';
+    state.total_label + '.' + prepOutstandingSentence(vehicleState);
 }
 
 // Whether the acting employee already holds a clock in this clock set. They get
@@ -513,7 +527,7 @@ function prepHasMyClock(state) {
 // Swap one clock set's buttons over to the ones its new state allows: Start
 // when nobody is on that set, otherwise "+ Add Me" so another employee can run
 // their own clock on it. The other set keeps its buttons.
-function renderPrepActions(setEl, entryId, scope, state, entryCompleted) {
+function renderPrepActions(setEl, entryId, scope, vehicleState, state, entryCompleted) {
   var actions = setEl.querySelector('.prep-actions');
   if (!actions) return;
   var buttons = actions.querySelectorAll('[data-prep-action], [data-prep-join]');
@@ -530,7 +544,7 @@ function renderPrepActions(setEl, entryId, scope, state, entryCompleted) {
   }
   var hint = actions.querySelector('.prep-hint');
   if (hint) {
-    hint.textContent = prepHint(state, done) + PREP_HINT_FOOTER;
+    hint.textContent = prepHint(state, done, vehicleState) + PREP_HINT_FOOTER;
   }
 }
 
@@ -679,8 +693,9 @@ function runPrepAction(btn) {
       bindPrepButtons(row);
     }
     if (data.action === 'done') {
-      // The vehicle is only finished once the last employee working it is
-      // done, so only then does the row lock down.
+      // Finishing one side of a vehicle does not finish the vehicle: the row
+      // only locks down once both of its clock sets are done, so only then can
+      // anything below be true.
       if (data.entry_completed && data.progress) {
         var vrow = btn.closest('.vrow');
         if (vrow) {
@@ -702,6 +717,13 @@ function runPrepAction(btn) {
           var skipBtn = vrow.querySelector('[data-modal-target^="modal-skip-"]');
           if (skipBtn) skipBtn.remove();
         }
+      } else if (!data.still_working && (data.scopes_outstanding || []).length) {
+        // Every clock is closed but the vehicle is not finished, because the
+        // other side has not been done. Say which side, so a press that looks
+        // like it ended the job is not taken for one.
+        alert(prepScopeLabel(data.scope) + ' prep done — this vehicle is not ' +
+          'complete until ' + data.scopes_outstanding.join(' and ') +
+          ' prep is done too.');
       }
       // Finishing a vehicle changes the day totals.
       updateStats(data.counters);

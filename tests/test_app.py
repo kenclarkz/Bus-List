@@ -3265,23 +3265,47 @@ def test_prep_done_stops_timer_marks_vehicle_and_reports_total(client, app):
         entry = ScheduleEntry.query.get(entry_id)
         t0 = timeutils.now_eastern().replace(microsecond=0)
         prep_timer.start(entry, emp_id, at=t0)
+        prep_timer.start(entry, emp_id, at=t0, scope=prep_timer.OUTSIDE)
 
     r = client.post(f"/entry/{entry_id}/prep/done",
-                    data={"employee_id": str(emp_id)})
+                    data={"employee_id": str(emp_id), "scope": "inside"})
     assert r.status_code == 200
     body = r.get_json()
-    assert body["state"]["status"] == "finished"
-    assert body["state"]["finished"]           # 12-hour Eastern finish time
-    assert body["state"]["total_label"]
-    assert body["counters"]["completed"] == 1
+    assert body["scope"] == "inside"
+    assert body["state"]["scopes"]["inside"]["status"] == "finished"
+    assert body["state"]["scopes"]["inside"]["finished"]   # 12-hour Eastern
+    assert body["state"]["scopes"]["inside"]["total_label"]
+    # The inside clock is closed, but the outside side is still counting, so
+    # the vehicle is not finished and the day is not one vehicle further along.
+    assert body["entry_completed"] is False
+    assert body["scopes_outstanding"] == ["Outside"]
+    assert body["counters"]["completed"] == 0
     with app.app_context():
         entry = ScheduleEntry.query.get(entry_id)
-        assert entry.status == "completed"
-        sess = PrepSession.query.filter_by(entry_id=entry_id).first()
+        assert entry.status == "in_progress"
+        sess = prep_timer.sessions_for(entry, prep_timer.INSIDE)[-1]
         assert sess.status == "finished"
         assert sess.finished_at is not None
         # No timer keeps running after Done.
         assert prep_timer.elapsed_seconds(sess) == sess.total_seconds
+        # The employee is still on the floor, on their outside clock.
+        assert Employee.query.get(emp_id).current_vehicle_id == entry.vehicle_id
+
+    # The last side to be finished is the one that completes the vehicle.
+    r = client.post(f"/entry/{entry_id}/prep/done",
+                    data={"employee_id": str(emp_id), "scope": "outside"})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["state"]["status"] == "finished"
+    assert body["state"]["scopes_outstanding"] == []
+    assert body["entry_completed"] is True
+    assert body["still_working"] is False
+    assert body["counters"]["completed"] == 1
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        assert entry.status == "completed"
+        assert all(s.status == "finished" for s in PrepSession.query
+                   .filter_by(entry_id=entry_id).all())
         assert Employee.query.get(emp_id).current_vehicle_id is None
 
 
@@ -3424,7 +3448,7 @@ def test_each_clock_set_is_timed_separately(client, app):
 def test_prep_route_acts_on_the_clock_set_it_is_given(client, app):
     """A press names the clock set it belongs to: it moves that set's clock and
     leaves the other set alone, and the vehicle is only finished on the board
-    once no clock of either set is left running."""
+    once no clock is left running and both of its sets are done."""
     from app.services import prep_timer
 
     with app.app_context():
@@ -3461,7 +3485,7 @@ def test_prep_route_acts_on_the_clock_set_it_is_given(client, app):
     with app.app_context():
         assert ScheduleEntry.query.get(entry_id).status == "in_progress"
 
-    # The last clock of either set to close completes the vehicle.
+    # The last clock, in the last set to be finished, completes the vehicle.
     r = client.post(f"/entry/{entry_id}/prep/done",
                     data={"employee_id": str(emp_id), "scope": "inside"})
     body = r.get_json()
@@ -3470,6 +3494,138 @@ def test_prep_route_acts_on_the_clock_set_it_is_given(client, app):
     assert body["still_working"] is False
     with app.app_context():
         assert ScheduleEntry.query.get(entry_id).status == "completed"
+
+
+def test_done_on_one_side_does_not_complete_the_vehicle(client, app):
+    """The reported issue: Done on either side completed the whole vehicle.
+
+    A vehicle carries two clock sets and is only complete once **both** of them
+    are finished, so it makes no difference which side goes first: the first
+    Done closes one set and leaves the row open, and it is the second Done that
+    closes the vehicle. A side nobody has started yet counts as outstanding
+    too -- that work still has to be timed and finished -- and it can be started
+    after the other side is already done.
+    """
+    labels = {"inside": "Inside", "outside": "Outside"}
+    for index, (first, second) in enumerate((("inside", "outside"),
+                                             ("outside", "inside"))):
+        with app.app_context():
+            entry_id, _ = prep_entry(app, f"96{index}")
+            emp_id = add_employee(app, f"Prep Crew {index}")
+        other = labels[second]
+
+        # Only the first side is ever started, and then finished.
+        assert client.post(f"/entry/{entry_id}/prep/start",
+                           data={"employee_id": str(emp_id),
+                                 "scope": first}).status_code == 200
+        r = client.post(f"/entry/{entry_id}/prep/done",
+                        data={"employee_id": str(emp_id), "scope": first})
+        body = r.get_json()
+        assert r.status_code == 200
+        assert body["state"]["scopes"][first]["status"] == "finished"
+        # Nothing is still counting, and yet the vehicle is NOT complete,
+        # because the other side of the work has not been done.
+        assert body["still_working"] is False
+        assert body["entry_completed"] is False
+        assert body["entry_status"] == "in_progress"
+        assert body["scopes_outstanding"] == [other]
+        assert body["state"]["status"] == "partial"
+        assert body["state"]["status_label"] == "One side done"
+        assert body["counters"]["completed"] == index
+        with app.app_context():
+            assert ScheduleEntry.query.get(entry_id).status == "in_progress"
+
+        # The side that is left can still be started afterwards, and finishing
+        # it is what completes the vehicle.
+        assert client.post(f"/entry/{entry_id}/prep/start",
+                           data={"employee_id": str(emp_id),
+                                 "scope": second}).status_code == 200
+        r = client.post(f"/entry/{entry_id}/prep/done",
+                        data={"employee_id": str(emp_id), "scope": second})
+        body = r.get_json()
+        assert r.status_code == 200
+        assert body["entry_completed"] is True
+        assert body["scopes_outstanding"] == []
+        assert body["state"]["status"] == "finished"
+        assert body["state"]["scopes"][second]["status"] == "finished"
+        assert body["counters"]["completed"] == index + 1
+        with app.app_context():
+            assert ScheduleEntry.query.get(entry_id).status == "completed"
+
+
+def test_a_vehicle_is_outstanding_until_both_of_its_clock_sets_are_finished(app):
+    """The rule behind the route, on the service itself.
+
+    A clock set counts as finished once one of its clocks is, so a crew of
+    several people on the same side closes that side with a single Done. A clock
+    that is only paused is not finished, and a side nobody has started is
+    outstanding as well. A clock recorded before the two sets existed belongs to
+    both, so on its own it finishes the whole vehicle.
+    """
+    from app.models import PrepSession
+    from app.services import prep_timer
+
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "962")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        entry = ScheduleEntry.query.get(entry_id)
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+
+        # Nothing started: both sides outstanding.
+        assert prep_timer.finished_scopes_for(entry) == set()
+        assert prep_timer.outstanding_scopes_for(entry) == ["inside", "outside"]
+        assert prep_timer.all_scopes_finished(entry) is False
+
+        # One running clock leaves both sides outstanding.
+        prep_timer.start(entry, ann, at=t0, scope=prep_timer.INSIDE)
+        assert prep_timer.outstanding_scopes_for(entry) == ["inside", "outside"]
+
+        # Paused is not finished, so the inside is still outstanding.
+        prep_timer.pause(entry, ann, at=t0 + timedelta(minutes=5))
+        assert prep_timer.outstanding_scopes_for(entry) == ["inside", "outside"]
+
+        # One finished clock finishes that side, however many are on it.
+        prep_timer.start(entry, bob, at=t0 + timedelta(minutes=10))
+        prep_timer.finish(entry, ann, at=t0 + timedelta(minutes=15))
+        assert prep_timer.finished_scopes_for(entry) == {"inside"}
+        assert prep_timer.outstanding_scopes_for(entry) == ["outside"]
+        assert prep_timer.all_scopes_finished(entry) is False
+        # Bob is still counting on the inside, which does not reopen the side.
+        assert prep_timer.sessions_for(entry, prep_timer.INSIDE)[-1].status == \
+            "running"
+
+        # Finishing the other side finishes the vehicle.
+        prep_timer.start(entry, ann, at=t0 + timedelta(minutes=20),
+                         scope=prep_timer.OUTSIDE)
+        prep_timer.finish(entry, ann, at=t0 + timedelta(minutes=30),
+                          scope=prep_timer.OUTSIDE)
+        assert prep_timer.finished_scopes_for(entry) == {"inside", "outside"}
+        assert prep_timer.outstanding_scopes_for(entry) == []
+        assert prep_timer.all_scopes_finished(entry) is True
+        # Bob's inside clock is still running, so the board row stays open until
+        # it is closed: the two rules are independent.
+        assert prep_timer.active_sessions_for(entry) != []
+        prep_timer.finish(entry, bob, at=t0 + timedelta(minutes=35))
+        assert prep_timer.active_sessions_for(entry) == []
+        assert prep_timer.all_scopes_finished(entry) is True
+
+    # A clock recorded before the Inside/Outside split carries no side and
+    # belongs to both, so finishing one finishes the whole vehicle.
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "963")
+        emp_id = add_employee(app, "Cal Gamma")
+        entry = ScheduleEntry.query.get(entry_id)
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        session = prep_timer.start(entry, emp_id, at=t0)
+        session.scope = PrepSession.SCOPE_BOTH
+        db.session.commit()
+        assert prep_timer.outstanding_scopes_for(entry) == ["inside", "outside"]
+        prep_timer.finish(entry, emp_id, at=t0 + timedelta(minutes=20),
+                          session_id=session.id)
+        assert prep_timer.finished_scopes_for(entry) == {"inside", "outside"}
+        assert prep_timer.all_scopes_finished(entry) is True
+        assert prep_timer.state(entry)["status"] == "finished"
 
 
 def test_a_paused_clock_does_not_block_the_other_clock_set(client, app):
@@ -3689,12 +3845,23 @@ def test_prep_board_shows_buttons_for_the_current_state(client, app):
     client.post(f"/entry/{entry_id}/prep/done",
                 data={"employee_id": str(emp_id), "scope": "inside"})
     html = row_html()
-    assert "Completed" in html
+    assert "One side done" in html
     assert "Inside prep history (4)" in html    # start, pause, resume, done
     assert "Started" in html and "Resumed" in html
-    # The finished set offers nothing, and closing the last clock completed the
-    # vehicle, so there is no Start left to offer.
+    # The finished set offers nothing, and the vehicle is NOT finished by it:
+    # the other set is still waiting for its own Start, and the row says so.
     assert 'data-prep-action="start"' not in set_html("inside")
+    assert 'data-prep-action="start"' in set_html("outside")
+    assert "waiting on Outside" in html
+    assert "The vehicle is not complete until Outside prep is done too" in html
+
+    # Finishing the other side as well is what completes the vehicle, and then
+    # neither set offers a Start any more.
+    client.post(f"/entry/{entry_id}/prep/start",
+                data={"employee_id": str(emp_id), "scope": "outside"})
+    client.post(f"/entry/{entry_id}/prep/done",
+                data={"employee_id": str(emp_id), "scope": "outside"})
+    assert "Completed" in row_html()
     assert 'data-prep-action="start"' not in set_html("outside")
 
 
@@ -4152,7 +4319,8 @@ def test_one_employee_cannot_start_the_same_vehicle_twice(client, app):
 
 def test_each_employee_pauses_and_finishes_their_own_clock(client, app):
     """Pausing / resuming / finishing one person's clock leaves everyone else's
-    running, and the vehicle is only complete once the last one is done."""
+    running, and the vehicle is only complete once the last one is done and
+    both of its sides are."""
     from app.models import PrepSession
     from app.services import prep_timer
 
@@ -4191,11 +4359,14 @@ def test_each_employee_pauses_and_finishes_their_own_clock(client, app):
                           "session_id": str(bob_session)})
     assert r.status_code == 200
     body = r.get_json()
-    assert body["entry_completed"] is True
-    assert body["counters"]["completed"] == 1
+    # Every inside clock is closed, but the outside side was never started, so
+    # the vehicle is still waiting on it.
+    assert body["entry_completed"] is False
+    assert body["scopes_outstanding"] == ["Outside"]
+    assert body["counters"]["completed"] == 0
     with app.app_context():
         entry = ScheduleEntry.query.get(entry_id)
-        assert entry.status == "completed"
+        assert entry.status == "in_progress"
         assert [s.id for s in prep_timer.sessions_for(entry)] == [
             ann_session, bob_session]
         state = prep_timer.state(entry)
@@ -4203,7 +4374,21 @@ def test_each_employee_pauses_and_finishes_their_own_clock(client, app):
             "finished", "finished"]
         # Each employee's clock is separate, and the vehicle total is the sum.
         assert state["elapsed"] == sum(w["elapsed"] for w in state["workers"])
-        assert Employee.query.get(bob).current_vehicle_id is None
+
+    # The outside side, too, and only then is the vehicle complete.
+    client.post(f"/entry/{entry_id}/prep/start",
+                data={"employee_id": str(ann), "scope": "outside"})
+    r = client.post(f"/entry/{entry_id}/prep/done",
+                    data={"employee_id": str(ann), "scope": "outside"})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["entry_completed"] is True
+    assert body["scopes_outstanding"] == []
+    assert body["counters"]["completed"] == 1
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        assert entry.status == "completed"
+        assert Employee.query.get(ann).current_vehicle_id is None
 
 
 def test_finishing_a_crew_stops_every_clock_on_the_vehicle(client, app):
@@ -5464,7 +5649,8 @@ def test_three_employees_work_one_vehicle_at_once_and_each_is_totalled(client, a
         assert state["elapsed"] == 82 * 60
 
         # Each of them finishes in their own time; the vehicle is not complete
-        # until the last clock on it is closed.
+        # until the last clock on it is closed -- and even then it is only one
+        # side of the work that is done.
         prep_timer.finish(entry, ann, at=at + timedelta(minutes=20),
                           session_id=_own_clock(entry, ann))
         prep_timer.finish(entry, cid, at=at + timedelta(minutes=30),
@@ -5476,7 +5662,14 @@ def test_three_employees_work_one_vehicle_at_once_and_each_is_totalled(client, a
                           session_id=_own_clock(entry, bob))
 
         final = prep_timer.state(entry, at=at + timedelta(minutes=41))
-        assert final["status"] == "finished"
+        # Every clock is closed, but they were all inside clocks, so the vehicle
+        # is not finished work: the outside side is still outstanding.
+        assert final["status"] == "partial"
+        assert final["status_label"] == "One side done"
+        assert final["scopes_outstanding"] == ["Outside"]
+        assert final["scopes"]["inside"]["status"] == "finished"
+        assert final["scopes"]["outside"]["status"] == "none"
+        assert prep_timer.all_scopes_finished(entry) is False
         # 30m Ann, 44m Bob (9m before the pause plus 35m after) and 38m Cal.
         assert {w["employee_id"]: w["elapsed"] for w in final["workers"]} == \
             {ann: 30 * 60, bob: 44 * 60, cid: 38 * 60}
@@ -5488,6 +5681,18 @@ def test_three_employees_work_one_vehicle_at_once_and_each_is_totalled(client, a
                 ["start", "pause", "resume", "done"] or \
                 [e["type"] for e in worker["events"]] == ["start", "done"]
             assert worker["started"] and worker["finished"]
+
+        # The outside side, and the vehicle is finished work at last.
+        prep_timer.start(entry, ann, at=at + timedelta(minutes=45),
+                         scope=prep_timer.OUTSIDE)
+        prep_timer.finish(entry, ann, at=at + timedelta(minutes=55),
+                          session_id=_own_clock(entry, ann, prep_timer.OUTSIDE))
+        washed = prep_timer.state(entry, at=at + timedelta(minutes=56))
+        assert washed["status"] == "finished"
+        assert washed["scopes_outstanding"] == []
+        assert washed["scopes"]["outside"]["elapsed"] == 10 * 60
+        assert washed["elapsed"] == 122 * 60
+        assert prep_timer.all_scopes_finished(entry) is True
 
 
 def test_a_crew_on_one_vehicle_adds_up_on_the_board_and_the_reports(client, app):

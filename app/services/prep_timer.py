@@ -19,6 +19,11 @@ clock you have already started, finishing one that was never started, ...).
 All timestamps are Eastern Time and stored as ISO-8601 strings carrying their
 UTC offset, so a timer that is still running after a refresh, a reopened tab or
 a daylight-saving change keeps counting the same amount of real time.
+
+Finishing one set is not finishing the vehicle: **both** of a vehicle's clock
+sets have to be finished before the work on it is over, and a set nobody has
+started is outstanding too. :func:`all_scopes_finished` is what says so, and
+:func:`outstanding_scopes_for` names the sides that are still to be done.
 """
 
 from app.models import (
@@ -53,6 +58,9 @@ STATUS_LABELS = {
     "running": "Timer running",
     "paused": "Paused",
     "finished": "Completed",
+    # Every clock on the vehicle is closed, but only one of its two clock sets
+    # has been finished: one side is done and the other still has to be.
+    "partial": "One side done",
 }
 
 
@@ -110,6 +118,39 @@ def sessions_for(entry, scope=None):
 def active_sessions_for(entry, scope=None):
     """The sessions on an entry that still count (running or paused)."""
     return [s for s in sessions_for(entry, scope) if s.status in ("running", "paused")]
+
+
+def finished_scopes_for(entry):
+    """The clock sets of a vehicle that have been finished (Done pressed).
+
+    A clock belongs to every set it counts for, so a ``both`` clock recorded
+    before the split existed finishes both sets on its own.
+    """
+    finished = set()
+    for session in sessions_for(entry):
+        if session.status != "finished":
+            continue
+        for scope in SCOPES:
+            if session.counts_for(scope):
+                finished.add(scope)
+    return finished
+
+
+def outstanding_scopes_for(entry):
+    """The clock sets still to be finished before the vehicle is complete.
+
+    A vehicle is only finished work once **both** of its sides have been, so
+    finishing one side leaves the other one on this list. A side nobody has
+    started is outstanding too: the work still has to be timed and finished
+    before the vehicle itself can be closed.
+    """
+    done = finished_scopes_for(entry)
+    return [scope for scope in SCOPES if scope not in done]
+
+
+def all_scopes_finished(entry):
+    """Whether both of a vehicle's clock sets have been finished."""
+    return not outstanding_scopes_for(entry)
 
 
 def employee_sessions_for(entry, employee_id, scope=None):
@@ -323,6 +364,11 @@ def state(entry, at=None, scope=None):
     (Inside / Outside). With a ``scope`` only that set is described. Each
     employee's own clock is in ``workers`` and the browser ticks those live
     from ``segment_epoch``.
+
+    A vehicle whose clocks are all closed but whose second side has not been
+    finished yet is reported as ``partial`` rather than ``finished``: closing
+    one side is not finishing the vehicle, so the board must not say it is
+    complete while the other side is still outstanding.
     """
     now = timeutils.to_eastern(at) or timeutils.now_eastern()
     if scope:
@@ -330,11 +376,18 @@ def state(entry, at=None, scope=None):
         return _state(sessions_for(entry, wanted), entry=entry, at=now,
                       scope=wanted)
     whole = _state(sessions_for(entry), entry=entry, at=now)
-    whole["scopes"] = {
+    sets = {
         name: _state(sessions_for(entry, name), entry=entry, at=now,
                      scope=name)
         for name in SCOPES
     }
+    if whole["status"] == "finished" and not all_scopes_finished(entry):
+        whole["status"] = "partial"
+        whole["status_label"] = STATUS_LABELS["partial"]
+    whole["scopes"] = sets
+    # Which side the vehicle is still waiting on, so the board can say it.
+    whole["scopes_outstanding"] = [SCOPE_LABELS[scope]
+                                   for scope in outstanding_scopes_for(entry)]
     return whole
 
 
@@ -712,7 +765,10 @@ def finish(entry, employee_id=None, at=None, session_id=None, scope=INSIDE):
     """Stop this employee's clock and freeze that clock set's active prep time.
 
     Every other clock on the vehicle keeps running, inside or outside: the
-    vehicle is only finished on the board once nobody is still working on it.
+    vehicle is only finished on the board once nobody is still working on it
+    *and* both of its clock sets have been finished. Finishing one side of a
+    vehicle therefore never completes the vehicle on its own -- see
+    :func:`all_scopes_finished`, which is what decides that.
     """
     session, how = _resolve_session(entry, employee_id, session_id, scope)
     if session is None:
