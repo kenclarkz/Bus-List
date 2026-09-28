@@ -33,8 +33,11 @@ report. It is not a static mockup.
    automatically — they are washed by another crew — and are collected in
    their own dropdown at the bottom of the board.
 3. **Daily Detailing Board** — after import, today's work list is created
-   automatically. Each vehicle shows number, type, route, status, last washed,
-   and progress. The task list is broken into two categories — **Inside**
+   automatically. The board is a list of **folded** vehicles: each row shows
+   only the unit number and the driver it runs for, and a tap opens the row to
+   show type, route, status, last washed, the prep clocks, the task list and
+   progress, so a long day fits on one screen. The task list is broken into two
+   categories — **Inside**
    (Sweep, Mop, Windows, Seats, Bathroom) and **Outside** (Dump, Bay Checked,
    Final Inspection) — both configurable in Settings. Every checkbox saves a
    completion timestamp and the employee. Progress shows `6/8 — 75%`.

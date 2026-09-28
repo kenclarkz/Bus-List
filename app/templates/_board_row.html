@@ -2,7 +2,13 @@
    Rendered twice by dashboard.html: once for the main work list and once
    inside the transit dropdown. Expects a row dict from
    build_schedule_view() as `r` (including its prep-timer state in `r.prep`),
-   and the page context for the role/employee badges. #}
+   and the page context for the role/employee badges.
+
+   The card is a <details> that starts folded: the board is a list of vehicles
+   waiting to be washed, so a folded row shows only the unit number and the
+   driver it runs for, and the whole card -- prep clocks, task list, progress
+   and row actions -- is one tap away. A day of forty vehicles fits on a
+   screen this way, instead of a screen of clocks and checkboxes. #}
 
 {# One clock set of a vehicle: the Inside clocks or the Outside clocks, with
    its own total, its own per-employee clocks and its own Start/Pause/Resume/
@@ -136,9 +142,16 @@
 {% set entry = r.entry %}
 {% set v = r.vehicle %}
 {% set prep = r.prep %}
-<div class="vrow {{ 'row-replacement' if entry.is_replacement }}{{ ' row-replaced' if r.replaced_by }}{{ ' row-transit' if r.is_transit }}" id="row-{{ entry.id }}">
-  <div class="vrow-header">
+<details class="vrow {{ 'row-replacement' if entry.is_replacement }}{{ ' row-replaced' if r.replaced_by }}{{ ' row-transit' if r.is_transit }}" id="row-{{ entry.id }}">
+  <summary class="vrow-summary" title="Open or close this vehicle's task list">
+    <span class="vrow-caret" aria-hidden="true">&#9656;</span>
     <span class="vnum">{{ v.unit_number }}</span>
+    {% if entry.driver_code %}
+    <span class="driver-code">Driver {{ entry.driver_code }}</span>
+    {% endif %}
+  </summary>
+  <div class="vrow-body">
+  <div class="vrow-header">
     {% if entry.is_replacement and r.replacement_of %}
     <span class="badge warn">Replacement for {{ r.replacement_of.unit_number }}</span>
     {% elif entry.is_replacement %}
@@ -156,9 +169,6 @@
       {% if entry.prep_time %} · Report {{ entry.prep_time|prep_time }}{% endif %}
       {% if entry.pickup_time %} · Pickup {{ entry.pickup_time|prep_time }}{% endif %}
     </div>
-    {% if entry.driver_code %}
-    <span class="driver-code">Driver {{ entry.driver_code }}</span>
-    {% endif %}
     <span class="badge entry-status {{ 'warn' if entry.status == 'skipped' else ('success' if entry.status == 'completed' else ('info' if entry.status == 'in_progress' else 'muted')) }}">
       {{ {'pending': 'Pending', 'in_progress': 'In Progress', 'completed': 'Completed', 'skipped': 'Skipped'}[entry.status] }}
     </span>
@@ -233,7 +243,9 @@
   </div>
 
   {% if entry.status != 'skipped' and not r.replaced_by %}
-  <div class="checklist" data-tasks-hidden="{{ 'false' if prep.started or entry.status in ('in_progress', 'completed') else 'true' }}">
+  {# Opening the row is what reveals the task list, so the checklist is never
+     hidden behind a flag of its own: the row is either folded or it is not. #}
+  <div class="checklist">
     <div class="checklist-group">
       <span class="checklist-group-label">Inside</span>
       <div class="checklist-group-items">
@@ -303,7 +315,8 @@
   </div>
   {% endif %}
   {% endif %}
-</div>
+  </div>
+</details>
 
 <div class="modal-bg" id="modal-skip-{{ entry.id }}">
   <div class="modal">

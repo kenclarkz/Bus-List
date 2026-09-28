@@ -238,6 +238,39 @@ tr.row-inactive td { color: var(--muted); }
   box-shadow: var(--shadow);
   padding: 14px;
 }
+
+/* A board row is a <details> that starts folded, so it shows the unit number
+   and driver alone until it is tapped. The card padding moves onto the
+   summary so the whole folded line is the tap target. */
+details.vrow { padding: 0; }
+details.vrow > .vrow-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  cursor: pointer;
+  list-style: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+details.vrow > .vrow-summary::-webkit-details-marker { display: none; }
+/* A mid-grey wash, so the hover reads on both the light and the dark themes. */
+details.vrow > .vrow-summary:hover { background: rgba(127, 127, 127, .09); }
+details.vrow > .vrow-summary:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+details.vrow > .vrow-body { padding: 0 14px 14px; }
+.vrow-caret {
+  color: var(--muted);
+  font-size: .9rem;
+  line-height: 1;
+  transition: transform .15s;
+}
+details.vrow[open] > .vrow-summary .vrow-caret { transform: rotate(90deg); }
+details.vrow[open] > .vrow-summary {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+details.vrow > .vrow-summary .driver-code { font-size: .95rem; }
+
 .vrow-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .vrow.row-replaced {
   background: #f8fafc;
@@ -266,7 +299,6 @@ tr.row-inactive td { color: var(--muted); }
   display: flex; gap: 18px; flex-wrap: wrap; margin: 12px 0 4px;
   flex-direction: column;
 }
-.checklist[data-tasks-hidden="true"] { display: none; }
 .checklist-group { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
 .checklist-group-label {
   font-size: .75rem; font-weight: 700; letter-spacing: .04em;
@@ -274,12 +306,6 @@ tr.row-inactive td { color: var(--muted); }
   min-width: 64px; padding-top: 9px;
 }
 .checklist-group-items { display: flex; gap: 8px; flex-wrap: wrap; }
-.row-start {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  margin: 12px 0 4px;
-}
-.row-start[data-tasks-hidden="false"] { display: none; }
-.row-start .start-btn { padding: 10px 22px; }
 .ck {
   display: inline-flex; align-items: center; gap: 6px;
   border: 1px solid var(--border); border-radius: 999px;
@@ -578,6 +604,8 @@ code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
   .container { max-width: 100%; padding: 0; }
   .card { border: none; box-shadow: none; padding: 4px 0; }
   .vrow { break-inside: avoid; border: 1px solid #ccc; }
+  /* Paper has no tap: a folded row is printed as if it had been opened. */
+  details.vrow > .vrow-body { display: block !important; }
   table { font-size: 12px; }
 }
 
@@ -603,6 +631,8 @@ code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
   .modal { max-height: 85vh; overflow-y: auto; }
   .form-row > div { min-width: 100%; }
   .vrow { padding: 10px; }
+  details.vrow > .vrow-summary { padding: 12px 10px; }
+  details.vrow > .vrow-body { padding: 0 10px 10px; }
   .progress { font-size: .8rem; }
   .row-actions { gap: 6px; }
   .row-actions .btn { padding: 5px 8px; font-size: .7rem; }
