@@ -46,14 +46,14 @@ report. It is not a static mockup.
    **Start** begins the clock and puts the vehicle in progress;
    **Pause** and **Resume** stop and restart it without ever losing the time
    already worked; **Done** stops the clock, freezes that person's total active
-   prep time, finishes the vehicle once no clock of either set is still
-   running, and hands the vehicle back. The two sets never borrow time from each
+   prep time, **finishes the whole vehicle whichever side it was pressed on**,
+   and hands the vehicle back. The two sets never borrow time from each
    other: working the outside of a vehicle does not advance its inside clock,
    and the vehicle's headline number is the sum of both sides. **Several
    employees can work the same vehicle at the same time**, on the same side or
    on opposite sides: the row shows a clock per employee per set, a combined
    vehicle clock, and an **+ Add Me** button for anyone else to start their own
-   clock, and each person's Pause/Resume/Done only ever touches their own clock.
+   clock, and each person's Pause/Resume only ever touches their own clock.
    One employee can run an inside and an outside clock at the same time, and a
    second clock in the *same* set must be paused (or finished) first. Only the
    buttons valid for the current state are shown, and an out-of-order action
@@ -219,8 +219,8 @@ Resume → Done, per-vehicle independence, resume keeping prior work time,
 refresh accuracy, invalid actions being rejected, timers being stopped by other
 completion paths, the Eastern Time formatting, and the report/vehicle history
 output. It also covers several employees timing the same vehicle at once
-(independent clocks, one press acting on only one person's timer, the vehicle
-only completing once the last person is done, crew reporting), the automatic
+(independent clocks, one press acting on only one person's timer, either side's
+Done press finishing the whole vehicle, crew reporting), the automatic
 upgrade of an older database to allow a crew per vehicle, and the two clock
 sets per vehicle: each side timing apart, a paused clock not blocking the other
 side, one employee running both sides of one vehicle at once, two employees
@@ -278,9 +278,15 @@ is eventually reported.
   stamped separately for each side they work, so a vehicle worked inside by two
   and outside by three reports five clocks. One person can also run an inside
   clock *and* an outside clock side by side, because the two sets are timed
-  apart. Pausing, resuming or finishing affects only the session that was
-  pressed, and the vehicle is only marked complete when the last clock of either
-  set finishes. The vehicle's clock and its report lines are the sum of
+  apart.
+- **A Done press finishes the whole vehicle.** Either side can finish it, so a
+  vehicle is never left sitting in progress waiting on a section nobody is
+  going to come back for. A Done press closes every clock still open on the
+  vehicle — the other side, or a colleague's — and marks the entry completed,
+  because a finished vehicle never has a clock running behind it. The
+  per-employee clocks are still what the day total and the report are built
+  from: Pausing, resuming or finishing only ever moves the clock that was
+  pressed, and the vehicle's clock and its report lines are the sum of
   everybody's time on it, so two people working the same vehicle for an hour
   correctly report two hours of prep work.
 - **One clock per person per clock set.** A person never runs two clocks in the

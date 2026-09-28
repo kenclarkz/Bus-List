@@ -677,8 +677,7 @@ function runPrepAction(btn) {
       bindPrepButtons(row);
     }
     if (data.action === 'done') {
-      // The vehicle is only finished once the last employee working it is
-      // done, so only then does the row lock down.
+      // A Done press finishes the whole vehicle, so the row locks down.
       if (data.entry_completed && data.progress) {
         var vrow = btn.closest('.vrow');
         if (vrow) {
@@ -703,12 +702,13 @@ function runPrepAction(btn) {
       }
       // Finishing a vehicle changes the day totals.
       updateStats(data.counters);
-      // This employee is only off the floor once they have no clock left. One
-      // person can be timing both sides of a vehicle, so finishing one of their
-      // clocks is not leaving work -- their card stays for the other.
-      if (isMine && !prepHasMyActiveClock(state, CURRENT_EMPLOYEE)) {
-        removeNowWorker(CURRENT_EMPLOYEE);
-      }
+      // Every clock on the vehicle is closed by the press, so everybody who
+      // was on it comes off the floor -- whoever pressed and whoever was
+      // working the other side. An employee can only be on one vehicle, so
+      // dropping the card for anyone left without a live clock here is right.
+      (state.workers || []).forEach(function (w) {
+        if (w.employee_id && !w.active) removeNowWorker(w.employee_id);
+      });
     }
     tickPrepTimers();
   }).catch(function () {
@@ -716,16 +716,6 @@ function runPrepAction(btn) {
     // longer reject. Re-sync so the row matches what is really recorded.
     btn.disabled = false;
     resyncPrepTimers();
-  });
-}
-
-// Whether this employee still has an open clock on a vehicle in this state. A
-// person working both sides of one vehicle holds a clock in each set, and a
-// press that finishes one of them leaves the other counting.
-function prepHasMyActiveClock(state, employeeId) {
-  if (!state || !employeeId) return false;
-  return (state.workers || []).some(function (w) {
-    return w.active && String(w.employee_id) === String(employeeId);
   });
 }
 

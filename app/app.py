@@ -1285,12 +1285,15 @@ def register_routes(app):
             else:
                 started = prep_timer.finish(entry, employee_id, scope=scope,
                                             session_id=session_id)
-                # Done closes out the employee who pressed it. The vehicle is
-                # only finished on the board once nobody is still working on
-                # it, inside or outside, so a crew can each press Done in
-                # their own time.
-                if not prep_timer.active_sessions_for(entry):
-                    sched_svc.complete_entry(entry)
+                # Done finishes the whole vehicle, whichever side it was pressed
+                # on: the person pressing it is saying the vehicle is clean, so
+                # it is not left waiting on a section nobody else is going to
+                # come back for. Any other clock still open on the vehicle --
+                # the other side, or a colleague's -- is closed out with them,
+                # because a finished vehicle never has a clock running behind
+                # it, and the entry is marked completed either way.
+                prep_timer.stop_active(entry)
+                sched_svc.complete_entry(entry)
         except prep_timer.PrepTimerError as err:
             # A refused press still answers with the vehicle's real state, so
             # the board repaints the row instead of leaving the button that was

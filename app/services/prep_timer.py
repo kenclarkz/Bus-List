@@ -711,8 +711,10 @@ def resume(entry, employee_id=None, at=None, session_id=None, scope=INSIDE):
 def finish(entry, employee_id=None, at=None, session_id=None, scope=INSIDE):
     """Stop this employee's clock and freeze that clock set's active prep time.
 
-    Every other clock on the vehicle keeps running, inside or outside: the
-    vehicle is only finished on the board once nobody is still working on it.
+    This moves exactly the one clock it was asked to move. Every other clock on
+    the vehicle -- the other clock set, or a colleague's -- is left alone, so
+    what finishing a clock means for the vehicle as a whole is the caller's
+    decision (see ``stop_active`` and the board's Done press).
     """
     session, how = _resolve_session(entry, employee_id, session_id, scope)
     if session is None:
