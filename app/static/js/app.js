@@ -678,11 +678,7 @@ function runPrepAction(btn) {
       // task list is already showing; all that is left is to say the vehicle
       // is being worked.
       var openRow = row ? row.closest('.vrow') : null;
-      var badge = openRow ? openRow.querySelector('.entry-status') : null;
-      if (badge) {
-        badge.textContent = 'In Progress';
-        badge.className = 'badge entry-status info';
-      }
+      setRowStatus(openRow, 'in_progress');
       addNowWorker(CURRENT_EMPLOYEE, data.employee, data.initials, data.unit,
         data.worker);
     }
@@ -706,12 +702,9 @@ function runPrepAction(btn) {
             label.textContent = data.progress.done + '/' + data.progress.total +
               ' — ' + data.progress.pct + '%';
           }
-          var statusBadge = vrow.querySelector('.entry-status');
-          if (statusBadge) {
-            statusBadge.textContent = 'Completed';
-            statusBadge.className = 'badge entry-status success';
-          }
-          setVrowMark(vrow, 'completed');
+          // Both clock sets are done, so the vehicle is finished: tick its card
+          // so the board shows it as done without the row being reopened.
+          setRowStatus(vrow, 'completed');
           vrow.querySelectorAll('.ck input').forEach(function (chk) { chk.disabled = true; });
           var replaceBtn = vrow.querySelector('[data-modal-target^="modal-replace-"]');
           if (replaceBtn) replaceBtn.remove();
@@ -867,37 +860,60 @@ function updateStats(counters) {
   });
 }
 
-// The state mark on a row's folded summary: one ringed check, green for a
-// completed vehicle and orange for one somebody skipped by hand. The server
-// renders the same mark in the same place (_board_row.html), so this only has
-// to add it, swap it or take it away on the presses that repaint a row without
-// a reload. A row still being worked, and a transit bus the importer skipped on
-// its own, carry no mark at all -- which is what a status we don't know says
-// here, so any other status simply clears the mark.
-var VROW_MARKS = {
-  completed: { cls: 'vrow-mark-complete', label: 'Completed' },
-  skipped: { cls: 'vrow-mark-skipped', label: 'Skipped' }
+// The four states a schedule entry is in, and how each one is labelled. The same
+// table is written out in the board row template, so the two stay in step.
+var ENTRY_STATUS_LABEL = {
+  pending: 'Pending',
+  in_progress: 'In Progress',
+  completed: 'Completed',
+  skipped: 'Skipped'
+};
+var ENTRY_STATUS_CLASS = {
+  pending: 'muted',
+  in_progress: 'info',
+  completed: 'success',
+  skipped: 'warn'
 };
 
-function setVrowMark(row, status) {
+// Tick a vehicle's card when it is finished, and untick it when it is not.
+//
+// The tick sits on the folded summary beside the unit number, because the board
+// is a working to-do list and what is left to do has to be readable down a
+// column of forty folded rows without opening any of them. The tick is built
+// here rather than re-rendered, so a vehicle that finishes at the last checkbox
+// shows it straight away instead of only on the next page load.
+function setRowComplete(row, complete) {
   if (!row) return;
+  row.classList.toggle('row-complete', !!complete);
   var summary = row.querySelector('.vrow-summary');
   if (!summary) return;
-  var mark = summary.querySelector('.vrow-mark');
-  var want = VROW_MARKS[status];
-  if (!want) {
-    if (mark) mark.remove();
-    return;
+  var check = summary.querySelector('.vrow-check');
+  if (complete && !check) {
+    check = document.createElement('span');
+    check.className = 'vrow-check';
+    check.setAttribute('role', 'img');
+    check.setAttribute('aria-label', 'Completed');
+    check.title = 'Completed';
+    check.textContent = '\u2713';
+    var num = summary.querySelector('.vnum');
+    if (num) num.parentNode.insertBefore(check, num.nextSibling);
+    else summary.appendChild(check);
+  } else if (!complete && check) {
+    check.remove();
   }
-  if (!mark) {
-    mark = document.createElement('span');
-    mark.className = 'vrow-mark';
-    mark.textContent = '✔';
-    summary.appendChild(mark);
+}
+
+// Repaint both readings of a row's status -- the badge inside the open card and
+// the tick on the folded line -- from the one status the server just wrote, so a
+// row can never show one as done while the other says it is not.
+function setRowStatus(row, status) {
+  if (!row || !status) return;
+  var badge = row.querySelector('.entry-status');
+  if (badge) {
+    badge.textContent = ENTRY_STATUS_LABEL[status] || status;
+    badge.className = 'badge entry-status ' + (ENTRY_STATUS_CLASS[status] || 'muted');
   }
-  mark.className = 'vrow-mark ' + want.cls;
-  mark.title = want.label;
-  mark.setAttribute('aria-label', want.label);
+  setRowComplete(row, status === 'completed');
 }
 
 // Strip one prep block (a vehicle or one of its clock sets) of everything that
@@ -938,7 +954,7 @@ function markSkipped(row, entryId, reason, unskipUrl) {
     note.style.cssText = 'margin:12px 0 4px';
     var progress = row.querySelector('.progress');
     if (progress) {
-      row.insertBefore(note, progress);
+      progress.parentNode.insertBefore(note, progress);
     } else {
       row.appendChild(note);
     }
@@ -953,12 +969,7 @@ function markSkipped(row, entryId, reason, unskipUrl) {
   }
   note.appendChild(document.createTextNode('Un-skip to work this vehicle.'));
 
-  var badge = row.querySelector('.entry-status');
-  if (badge) {
-    badge.textContent = 'Skipped';
-    badge.className = 'badge entry-status warn';
-  }
-  setVrowMark(row, 'skipped');
+  setRowStatus(row, 'skipped');
   var fill = row.querySelector('.progress-fill');
   if (fill) fill.classList.add('fill-warn');
   var pct = row.querySelector('.pct');
@@ -999,12 +1010,18 @@ function skipWork(form) {
     headers: { 'Accept': 'application/json' },
     body: body
   }).then(function (r) {
-    return r.json().then(function (data) {
-      if (!data.ok) {
-        if (btn) btn.disabled = false;
-        alert(data.error || 'Could not skip this vehicle.');
-        return;
-      }
+    return r.json();
+  }).then(function (data) {
+    if (!data.ok) {
+      if (btn) btn.disabled = false;
+      alert(data.error || 'Could not skip this vehicle.');
+      return;
+    }
+    // Past this point the skip is recorded, so a failure to repaint the row is
+    // not a failed skip and must not be reported as one. Repaint the board; if
+    // anything in it throws, reload so the employee reads the vehicle's real
+    // state instead of a row that disagrees with the server.
+    try {
       var row = document.getElementById('row-' + entryId);
       if (row) {
         var reason = data.reason || body.get('reason') || '';
@@ -1015,7 +1032,9 @@ function skipWork(form) {
       updateStats(data.counters);
       var modal = document.getElementById('modal-skip-' + entryId);
       if (modal) modal.classList.remove('open');
-    });
+    } catch (e) {
+      window.location.reload();
+    }
   }).catch(function () {
     if (btn) btn.disabled = false;
     alert('Could not skip this vehicle. Try again.');
@@ -1039,8 +1058,8 @@ document.addEventListener('DOMContentLoaded', function () {
         method: 'POST',
         body: body
       }).then(function (r) { return r.json(); }).then(function (data) {
+        var row = chk.closest('.vrow');
         if (data.pct !== null && data.pct !== undefined && data.total) {
-          var row = chk.closest('.vrow');
           if (row) {
             var bar = row.querySelector('.progress-fill');
             var label = row.querySelector('.pct');
@@ -1048,10 +1067,11 @@ document.addEventListener('DOMContentLoaded', function () {
             if (label) label.textContent = data.done + '/' + data.total + ' — ' + data.pct + '%';
           }
         }
-        // Checking the last task off completes the vehicle, and un-checking one
-        // opens it back up, so the row's mark follows the status the server
-        // reports rather than the checkbox that happened to be pressed.
-        setVrowMark(chk.closest('.vrow'), data.entry_status);
+        // The last box ticked is what finishes a vehicle, and the first box
+        // unticked un-finishes one, so the status is repainted from what the
+        // server recorded rather than guessed from the press: that is what ticks
+        // the card once the whole checklist is done.
+        setRowStatus(row, data.status);
         wrap.classList.toggle('done', checked);
       }).catch(function () {
         chk.checked = !checked;

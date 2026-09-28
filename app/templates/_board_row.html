@@ -151,10 +151,23 @@
 {% set entry = r.entry %}
 {% set v = r.vehicle %}
 {% set prep = r.prep %}
-<details class="vrow {{ 'row-replacement' if entry.is_replacement }}{{ ' row-replaced' if r.replaced_by }}{{ ' row-transit' if r.is_transit }}" id="row-{{ entry.id }}">
+{# The server's own word for "this vehicle is finished", not a count of ticks:
+   a vehicle completed without every task checked reads the same as one that was
+   ticked off box by box, and a skipped vehicle is never finished. The check on
+   the folded line and the status badge in the open card below both read this
+   one flag, so they can never disagree about the same row. #}
+{% set is_complete = entry.status == 'completed' %}
+<details class="vrow {{ 'row-complete ' if is_complete }}{{ 'row-replacement' if entry.is_replacement }}{{ ' row-replaced' if r.replaced_by }}{{ ' row-transit' if r.is_transit }}" id="row-{{ entry.id }}">
   <summary class="vrow-summary" title="Open or close this vehicle's task list">
     <span class="vrow-caret" aria-hidden="true">&#9656;</span>
     <span class="vnum">{{ v.unit_number }}</span>
+    {# A finished vehicle is ticked on the folded line, beside the unit number it
+       belongs to. The board is a working to-do list, so what is left to do is
+       read as the rows without a tick -- a day of forty vehicles can only be
+       judged that way without opening every one of them. #}
+    {% if is_complete %}
+    <span class="vrow-check" role="img" aria-label="Completed" title="Completed">&#10003;</span>
+    {% endif %}
     {# The four things the crew needs to pick the right bus off the board,
        without opening it: which unit, what kind of vehicle, who it runs for,
        and the report time it is due. Anything the report did not supply is

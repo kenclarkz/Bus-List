@@ -1700,11 +1700,12 @@ def register_routes(app):
         status = None
         if task:
             done, total, pct = sched_svc.entry_progress(task.entry)
-            # The last task off completes the vehicle, so the board's own state
-            # can move on this press. The client repaints the row from it
-            # (progress bar, status badge, the check mark on the folded line).
+            # A vehicle is finished by its last task, so the status changes on
+            # exactly the press that completes it. Hand it back so the client can
+            # tick the card from what was recorded, in either direction, instead
+            # of waiting for a reload to find out.
             status = task.entry.status
-        return jsonify(ok=True, done=done, total=total, pct=pct, entry_status=status)
+        return jsonify(ok=True, done=done, total=total, pct=pct, status=status)
 
     @app.route("/entry/<int:entry_id>/skip", methods=["POST"])
     def entry_skip(entry_id):
