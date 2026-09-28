@@ -1697,9 +1697,15 @@ def register_routes(app):
         emp = request.form.get("employee_id") or None
         task = sched_svc.toggle_task(entry_id, task_name, checked, emp)
         done = total = pct = None
+        status = None
         if task:
             done, total, pct = sched_svc.entry_progress(task.entry)
-        return jsonify(ok=True, done=done, total=total, pct=pct)
+            # A vehicle is finished by its last task, so the status changes on
+            # exactly the press that completes it. Hand it back so the client can
+            # tick the card from what was recorded, in either direction, instead
+            # of waiting for a reload to find out.
+            status = task.entry.status
+        return jsonify(ok=True, done=done, total=total, pct=pct, status=status)
 
     @app.route("/entry/<int:entry_id>/skip", methods=["POST"])
     def entry_skip(entry_id):
