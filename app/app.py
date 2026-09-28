@@ -248,9 +248,10 @@ def _migrate():
     except Exception:
         current_app.logger.exception(
             "Could not upgrade prep_sessions to one clock per employee per "
-            "clock set: this database can only hold one clock per vehicle, so "
-            "a second employee pressing Start on it is refused until the next "
-            "restart.")
+            "clock set: this database still holds one clock per vehicle per "
+            "clock set, so a second employee pressing Start on a vehicle is "
+            "refused. The traceback above says what went wrong; nothing is "
+            "lost by trying again on the next start.")
     try:
         cols = {r[1] for r in con.execute("PRAGMA table_info(schedule_entries)")}
         if "prep_time" not in cols:
@@ -363,63 +364,177 @@ def _migrate():
 # ``_upgrade_prep_sessions``).
 PREP_SESSION_UNIQUE_KEY = frozenset({"entry_id", "employee_id", "scope"})
 
+# The columns a rebuild carries from one generation of the table into the next.
+# ``scope`` is not among them: it did not exist before the Inside/Outside
+# split, so it is added -- or defaulted to ``both`` -- in its own right.
+PREP_SESSION_CARRIED_COLUMNS = (
+    "id", "entry_id", "vehicle_id", "employee_id", "status", "started_at",
+    "last_event_at", "finished_at", "total_seconds", "created_at", "updated_at",
+)
 
-def _unique_rules(ddl):
-    """The column sets covered by a table's UNIQUE constraints.
 
-    One set per ``UNIQUE (...)`` in the DDL, lowercased and stripped of any
-    quoting. A table with no UNIQUE constraint yields an empty set, which
-    already permits a crew.
+def _table_uniqueness_rules(con, table):
+    """Every uniqueness rule the database actually enforces on ``table``.
+
+    Asked of the database rather than read out of the table's CREATE TABLE
+    text, because a rule does not have to be written there. An inline
+    ``UNIQUE (...)`` is enforced by an implicit index SQLite creates for it
+    (``sqlite_autoindex_...``) and a standalone ``CREATE UNIQUE INDEX`` is not
+    mentioned in the DDL at all -- yet the two refuse exactly the same inserts.
+
+    Reading only the DDL is how a board went on refusing a crew for good while
+    the upgrade reported itself finished: a database whose clocks were keyed by
+    a unique index showed no rule whatsoever, and a table with no rule needs no
+    rebuild, so the stale index survived every restart and every employee who
+    pressed Start on the second clock of a vehicle lost the press.
     """
-    import re
+    rules = set()
+    for index in con.execute(f"PRAGMA index_list({table})"):
+        name, unique = index[1], index[2]
+        if not unique:
+            continue  # an ordinary lookup index refuses nothing
+        columns = [row[2] for row in con.execute(
+            "PRAGMA index_info('%s')" % name.replace("'", "''"))]
+        if not columns or any(column is None for column in columns):
+            # An index over an expression or a sort order rather than over
+            # columns. It constrains at least as much as the model does, so it
+            # is stale by definition and only the rebuild can clear it.
+            columns = ["<expression>"]
+        rules.add(frozenset(column.lower() for column in columns))
+    return rules
 
-    return {
-        frozenset(
-            column.strip().strip("\"`[]").lower()
-            for column in match.group(1).split(",")
-            if column.strip()
-        )
-        for match in re.finditer(r"UNIQUE\s*\(([^)]*)\)", ddl or "", re.IGNORECASE)
-    }
+
+def _stale_uniqueness_rules(rules):
+    """The rules that leave the employee out of the key.
+
+    A rule is current when it covers the vehicle, the employee *and* the clock
+    set. One that also covers something more -- a status, say -- is narrower
+    than the model but still lets a crew be timed, so it is left alone. What
+    cannot be left alone is a rule missing any part of the key, and every one
+    of those is stale, including one that merely sits *beside* a current rule:
+    asking whether *any* rule is the key let that current rule make the table
+    look finished, so the stale rule beside it went on refusing the second
+    employee on a vehicle, press after press, and only a manual edit of the
+    database ever cleared it.
+    """
+    return sorted((rule for rule in rules if not PREP_SESSION_UNIQUE_KEY <= rule),
+                  key=sorted)
 
 
-def _copyable_prep_rows(con, shared):
+def _prep_sessions_ddl(scratch=None):
+    """The statements the model itself uses to define ``prep_sessions``.
+
+    Read from the model rather than written out here a second time, so a
+    rebuilt table is by construction the table ``db.create_all()`` builds: the
+    columns, the foreign keys and above all the key cannot drift apart from the
+    one ``models.PrepSession`` declares, which is the entire reason the upgrade
+    rebuilds the table. ``scratch`` is the name to create it under, which is
+    what lets the old table stay in place until the copy has succeeded.
+    """
+    from sqlalchemy.dialects import sqlite
+    from sqlalchemy.schema import CreateIndex, CreateTable
+
+    from .models import PrepSession
+
+    table = PrepSession.__table__
+    dialect = sqlite.dialect()
+    create = str(CreateTable(table).compile(dialect=dialect)).strip()
+    if scratch:
+        create = re.sub(r"^CREATE TABLE\s+prep_sessions\b", f"CREATE TABLE {scratch}",
+                        create, count=1)
+    return create, [str(CreateIndex(index).compile(dialect=dialect)).strip()
+                    for index in table.indexes]
+
+
+def _complete_prep_clock(clock, columns, entry_vehicles):
+    """Fill in whatever the table being upgraded did not record.
+
+    The rebuilt table is the model's own, so every column it declares is
+    written, and the ones the table being upgraded had no column for have to
+    arrive with a value: the vehicle comes from the entry the clock was
+    recorded against, a clock that has been closed is finished whether or not
+    it said so, a clock that has not is running, a clock with no time of its own
+    is stamped from whatever time it does have, and a clock with no seconds
+    counted has counted none. Without this the copy aborts on a NOT NULL
+    constraint, the abort is only logged, and the stale rule stays exactly where
+    it was -- a board that stays broken for want of a manual edit, which is what
+    this upgrade exists to stop.
+    """
+    for column in columns:
+        clock.setdefault(column, None)
+    if not clock.get("vehicle_id"):
+        clock["vehicle_id"] = entry_vehicles.get(clock.get("entry_id"))
+    if not clock.get("status"):
+        clock["status"] = "finished" if clock.get("finished_at") else "running"
+    if not clock.get("total_seconds"):
+        clock["total_seconds"] = 0
+    for column in ("started_at", "last_event_at"):
+        if not clock.get(column):
+            clock[column] = next(
+                (clock[other] for other in ("started_at", "last_event_at",
+                                            "finished_at", "created_at")
+                 if clock.get(other)), None)
+
+
+def _copyable_prep_rows(con, old_columns):
     """The existing prep clocks to copy into the rebuilt table, one per key.
 
-    The old rule was the one thing standing between the table and a crew, so a
-    database carrying it cannot hold two clocks for the same employee on the
-    same vehicle in the same set -- and the rebuilt table refuses to hold two
-    either. A weaker leftover rule could, though, so rows that collide under the
-    new key are collapsed to the earliest of them rather than left to abort the
-    copy: an aborted copy would leave the stale rule in place for good, which is
-    exactly the failure this upgrade exists to clear. The first clock recorded
-    for a key is the one kept, since that is the run the service resolved to.
+    Each row is a mapping of the rebuilt table's column names to values, with
+    the columns the table being upgraded did not have filled in (see
+    ``_complete_prep_clock``), so a database from before a column existed is
+    still carried across whole. The columns are named after the model rather
+    than after whatever the table being upgraded happened to hold, so the copy
+    always fills every column of the rebuilt table.
+
+    Rows that collide under the new key are collapsed to the earliest of them
+    rather than left to abort the copy: the old rule was the one thing standing
+    between the table and a crew, so a database carrying it cannot hold two
+    clocks for the same employee on the same vehicle in the same set -- and the
+    rebuilt table refuses to hold two either. A weaker leftover rule could let
+    that happen, though, and an aborted copy would leave the stale rule in place
+    for good, which is exactly the failure this upgrade exists to clear. The
+    first clock recorded for a key is the one kept, since that is the run the
+    service resolved to.
     """
     from flask import current_app
 
-    rows = con.execute(
-        f"SELECT {', '.join(shared)}, COALESCE(NULLIF(scope, ''), 'both') "
-        f"FROM prep_sessions ORDER BY id").fetchall()
-    entry_at = shared.index("entry_id") if "entry_id" in shared else None
-    employee_at = shared.index("employee_id") if "employee_id" in shared else None
+    from .models import PrepSession
+
+    names = list(PrepSession.__table__.columns.keys())
+    select_names, select = ["id"], ["rowid AS id" if "id" not in old_columns else "id"]
+    for column in PREP_SESSION_CARRIED_COLUMNS:
+        if column != "id" and column in old_columns:
+            select_names.append(column)
+            select.append(column)
+    # A clock recorded before the split has no clock set of its own, and counts
+    # towards the Inside *and* the Outside total of its day.
+    select_names.append("scope")
+    select.append(f"COALESCE(NULLIF(scope, ''), '{PrepSession.SCOPE_BOTH}')")
+
+    entry_vehicles = {}
+    if "vehicle_id" not in old_columns:
+        entry_vehicles = {row[0]: row[1] for row in con.execute(
+            "SELECT id, vehicle_id FROM schedule_entries")}
+
     kept, seen = [], set()
-    for row in rows:
-        if entry_at is not None and employee_at is not None:
-            key = (row[entry_at], row[employee_at], row[-1])
-            if key in seen:
-                current_app.logger.warning(
-                    "Dropped duplicate prep clock id=%s (vehicle %s, employee "
-                    "%s, %s prep) while upgrading to one clock per employee "
-                    "per clock set.", row[0], row[entry_at], row[employee_at],
-                    row[-1])
-                continue
-            seen.add(key)
-        kept.append(row)
-    return kept
+    for row in con.execute(
+            f"SELECT {', '.join(select)} FROM prep_sessions ORDER BY id").fetchall():
+        clock = dict(zip(select_names, row))
+        _complete_prep_clock(clock, names, entry_vehicles)
+        key = (clock.get("entry_id"), clock.get("employee_id"), clock["scope"])
+        if key in seen:
+            current_app.logger.warning(
+                "Dropped a duplicate prep clock (vehicle entry %s, employee %s, "
+                "%s prep) while upgrading to one clock per employee per clock "
+                "set.", key[0], key[1], key[2])
+            continue
+        seen.add(key)
+        kept.append(clock)
+    return names, kept
 
 
 def _upgrade_prep_sessions(con):
-    """Let every vehicle carry two clock sets: one Inside, one Outside.
+    """Let every vehicle carry a clock per employee per clock set.
 
     Two things can be stale in an existing database:
 
@@ -433,8 +548,8 @@ def _upgrade_prep_sessions(con):
       employee_id)`` (one per employee) and is now ``UNIQUE (entry_id,
       employee_id, scope)`` (one per employee per clock set). SQLite cannot drop
       a constraint with ALTER TABLE, so a table with a stale one is rebuilt with
-      the current definition, keeping every session, every total and every
-      recorded event.
+      the model's own current definition, keeping every session, every total and
+      every recorded event.
 
     Whether a rule is stale is decided by the columns it actually covers, not
     by whether it mentions ``scope``: ``UNIQUE (entry_id, scope)`` mentions
@@ -443,6 +558,15 @@ def _upgrade_prep_sessions(con):
     employee forever. The rule a press needs is "the employee is in the key",
     so a rule is current only when it covers the vehicle, the employee *and*
     the clock set, and anything else is rebuilt.
+
+    The rules are read from the database itself rather than from the table's
+    CREATE TABLE text, and every one of them is judged, because a rule need not
+    be written there: a standalone ``CREATE UNIQUE INDEX`` is invisible in the
+    DDL, and asking whether *any* rule was the key let a stale one sitting
+    beside a current one be overlooked. Either way the symptom was the same --
+    "the database still holds only one outside clock per vehicle", refusing the
+    second employee on a bus on every press and on every restart, with nothing
+    but a manual edit of the database to clear it.
 
     An upgrade that is interrupted between creating the rebuilt table and
     renaming it over the old one leaves that table behind, and the next boot
@@ -466,51 +590,41 @@ def _upgrade_prep_sessions(con):
         con.commit()
         columns.add("scope")
 
-    rules = _unique_rules(row[0])
-    if not rules or PREP_SESSION_UNIQUE_KEY in rules:
-        return  # no rule to fight, or already one clock per employee per set
+    stale = _stale_uniqueness_rules(_table_uniqueness_rules(con, "prep_sessions"))
+    if not stale:
+        # No rule to fight at all, or every rule the table carries is already a
+        # per-employee key. Either way a crew can be timed and there is nothing
+        # to rebuild.
+        return
 
+    scratch = "prep_sessions_scoped"
     con.execute("PRAGMA foreign_keys=OFF")
     # Legacy rename keeps prep_session_events pointing at "prep_sessions"
     # instead of rewriting it to the temporary table name.
     con.execute("PRAGMA legacy_alter_table=ON")
     # What an interrupted earlier run left behind. It is never a table worth
     # keeping: the copy below is about to recreate and refill it.
-    con.execute("DROP TABLE IF EXISTS prep_sessions_scoped")
-    # The same definition the model creates, foreign keys included, so the
-    # rebuild does not quietly drop the references SQLite enforces elsewhere.
-    con.execute("""
-        CREATE TABLE prep_sessions_scoped (
-            id INTEGER NOT NULL,
-            entry_id INTEGER NOT NULL,
-            vehicle_id INTEGER NOT NULL,
-            employee_id INTEGER,
-            scope VARCHAR(10) NOT NULL,
-            status VARCHAR(20) NOT NULL,
-            started_at VARCHAR(32) NOT NULL,
-            last_event_at VARCHAR(32) NOT NULL,
-            finished_at VARCHAR(32),
-            total_seconds INTEGER NOT NULL,
-            created_at DATETIME,
-            updated_at DATETIME,
-            PRIMARY KEY (id),
-            FOREIGN KEY(entry_id) REFERENCES schedule_entries (id),
-            FOREIGN KEY(vehicle_id) REFERENCES vehicles (id),
-            FOREIGN KEY(employee_id) REFERENCES employees (id),
-            CONSTRAINT uq_prep_session_employee_scope
-                UNIQUE (entry_id, employee_id, scope)
-        )""")
-    shared = [c for c in (
-        "id", "entry_id", "vehicle_id", "employee_id", "status", "started_at",
-        "last_event_at", "finished_at", "total_seconds", "created_at",
-        "updated_at") if c in columns]
-    con.executemany(
-        f"INSERT INTO prep_sessions_scoped ({', '.join(shared + ['scope'])}) "
-        f"VALUES ({', '.join('?' * (len(shared) + 1))})",
-        _copyable_prep_rows(con, shared))
+    con.execute(f"DROP TABLE IF EXISTS {scratch}")
+    # The model's own definition, foreign keys included, so the rebuild lands
+    # on exactly the table db.create_all() would build -- a hand-written copy of
+    # it could drift from the key the service relies on, which is the one thing
+    # this rebuild is for. Created under a scratch name, so the old table keeps
+    # answering reads until the copy below has succeeded.
+    create, indexes = _prep_sessions_ddl(scratch)
+    con.execute(create)
+    names, clocks = _copyable_prep_rows(con, columns)
+    if clocks:
+        con.executemany(
+            f"INSERT INTO {scratch} ({', '.join(names)}) "
+            f"VALUES ({', '.join('?' * len(names))})",
+            [[clock[name] for name in names] for clock in clocks])
     con.execute("DROP TABLE prep_sessions")
-    con.execute("ALTER TABLE prep_sessions_scoped RENAME TO prep_sessions")
-    con.execute("CREATE INDEX ix_prep_sessions_entry_id ON prep_sessions (entry_id)")
+    con.execute(f"ALTER TABLE {scratch} RENAME TO prep_sessions")
+    # The indexes the model declares, created once the old table is gone so
+    # their names are free and named for the table the scratch table has just
+    # been renamed to.
+    for statement in indexes:
+        con.execute(statement)
     con.execute("PRAGMA legacy_alter_table=OFF")
     con.commit()
 
