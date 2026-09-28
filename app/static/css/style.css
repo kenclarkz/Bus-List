@@ -289,6 +289,25 @@ details.vrow > .vrow-summary .driver-code { font-size: .95rem; }
   border-radius: 999px;
 }
 
+/* A finished vehicle is ticked on its folded line, so the board reads as a
+   to-do list: what is left to do is what carries no tick. The card itself takes
+   a success edge and a tinted summary to match, so the finished rows separate
+   from the pending ones down a column of forty without being opened. Colours
+   come from the theme's own --success / --success-bg, so this works in every
+   theme rather than only the default one. */
+.vrow-check {
+  color: var(--success);
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.vrow.row-complete { border-color: var(--success); }
+details.vrow.row-complete > .vrow-summary { background: var(--success-bg); }
+/* The mid-grey wash every folded line takes on hover outweighs a plain finished
+   row's tint, which would leave a finished row with no hover feedback at all. It
+   deepens its own tint instead. */
+details.vrow.row-complete > .vrow-summary:hover { filter: brightness(.96); }
+
 .vrow-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .vrow.row-replaced {
   background: #f8fafc;
@@ -1375,6 +1394,7 @@ html[data-theme="bloomberg"] .vrow {
   border-radius: 0;
 }
 html[data-theme="bloomberg"] .vrow.row-replacement { border-left-color: var(--warn); }
+html[data-theme="bloomberg"] .vrow.row-complete { border-left-color: var(--success); }
 html[data-theme="bloomberg"] .vrow.row-replaced {
   background: #030303;
   border-left-color: #2a2a2a;
@@ -2194,6 +2214,7 @@ html[data-theme="holographic"] .vrow {
   border-left: 3px solid var(--cyan);
 }
 html[data-theme="holographic"] .vrow.row-replacement { border-left-color: var(--purple); }
+html[data-theme="holographic"] .vrow.row-complete { border-left-color: var(--success); }
 html[data-theme="holographic"] .vrow.row-replaced {
   background: rgba(10, 12, 26, .4);
   border-left-color: rgba(140, 175, 255, .3);

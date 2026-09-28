@@ -36,9 +36,13 @@ report. It is not a static mockup.
    automatically. The board is a list of **folded** vehicles: each row shows
    the unit number, the vehicle type, the driver it runs for, and the report
    time it is due (a driver and a report time only when the report supplied
-   them), and a tap opens the row to show route, status, last washed, the prep
-   clocks, the task list and progress, so a long day fits on one screen. The
-   task list is broken into two categories — **Inside**
+   them), plus a **✓ on any finished vehicle**, so the day's work reads as a
+   to-do list down a column of forty rows without opening a single one. A tap
+   opens the row to show route, status, last washed, the prep clocks, the task
+   list and progress, so a long day fits on one screen. The tick appears the
+   moment the last task is checked, and comes off again if one is un-checked; a
+   skipped vehicle is never ticked, because skipping is not a way of finishing
+   one. The task list is broken into two categories — **Inside**
    (Sweep, Mop, Windows, Seats, Bathroom) and **Outside** (Dump, Bay Checked,
    Final Inspection) — both configurable in Settings. Every checkbox saves a
    completion timestamp and the employee. Progress shows `6/8 — 75%`.

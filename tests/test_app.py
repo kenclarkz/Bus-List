@@ -2101,6 +2101,93 @@ def test_transit_rows_show_the_same_folded_details(client, app):
     assert "Report 6:15 AM" in summary
 
 
+def test_finished_vehicles_are_ticked_on_the_folded_board_row(client, app):
+    """A vehicle that is done is ticked on the folded line of its card, so the
+    board reads as a to-do list without a single row being opened. A vehicle that
+    is not done carries no tick, and a skipped one never does -- skipping is not
+    a way of finishing a vehicle."""
+    from app.services import schedule as ss
+    from app.services.vehicles import find_or_create_vehicle
+
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        done, _ = find_or_create_vehicle("4414", vehicle_type="Motorcoach",
+                                         location_id=loc.id)
+        done_entry = ss.ensure_entry(sched, done, prep_time="04:30")
+        for t in list(done_entry.tasks):
+            ss.toggle_task(done_entry.id, t.task_name, True)
+        done_id = done_entry.id
+
+        waiting, _ = find_or_create_vehicle("4415", location_id=loc.id)
+        waiting_id = ss.ensure_entry(sched, waiting, prep_time="04:45").id
+
+        skipped, _ = find_or_create_vehicle("4416", location_id=loc.id)
+        skipped_entry = ss.ensure_entry(sched, skipped, prep_time="05:00")
+        ss.set_entry_skipped(skipped_entry, skipped=True, reason="Maintenance")
+        skipped_id = skipped_entry.id
+
+    html = client.get("/").data.decode()
+
+    def summary_of(entry_id):
+        anchor = html.index(f'id="row-{entry_id}"')
+        start = html.rindex('<details class="vrow', 0, anchor)
+        return html[start:html.index("</summary>", anchor)]
+
+    # The tick rides the folded line, right beside the unit it belongs to, and
+    # only the folded line: the open card is not needed to read the board.
+    done_row = summary_of(done_id)
+    assert "vrow-check" in done_row
+    # The tick sits between the unit number and the type, so it reads as
+    # belonging to that unit rather than to the meta that follows it.
+    assert done_row.index(">4414<") < done_row.index("vrow-check")
+    assert done_row.index("vrow-check") < done_row.index("Motorcoach")
+
+    # The card itself is marked finished, so the finished rows separate from the
+    # pending ones down a column.
+    assert 'class="vrow row-complete ' in done_row
+
+    # A vehicle still to be worked carries no tick, or finished card.
+    waiting_row = summary_of(waiting_id)
+    assert "vrow-check" not in waiting_row
+    assert "row-complete" not in waiting_row
+
+    # Skipped is not finished, so a skipped vehicle is not ticked either.
+    skipped_row = summary_of(skipped_id)
+    assert "vrow-check" not in skipped_row
+    assert "row-complete" not in skipped_row
+
+
+def test_completing_the_last_task_returns_the_status_that_ticks_the_row(client, app):
+    """The press that finishes a vehicle is the one that ticks its card, so the
+    task endpoint hands back the status it wrote and not just the progress. It is
+    handed back in both directions, because un-ticking a box un-finishes a
+    vehicle and the tick has to come off again."""
+    from app.services import schedule as ss
+    from app.services.vehicles import find_or_create_vehicle
+
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        v, _ = find_or_create_vehicle("4417", location_id=loc.id)
+        entry = ss.ensure_entry(sched, v)
+        entry_id = entry.id
+        names = [t.task_name for t in entry.tasks]
+
+    for name in names[:-1]:
+        r = client.post(f"/task/{entry_id}/{name}",
+                        data={"checked": "true", "employee_id": "1"})
+        assert r.get_json()["status"] == "in_progress"
+
+    r = client.post(f"/task/{entry_id}/{names[-1]}",
+                    data={"checked": "true", "employee_id": "1"})
+    assert r.get_json()["status"] == "completed"
+
+    r = client.post(f"/task/{entry_id}/{names[0]}",
+                    data={"checked": "false"})
+    assert r.get_json()["status"] == "in_progress"
+
+
 def test_per_vehicle_type_checklist(app):
     """A vehicle type with its own checklist gets those tasks; a type without
     one falls back to the global default checklist."""

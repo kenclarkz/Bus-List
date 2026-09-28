@@ -678,11 +678,7 @@ function runPrepAction(btn) {
       // task list is already showing; all that is left is to say the vehicle
       // is being worked.
       var openRow = row ? row.closest('.vrow') : null;
-      var badge = openRow ? openRow.querySelector('.entry-status') : null;
-      if (badge) {
-        badge.textContent = 'In Progress';
-        badge.className = 'badge entry-status info';
-      }
+      setRowStatus(openRow, 'in_progress');
       addNowWorker(CURRENT_EMPLOYEE, data.employee, data.initials, data.unit,
         data.worker);
     }
@@ -706,11 +702,9 @@ function runPrepAction(btn) {
             label.textContent = data.progress.done + '/' + data.progress.total +
               ' — ' + data.progress.pct + '%';
           }
-          var statusBadge = vrow.querySelector('.entry-status');
-          if (statusBadge) {
-            statusBadge.textContent = 'Completed';
-            statusBadge.className = 'badge entry-status success';
-          }
+          // Both clock sets are done, so the vehicle is finished: tick its card
+          // so the board shows it as done without the row being reopened.
+          setRowStatus(vrow, 'completed');
           vrow.querySelectorAll('.ck input').forEach(function (chk) { chk.disabled = true; });
           var replaceBtn = vrow.querySelector('[data-modal-target^="modal-replace-"]');
           if (replaceBtn) replaceBtn.remove();
@@ -866,6 +860,62 @@ function updateStats(counters) {
   });
 }
 
+// The four states a schedule entry is in, and how each one is labelled. The same
+// table is written out in the board row template, so the two stay in step.
+var ENTRY_STATUS_LABEL = {
+  pending: 'Pending',
+  in_progress: 'In Progress',
+  completed: 'Completed',
+  skipped: 'Skipped'
+};
+var ENTRY_STATUS_CLASS = {
+  pending: 'muted',
+  in_progress: 'info',
+  completed: 'success',
+  skipped: 'warn'
+};
+
+// Tick a vehicle's card when it is finished, and untick it when it is not.
+//
+// The tick sits on the folded summary beside the unit number, because the board
+// is a working to-do list and what is left to do has to be readable down a
+// column of forty folded rows without opening any of them. The tick is built
+// here rather than re-rendered, so a vehicle that finishes at the last checkbox
+// shows it straight away instead of only on the next page load.
+function setRowComplete(row, complete) {
+  if (!row) return;
+  row.classList.toggle('row-complete', !!complete);
+  var summary = row.querySelector('.vrow-summary');
+  if (!summary) return;
+  var check = summary.querySelector('.vrow-check');
+  if (complete && !check) {
+    check = document.createElement('span');
+    check.className = 'vrow-check';
+    check.setAttribute('role', 'img');
+    check.setAttribute('aria-label', 'Completed');
+    check.title = 'Completed';
+    check.textContent = '\u2713';
+    var num = summary.querySelector('.vnum');
+    if (num) num.parentNode.insertBefore(check, num.nextSibling);
+    else summary.appendChild(check);
+  } else if (!complete && check) {
+    check.remove();
+  }
+}
+
+// Repaint both readings of a row's status -- the badge inside the open card and
+// the tick on the folded line -- from the one status the server just wrote, so a
+// row can never show one as done while the other says it is not.
+function setRowStatus(row, status) {
+  if (!row || !status) return;
+  var badge = row.querySelector('.entry-status');
+  if (badge) {
+    badge.textContent = ENTRY_STATUS_LABEL[status] || status;
+    badge.className = 'badge entry-status ' + (ENTRY_STATUS_CLASS[status] || 'muted');
+  }
+  setRowComplete(row, status === 'completed');
+}
+
 // Strip one prep block (a vehicle or one of its clock sets) of everything that
 // could start or move a clock, and label it skipped.
 function markPrepSkipped(block) {
@@ -919,11 +969,7 @@ function markSkipped(row, entryId, reason, unskipUrl) {
   }
   note.appendChild(document.createTextNode('Un-skip to work this vehicle.'));
 
-  var badge = row.querySelector('.entry-status');
-  if (badge) {
-    badge.textContent = 'Skipped';
-    badge.className = 'badge entry-status warn';
-  }
+  setRowStatus(row, 'skipped');
   var fill = row.querySelector('.progress-fill');
   if (fill) fill.classList.add('fill-warn');
   var pct = row.querySelector('.pct');
@@ -1004,8 +1050,8 @@ document.addEventListener('DOMContentLoaded', function () {
         method: 'POST',
         body: body
       }).then(function (r) { return r.json(); }).then(function (data) {
+        var row = chk.closest('.vrow');
         if (data.pct !== null && data.pct !== undefined && data.total) {
-          var row = chk.closest('.vrow');
           if (row) {
             var bar = row.querySelector('.progress-fill');
             var label = row.querySelector('.pct');
@@ -1013,6 +1059,11 @@ document.addEventListener('DOMContentLoaded', function () {
             if (label) label.textContent = data.done + '/' + data.total + ' — ' + data.pct + '%';
           }
         }
+        // The last box ticked is what finishes a vehicle, and the first box
+        // unticked un-finishes one, so the status is repainted from what the
+        // server recorded rather than guessed from the press: that is what ticks
+        // the card once the whole checklist is done.
+        setRowStatus(row, data.status);
         wrap.classList.toggle('done', checked);
       }).catch(function () {
         chk.checked = !checked;
