@@ -239,17 +239,18 @@ def _migrate():
         return
     con = sqlite3.connect(path)
     # The clock-set upgrade is kept apart from the column work below and never
-    # fails quietly. A database left on the old rule cannot hold a second clock
-    # on a vehicle at all, so a crew -- or one person working both sides of a
-    # bus -- silently loses every press; the only sign of it used to be a
-    # refused insert the board could not explain.
+    # fails quietly. A database left on a rule keyed on the vehicle alone cannot
+    # hold a second clock on a vehicle at all, so a crew -- or one person working
+    # both sides of a bus -- silently loses every press; the only sign of it used
+    # to be a refused insert the board could not explain.
     try:
         _upgrade_prep_sessions(con)
     except Exception:
         current_app.logger.exception(
             "Could not upgrade prep_sessions to one clock per employee per "
             "clock set: this database can only hold one clock per vehicle, so "
-            "starting a second one is refused until the next restart.")
+            "a second employee pressing Start on it is refused until the next "
+            "restart.")
     try:
         cols = {r[1] for r in con.execute("PRAGMA table_info(schedule_entries)")}
         if "prep_time" not in cols:
@@ -355,6 +356,68 @@ def _migrate():
         con.close()
 
 
+# The key a prep clock is recorded under: the vehicle's board entry, the
+# employee doing the work, and the clock set. Every employee therefore has
+# their own timer, and a crew is never refused by the database. A constraint
+# covering anything else is stale and has to be rebuilt (see
+# ``_upgrade_prep_sessions``).
+PREP_SESSION_UNIQUE_KEY = frozenset({"entry_id", "employee_id", "scope"})
+
+
+def _unique_rules(ddl):
+    """The column sets covered by a table's UNIQUE constraints.
+
+    One set per ``UNIQUE (...)`` in the DDL, lowercased and stripped of any
+    quoting. A table with no UNIQUE constraint yields an empty set, which
+    already permits a crew.
+    """
+    import re
+
+    return {
+        frozenset(
+            column.strip().strip("\"`[]").lower()
+            for column in match.group(1).split(",")
+            if column.strip()
+        )
+        for match in re.finditer(r"UNIQUE\s*\(([^)]*)\)", ddl or "", re.IGNORECASE)
+    }
+
+
+def _copyable_prep_rows(con, shared):
+    """The existing prep clocks to copy into the rebuilt table, one per key.
+
+    The old rule was the one thing standing between the table and a crew, so a
+    database carrying it cannot hold two clocks for the same employee on the
+    same vehicle in the same set -- and the rebuilt table refuses to hold two
+    either. A weaker leftover rule could, though, so rows that collide under the
+    new key are collapsed to the earliest of them rather than left to abort the
+    copy: an aborted copy would leave the stale rule in place for good, which is
+    exactly the failure this upgrade exists to clear. The first clock recorded
+    for a key is the one kept, since that is the run the service resolved to.
+    """
+    from flask import current_app
+
+    rows = con.execute(
+        f"SELECT {', '.join(shared)}, COALESCE(NULLIF(scope, ''), 'both') "
+        f"FROM prep_sessions ORDER BY id").fetchall()
+    entry_at = shared.index("entry_id") if "entry_id" in shared else None
+    employee_at = shared.index("employee_id") if "employee_id" in shared else None
+    kept, seen = [], set()
+    for row in rows:
+        if entry_at is not None and employee_at is not None:
+            key = (row[entry_at], row[employee_at], row[-1])
+            if key in seen:
+                current_app.logger.warning(
+                    "Dropped duplicate prep clock id=%s (vehicle %s, employee "
+                    "%s, %s prep) while upgrading to one clock per employee "
+                    "per clock set.", row[0], row[entry_at], row[employee_at],
+                    row[-1])
+                continue
+            seen.add(key)
+        kept.append(row)
+    return kept
+
+
 def _upgrade_prep_sessions(con):
     """Let every vehicle carry two clock sets: one Inside, one Outside.
 
@@ -365,11 +428,21 @@ def _upgrade_prep_sessions(con):
       counts towards the Inside *and* the Outside total of its day and no
       recorded second is lost or invented.
     - the uniqueness rule is wrong. It used to be ``UNIQUE (entry_id)`` (one
-      timer per vehicle), then ``UNIQUE (entry_id, employee_id)`` (one per
-      employee), and is now ``UNIQUE (entry_id, employee_id, scope)`` (one per
-      employee per clock set). SQLite cannot drop a constraint with ALTER
-      TABLE, so a table with a stale one is rebuilt with the current
-      definition, keeping every session, every total and every recorded event.
+      timer per vehicle), then ``UNIQUE (entry_id, scope)`` (one per vehicle
+      *per clock set*, i.e. a crew refused), then ``UNIQUE (entry_id,
+      employee_id)`` (one per employee) and is now ``UNIQUE (entry_id,
+      employee_id, scope)`` (one per employee per clock set). SQLite cannot drop
+      a constraint with ALTER TABLE, so a table with a stale one is rebuilt with
+      the current definition, keeping every session, every total and every
+      recorded event.
+
+    Whether a rule is stale is decided by the columns it actually covers, not
+    by whether it mentions ``scope``: ``UNIQUE (entry_id, scope)`` mentions
+    ``scope`` and still holds one clock per vehicle per side, so checking for
+    the word let that database skip the upgrade and keep refusing the second
+    employee forever. The rule a press needs is "the employee is in the key",
+    so a rule is current only when it covers the vehicle, the employee *and*
+    the clock set, and anything else is rebuilt.
 
     An upgrade that is interrupted between creating the rebuilt table and
     renaming it over the old one leaves that table behind, and the next boot
@@ -379,8 +452,6 @@ def _upgrade_prep_sessions(con):
     insert and the press was lost. The scratch table is therefore cleared
     first, so a half-finished run is picked up rather than poisoning the app.
     """
-    import re
-
     row = con.execute(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='prep_sessions'"
     ).fetchone()
@@ -395,9 +466,9 @@ def _upgrade_prep_sessions(con):
         con.commit()
         columns.add("scope")
 
-    unique = re.search(r"UNIQUE\s*\(([^)]*)\)", row[0], re.IGNORECASE)
-    if not unique or "scope" in unique.group(1).lower():
-        return  # already allows one clock per employee per set
+    rules = _unique_rules(row[0])
+    if not rules or PREP_SESSION_UNIQUE_KEY in rules:
+        return  # no rule to fight, or already one clock per employee per set
 
     con.execute("PRAGMA foreign_keys=OFF")
     # Legacy rename keeps prep_session_events pointing at "prep_sessions"
@@ -433,10 +504,10 @@ def _upgrade_prep_sessions(con):
         "id", "entry_id", "vehicle_id", "employee_id", "status", "started_at",
         "last_event_at", "finished_at", "total_seconds", "created_at",
         "updated_at") if c in columns]
-    con.execute(
+    con.executemany(
         f"INSERT INTO prep_sessions_scoped ({', '.join(shared + ['scope'])}) "
-        f"SELECT {', '.join(shared)}, "
-        f"COALESCE(NULLIF(scope, ''), 'both') FROM prep_sessions")
+        f"VALUES ({', '.join('?' * (len(shared) + 1))})",
+        _copyable_prep_rows(con, shared))
     con.execute("DROP TABLE prep_sessions")
     con.execute("ALTER TABLE prep_sessions_scoped RENAME TO prep_sessions")
     con.execute("CREATE INDEX ix_prep_sessions_entry_id ON prep_sessions (entry_id)")
