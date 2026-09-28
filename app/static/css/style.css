@@ -120,6 +120,17 @@ h2 { font-size: 1.2rem; margin: 1rem 0 .6rem; }
 .stat .lbl { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
 .stat.success .num { color: var(--success); }
 .stat.warn .num { color: var(--warn); }
+/* Skipped vehicles are ticked beside their own tile so the count of vehicles
+   nobody is going to work reads as a settled, deliberate number rather than
+   work still outstanding. It takes the theme's --warn so the tick is orange in
+   the default theme and still legible in the others. */
+.stat .stat-check {
+  color: var(--warn);
+  font-size: .95rem;
+  font-weight: 800;
+  line-height: 1;
+  margin-left: 4px;
+}
 .stat.danger .num { color: var(--danger); }
 .stat.info .num { color: var(--info); }
 
