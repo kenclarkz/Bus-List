@@ -76,7 +76,7 @@
       <div class="now-worker-avatar">{{ emp.initials }}</div>
       <div class="now-worker-info">
         <div class="now-worker-name">{{ emp.name }}</div>
-        <div class="now-worker-unit">{{ emp.current_vehicle }}{% if emp.prep and emp.prep.active %} · {{ emp.prep.scope_label }} prep{% else %} · selected, clock not started{% endif %}</div>
+        <div class="now-worker-unit">{{ emp.current_vehicle }}{% if emp.prep and emp.prep.active %} · {{ emp.prep.scope_label }} prep{% endif %}</div>
         {% if emp.prep and emp.prep.active %}
         <div class="now-worker-timer prep prep-{{ emp.prep.status }}" id="prep-now-{{ emp.id }}"
              data-prep-timer
@@ -92,7 +92,7 @@
     </div>
     {% endfor %}
     {% if not working %}
-    <p class="muted" id="now-working-empty" style="margin:0">Nobody is on a vehicle yet. Pick a vehicle on the board to open its Start buttons, then press Start.</p>
+    <p class="muted" id="now-working-empty" style="margin:0">Nobody is on a vehicle yet. Press Start on a vehicle to begin.</p>
     {% endif %}
   </div>
   {% if prep_total %}
