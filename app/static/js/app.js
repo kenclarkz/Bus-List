@@ -660,9 +660,11 @@ function runPrepAction(btn) {
     var isMine = !!(data.worker && data.worker.employee_id &&
       String(data.worker.employee_id) === String(CURRENT_EMPLOYEE));
     if (data.action === 'start' && isMine) {
-      var ck = row ? row.closest('.vrow').querySelector('.checklist') : null;
-      if (ck) ck.setAttribute('data-tasks-hidden', 'false');
-      var badge = row ? row.closest('.vrow').querySelector('.entry-status') : null;
+      // The row is a <details> that had to be opened to press Start, so the
+      // task list is already showing; all that is left is to say the vehicle
+      // is being worked.
+      var openRow = row ? row.closest('.vrow') : null;
+      var badge = openRow ? openRow.querySelector('.entry-status') : null;
       if (badge) {
         badge.textContent = 'In Progress';
         badge.className = 'badge entry-status info';
@@ -1039,8 +1041,9 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   });
 
-  // The transit dropdown is collapsed by default. Open it when the page is
-  // loaded with a row anchor inside it (e.g. right after an un-skip).
+  // The transit dropdown and every vehicle row are collapsed by default. Open
+  // whatever the page was loaded pointing at (e.g. right after an un-skip),
+  // which includes the row's own <details> when the anchor is the row.
   if (window.location.hash && window.location.hash.length > 1) {
     var anchored = document.getElementById(window.location.hash.slice(1));
     var section = anchored && anchored.closest ? anchored.closest('details') : null;

@@ -1970,6 +1970,56 @@ def test_schedule_view_orders_by_prep_time(app):
         assert order == ["100", "400", "300", "500"]
 
 
+def test_board_rows_fold_to_the_unit_number_and_driver(client, app):
+    """Every vehicle on the dashboard is a folded card. The summary carries the
+    unit number and the driver it runs for, and the task list, the prep clocks
+    and the progress sit inside the card, so a tap is what opens them."""
+    from app.services import schedule as ss
+    from app.services.vehicles import find_or_create_vehicle
+
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        driven, _ = find_or_create_vehicle("4410", vehicle_type="Motorcoach",
+                                           location_id=loc.id)
+        driven_id = ss.ensure_entry(sched, driven, driver_code="291486*50").id
+        bare, _ = find_or_create_vehicle("4411", location_id=loc.id)
+        bare_id = ss.ensure_entry(sched, bare).id
+
+    html = client.get("/").data.decode()
+
+    def row_html(entry_id):
+        anchor = html.index(f'id="row-{entry_id}"')
+        start = html.rindex('<details class="vrow', 0, anchor)
+        return html[start:html.index("</details>", anchor)]
+
+    driven_row = row_html(driven_id)
+
+    # The card is a <details> that ships folded: no `open` on the tag or the
+    # summary, so the task list is one tap away rather than always on screen.
+    assert f'id="row-{driven_id}"' in driven_row
+    assert " open" not in driven_row.split("</summary>")[0]
+
+    # What the folded line shows is the unit number and the driver.
+    summary = driven_row.split("</summary>")[0]
+    assert 'class="vnum">4410<' in summary
+    assert "Driver 291486*50" in summary
+
+    # The task list and the clocks are inside the card, not left out of it.
+    assert 'class="checklist"' in driven_row
+    assert 'class="prep ' in driven_row
+    assert driven_row.index("</summary>") < driven_row.index('class="checklist"')
+
+    # The task list is no longer hidden behind a flag of its own, so opening
+    # the row is the only thing that decides whether it shows.
+    assert "data-tasks-hidden" not in html
+
+    # A vehicle with nobody driving it shows the unit number on its own.
+    bare_summary = row_html(bare_id).split("</summary>")[0]
+    assert 'class="vnum">4411<' in bare_summary
+    assert "Driver" not in bare_summary
+
+
 def test_per_vehicle_type_checklist(app):
     """A vehicle type with its own checklist gets those tasks; a type without
     one falls back to the global default checklist."""
