@@ -954,7 +954,7 @@ function markSkipped(row, entryId, reason, unskipUrl) {
     note.style.cssText = 'margin:12px 0 4px';
     var progress = row.querySelector('.progress');
     if (progress) {
-      row.insertBefore(note, progress);
+      progress.parentNode.insertBefore(note, progress);
     } else {
       row.appendChild(note);
     }
@@ -1010,12 +1010,18 @@ function skipWork(form) {
     headers: { 'Accept': 'application/json' },
     body: body
   }).then(function (r) {
-    return r.json().then(function (data) {
-      if (!data.ok) {
-        if (btn) btn.disabled = false;
-        alert(data.error || 'Could not skip this vehicle.');
-        return;
-      }
+    return r.json();
+  }).then(function (data) {
+    if (!data.ok) {
+      if (btn) btn.disabled = false;
+      alert(data.error || 'Could not skip this vehicle.');
+      return;
+    }
+    // Past this point the skip is recorded, so a failure to repaint the row is
+    // not a failed skip and must not be reported as one. Repaint the board; if
+    // anything in it throws, reload so the employee reads the vehicle's real
+    // state instead of a row that disagrees with the server.
+    try {
       var row = document.getElementById('row-' + entryId);
       if (row) {
         var reason = data.reason || body.get('reason') || '';
@@ -1026,7 +1032,9 @@ function skipWork(form) {
       updateStats(data.counters);
       var modal = document.getElementById('modal-skip-' + entryId);
       if (modal) modal.classList.remove('open');
-    });
+    } catch (e) {
+      window.location.reload();
+    }
   }).catch(function () {
     if (btn) btn.disabled = false;
     alert('Could not skip this vehicle. Try again.');
