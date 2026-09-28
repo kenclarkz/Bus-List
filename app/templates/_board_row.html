@@ -5,10 +5,12 @@
    and the page context for the role/employee badges.
 
    The card is a <details> that starts folded: the board is a list of vehicles
-   waiting to be washed, so a folded row shows only the unit number and the
-   driver it runs for, and the whole card -- prep clocks, task list, progress
-   and row actions -- is one tap away. A day of forty vehicles fits on a
-   screen this way, instead of a screen of clocks and checkboxes. #}
+   waiting to be washed, so a folded row answers what the crew needs to pick a
+   vehicle off the board -- the unit number, the vehicle type, the driver it
+   runs for, and the report time it is due -- and the whole rest of the card
+   (prep clocks, task list, progress and row actions) is one tap away. A day of
+   forty vehicles fits on a screen this way, instead of a screen of clocks and
+   checkboxes. #}
 
 {# One clock set of a vehicle: the Inside clocks or the Outside clocks, with
    its own total, its own per-employee clocks and its own Start/Pause/Resume/
@@ -146,8 +148,19 @@
   <summary class="vrow-summary" title="Open or close this vehicle's task list">
     <span class="vrow-caret" aria-hidden="true">&#9656;</span>
     <span class="vnum">{{ v.unit_number }}</span>
+    {# The four things the crew needs to pick the right bus off the board,
+       without opening it: which unit, what kind of vehicle, who it runs for,
+       and the report time it is due. Anything the report did not supply is
+       left off rather than shown as a dash, so the folded line stays
+       scannable down a column of forty rows. #}
+    {% if v.vehicle_type %}
+    <span class="vmeta vrow-type" title="Vehicle type">{{ v.vehicle_type.name }}</span>
+    {% endif %}
     {% if entry.driver_code %}
-    <span class="driver-code">Driver {{ entry.driver_code }}</span>
+    <span class="driver-code" title="Driver">Driver {{ entry.driver_code }}</span>
+    {% endif %}
+    {% if entry.prep_time %}
+    <span class="vmeta vrow-report" title="Report (prep) time">Report {{ entry.prep_time|prep_time }}</span>
     {% endif %}
   </summary>
   <div class="vrow-body">

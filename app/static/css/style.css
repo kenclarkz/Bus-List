@@ -239,9 +239,9 @@ tr.row-inactive td { color: var(--muted); }
   padding: 14px;
 }
 
-/* A board row is a <details> that starts folded, so it shows the unit number
-   and driver alone until it is tapped. The card padding moves onto the
-   summary so the whole folded line is the tap target. */
+/* A board row is a <details> that starts folded, so it shows the unit number,
+   the type, the driver and the report time alone until it is tapped. The card
+   padding moves onto the summary so the whole folded line is the tap target. */
 details.vrow { padding: 0; }
 details.vrow > .vrow-summary {
   display: flex;
@@ -252,6 +252,9 @@ details.vrow > .vrow-summary {
   list-style: none;
   -webkit-user-select: none;
   user-select: none;
+  /* A long type or driver name wraps onto the next line instead of squeezing
+     the unit number off a narrow phone. */
+  flex-wrap: wrap;
 }
 details.vrow > .vrow-summary::-webkit-details-marker { display: none; }
 /* A mid-grey wash, so the hover reads on both the light and the dark themes. */
@@ -270,6 +273,21 @@ details.vrow[open] > .vrow-summary {
   margin-bottom: 12px;
 }
 details.vrow > .vrow-summary .driver-code { font-size: .95rem; }
+
+/* The type and the report time, as they read on the folded line. They reuse
+   .vmeta so every theme's existing .vmeta styling -- and the dimming a
+   replaced row gets -- applies to them without a rule per theme. */
+.vrow-type {
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.vrow-report {
+  font-weight: 600;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
 
 .vrow-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .vrow.row-replaced {
