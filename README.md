@@ -221,7 +221,10 @@ upgrade of an older database to allow a crew per vehicle, and the two clock
 sets per vehicle: each side timing apart, a paused clock not blocking the other
 side, one employee running both sides of one vehicle at once, two employees
 working opposite sides of one vehicle, three employees on one vehicle at once,
-and the board/end-of-day/print report splitting the day
+each of them keeping their own start/pause/resume/finish history while the
+vehicle and day totals add everybody's labour up, every older per-vehicle key
+rebuilt to include the employee (and the rebuild staying idempotent), and the
+board/end-of-day/print report splitting the day
 by clock set.
 
 ---
@@ -299,7 +302,11 @@ is eventually reported.
   the inside and the outside totals while still being reported only once, and
   the first launch after this change rebuilds that one table to keep every
   session, every total and every recorded event before the per-employee, per-set
-  constraint takes over.
+  constraint takes over. A table is only considered current when the key it
+  enforces covers the vehicle, **the employee** and the clock set, so a database
+  left on an older key — one clock per vehicle per side, say — is rebuilt too
+  instead of quietly going on refusing the second employee on a bus. The rebuild
+  is idempotent, so later launches leave the table alone.
 - **Active time is the sum of the active segments only.** Pausing banks the
   seconds worked so far; the paused stretch is never billed. Resuming starts a
   new segment on top of the banked total, so previous work is never lost.

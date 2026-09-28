@@ -554,21 +554,23 @@ def _refused_by_clock_rule(entry, employee_id, scope, unit, set_name):
       clock in that set now. That is the same refusal the check before the
       insert reports, word for word, because it is the same situation.
     - the rule that refused it is not the one this service keeps. A database
-      that never finished the upgrade to two clock sets per vehicle still holds
-      a single clock per vehicle, so the second clock of a crew -- or of one
-      person working both sides -- is impossible to record. That used to
-      escape as an error page, which the board could only report as "Could not
-      start this vehicle" and a press again that failed exactly the same way.
+      that never finished the upgrade still holds a clock keyed on the vehicle
+      and the clock set alone, so the second employee to start -- or the second
+      side of a vehicle one person is already working -- is impossible to
+      record. That used to escape as an error page, which the board could only
+      report as "Could not start this vehicle" and a press again that failed
+      exactly the same way.
     """
     mine = employee_sessions_for(entry, employee_id, scope)
     if mine:
         return _your_clock_error(unit, set_name, mine[-1].status)
+    side = set_name.lower()
     return PrepTimerError(
-        f"Vehicle {unit} could not record the {set_name} clock for this press, "
-        f"so nothing was recorded and there is nothing to undo. The clock "
-        f"already running on this vehicle is the only one the board's database "
-        f"can hold: it has not been upgraded to time both sides of a bus at "
-        f"once. Restart the app once, then press {set_name} again")
+        f"Vehicle {unit} could not record {'an' if side[0] in 'aeiou' else 'a'} "
+        f"{side} clock of your own, so nothing was recorded and there is nothing "
+        f"to undo. The board's database still holds only one {side} clock per "
+        f"vehicle, so a second employee cannot be timed on it. Restart the app "
+        f"once to finish the upgrade, then press {set_name} again")
 
 
 def _claim_vehicle(employee_id, entry, at=None):
