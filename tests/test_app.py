@@ -1970,10 +1970,11 @@ def test_schedule_view_orders_by_prep_time(app):
         assert order == ["100", "400", "300", "500"]
 
 
-def test_board_rows_fold_to_the_unit_number_and_driver(client, app):
+def test_board_rows_fold_to_the_unit_type_driver_and_report_time(client, app):
     """Every vehicle on the dashboard is a folded card. The summary carries the
-    unit number and the driver it runs for, and the task list, the prep clocks
-    and the progress sit inside the card, so a tap is what opens them."""
+    unit number, the vehicle type, the driver it runs for and the report time
+    it is due, and the task list, the prep clocks and the progress sit inside
+    the card, so a tap is what opens them."""
     from app.services import schedule as ss
     from app.services.vehicles import find_or_create_vehicle
 
@@ -1982,7 +1983,8 @@ def test_board_rows_fold_to_the_unit_number_and_driver(client, app):
         sched = ss.get_or_create_schedule(location=loc)
         driven, _ = find_or_create_vehicle("4410", vehicle_type="Motorcoach",
                                            location_id=loc.id)
-        driven_id = ss.ensure_entry(sched, driven, driver_code="291486*50").id
+        driven_id = ss.ensure_entry(sched, driven, driver_code="291486*50",
+                                    prep_time="04:30").id
         bare, _ = find_or_create_vehicle("4411", location_id=loc.id)
         bare_id = ss.ensure_entry(sched, bare).id
 
@@ -2000,10 +2002,18 @@ def test_board_rows_fold_to_the_unit_number_and_driver(client, app):
     assert f'id="row-{driven_id}"' in driven_row
     assert " open" not in driven_row.split("</summary>")[0]
 
-    # What the folded line shows is the unit number and the driver.
+    # What the folded line shows is everything the crew needs to pick the bus
+    # off the board: the unit, the type, the driver and the report time -- and
+    # they read in that order.
     summary = driven_row.split("</summary>")[0]
     assert 'class="vnum">4410<' in summary
+    assert 'class="vmeta vrow-type" title="Vehicle type">Motorcoach<' in summary
     assert "Driver 291486*50" in summary
+    # The report's 24-hour time reads as 12-hour AM/PM Eastern time here too.
+    assert "Report 4:30 AM" in summary
+    assert summary.index(">4410<") < summary.index("Motorcoach")
+    assert summary.index("Motorcoach") < summary.index("Driver")
+    assert summary.index("Driver") < summary.index("Report")
 
     # The task list and the clocks are inside the card, not left out of it.
     assert 'class="checklist"' in driven_row
@@ -2014,10 +2024,81 @@ def test_board_rows_fold_to_the_unit_number_and_driver(client, app):
     # the row is the only thing that decides whether it shows.
     assert "data-tasks-hidden" not in html
 
-    # A vehicle with nobody driving it shows the unit number on its own.
+    # A vehicle the report told us nothing about shows the unit number on its
+    # own: no empty type, driver or report-time placeholders on the line.
     bare_summary = row_html(bare_id).split("</summary>")[0]
     assert 'class="vnum">4411<' in bare_summary
     assert "Driver" not in bare_summary
+    assert "Report" not in bare_summary
+    assert "vrow-type" not in bare_summary
+    assert "vrow-report" not in bare_summary
+
+
+def test_folded_row_shows_the_type_and_report_time_a_report_supplied(client, app):
+    """The type and the report time reach the folded line from the data, not
+    from a fixed label, and a missing one is left off the row entirely."""
+    from app.services import schedule as ss
+    from app.services.vehicles import find_or_create_vehicle
+
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        full, _ = find_or_create_vehicle("4401", vehicle_type="MINIC34",
+                                         location_id=loc.id)
+        full_id = ss.ensure_entry(sched, full, prep_time="05:00",
+                                  driver_code="LEOJEREZ").id
+        # A type but no times and no driver: the driver and the report time
+        # are optional on a report, so their absence is simply not shown.
+        typed, _ = find_or_create_vehicle("4402", vehicle_type="SEDAN",
+                                          location_id=loc.id)
+        typed_id = ss.ensure_entry(sched, typed).id
+
+    html = client.get("/").data.decode()
+
+    def summary_of(entry_id):
+        anchor = html.index(f'id="row-{entry_id}"')
+        start = html.rindex('<details class="vrow', 0, anchor)
+        return html[start:html.index("</summary>", anchor)]
+
+    full_summary = summary_of(full_id)
+    assert 'class="vmeta vrow-type" title="Vehicle type">MINIC34<' in full_summary
+    assert 'class="vmeta vrow-report"' in full_summary
+    assert "Report 5:00 AM" in full_summary
+    assert "Driver LEOJEREZ" in full_summary
+
+    typed_summary = summary_of(typed_id)
+    assert 'class="vmeta vrow-type" title="Vehicle type">SEDAN<' in typed_summary
+    assert "Driver" not in typed_summary
+    assert "vrow-report" not in typed_summary
+
+
+def test_transit_rows_show_the_same_folded_details(client, app):
+    """The transit dropdown reuses the board row, so its vehicles carry the
+    same unit / type / driver / report time on the folded line."""
+    from app.services import schedule as ss
+    from app.services.vehicles import (TRANSIT_SKIP_REASON,
+                                       find_or_create_vehicle)
+
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched = ss.get_or_create_schedule(location=loc)
+        bus, _ = find_or_create_vehicle("4403", vehicle_type="TRANSITB",
+                                        location_id=loc.id)
+        entry = ss.ensure_entry(sched, bus, prep_time="06:15",
+                                driver_code="291486*50")
+        ss.set_entry_skipped(entry, skipped=True, reason=TRANSIT_SKIP_REASON)
+        transit_id = entry.id
+
+    html = client.get("/").data.decode()
+    assert 'id="transit-board"' in html
+
+    anchor = html.index(f'id="row-{transit_id}"')
+    start = html.rindex('<details class="vrow', 0, anchor)
+    summary = html[start:html.index("</summary>", anchor)]
+    assert 'class="vnum">4403<' in summary
+    assert 'class="vmeta vrow-type" title="Vehicle type">TRANSITB<' in summary
+    assert "Driver 291486*50" in summary
+    assert "Report 6:15 AM" in summary
 
 
 def test_per_vehicle_type_checklist(app):

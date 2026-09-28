@@ -34,10 +34,11 @@ report. It is not a static mockup.
    their own dropdown at the bottom of the board.
 3. **Daily Detailing Board** — after import, today's work list is created
    automatically. The board is a list of **folded** vehicles: each row shows
-   only the unit number and the driver it runs for, and a tap opens the row to
-   show type, route, status, last washed, the prep clocks, the task list and
-   progress, so a long day fits on one screen. The task list is broken into two
-   categories — **Inside**
+   the unit number, the vehicle type, the driver it runs for, and the report
+   time it is due (a driver and a report time only when the report supplied
+   them), and a tap opens the row to show route, status, last washed, the prep
+   clocks, the task list and progress, so a long day fits on one screen. The
+   task list is broken into two categories — **Inside**
    (Sweep, Mop, Windows, Seats, Bathroom) and **Outside** (Dump, Bay Checked,
    Final Inspection) — both configurable in Settings. Every checkbox saves a
    completion timestamp and the employee. Progress shows `6/8 — 75%`.
@@ -87,8 +88,9 @@ report. It is not a static mockup.
    every employee currently on the floor with their vehicle and a live clock —
    including one who has picked a vehicle but not started a clock on it yet.
    Search & filter by unit
-   number, type, route, and status. Each vehicle row shows its report (prep)
-   time, pickup time, and driver code when the wash report supplied them
+   number, type, route, and status. Every vehicle row on the folded board shows
+   its unit number, vehicle type, driver (when the wash report supplied one) and
+   report (prep) time, and the opened row adds the route and the pickup time
    (displayed as 12-hour AM/PM Eastern time).
    **Transit buses** (TRANSITB) are pulled out of the main work list into a
    **Transit Buses** dropdown at the bottom of the board, so they stay visible
