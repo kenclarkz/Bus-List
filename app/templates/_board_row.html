@@ -182,6 +182,18 @@
     {% if entry.prep_time %}
     <span class="vmeta vrow-report" title="Report (prep) time">Report {{ entry.prep_time|prep_time }}</span>
     {% endif %}
+    {# The one mark that says where a vehicle stands, on the folded line so a
+       column of forty can be read without opening any of it: green once the
+       vehicle is complete, orange once somebody has skipped it by hand. The two
+       are the states the day totals count as settled, and a transit bus the
+       importer skipped on its own is neither -- it sits in its own dropdown,
+       excluded from the totals -- so it gets no mark. app.js sets the same mark
+       on the same press that repaints a row in place. #}
+    {% if r.is_complete %}
+    <span class="vrow-mark vrow-mark-complete" title="Completed" aria-label="Completed">&#10004;</span>
+    {% elif entry.status == 'skipped' and not r.is_auto_skipped %}
+    <span class="vrow-mark vrow-mark-skipped" title="Skipped" aria-label="Skipped">&#10004;</span>
+    {% endif %}
   </summary>
   <div class="vrow-body">
   <div class="vrow-header">
