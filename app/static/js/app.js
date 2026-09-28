@@ -74,8 +74,8 @@ function removeNowWorker(empId) {
     empty.className = 'muted';
     empty.id = 'now-working-empty';
     empty.style.margin = '0';
-    empty.innerHTML = 'No vehicles in progress right now. Click <strong>Start</strong> ' +
-      'on a vehicle to begin.';
+    empty.innerHTML = 'Nobody is on a vehicle yet. Pick a vehicle on the board ' +
+      'to open its Start buttons, then press Start.';
     grid.appendChild(empty);
   }
 }
@@ -464,13 +464,29 @@ function renderPrepWorkers(setEl, entryId, state) {
 // be in. Every one of them ends the same way, because the board is shared: any
 // employee may start either side of a vehicle, and one person may run an inside
 // and an outside clock at the same time.
+//
+// A set with no clock on it has no buttons to talk about until its vehicle has
+// been selected, so it says what to press instead, and without the crew
+// footnote: repeating it on every untouched vehicle is the noise the selection
+// step exists to remove.
+//
+// `done` is a vehicle that is complete rather than a finished clock set: it
+// cannot be selected or started at all, so it is never told to be.
 var PREP_HINT_FOOTER = ' Anyone can time either side of this vehicle, and one ' +
   'person can run an inside and an outside clock at once.';
 
-function prepHint(state) {
+function prepHint(state, open, done) {
   var label = prepScopeLabel(state.scope);
   var lower = label.toLowerCase();
+  if (state.status === 'finished') {
+    return label + ' complete — total active ' + lower + ' prep time ' +
+      state.total_label + '.';
+  }
+  if (done) {
+    return 'This vehicle is complete, so it is no longer selected or started.';
+  }
   if (state.status === 'none') {
+    if (!open) return 'Select this vehicle to time the ' + lower + ' work.';
     return 'Press Start ' + label + ' to time the ' + lower +
       ' work on this vehicle.';
   }
@@ -503,6 +519,12 @@ function prepHasMyClock(state) {
 // Swap one clock set's buttons over to the ones its new state allows: Start
 // when nobody is on that set, otherwise "+ Add Me" so another employee can run
 // their own clock on it. The other set keeps its buttons.
+//
+// A set with no clock on it is held closed until the acting employee has
+// selected its vehicle (the board only ever opens one at a time), so its Start
+// is built when the selection lands rather than up front. A set that already
+// has clocks on it ignores the selection entirely: somebody else's vehicle has
+// to stay joinable by press of "+ Add Me".
 function renderPrepActions(setEl, entryId, scope, state, entryCompleted) {
   var actions = setEl.querySelector('.prep-actions');
   if (!actions) return;
@@ -510,14 +532,24 @@ function renderPrepActions(setEl, entryId, scope, state, entryCompleted) {
   for (var i = 0; i < buttons.length; i++) buttons[i].remove();
   var done = entryCompleted === undefined
     ? state.status === 'finished' : !!entryCompleted;
+  // A complete vehicle has nothing left to start and cannot be selected, so it
+  // is neither open nor waiting for a selection: it is simply closed for good.
+  var open = !done && (state.status !== 'none' ||
+    actions.getAttribute('data-prep-open') === '1');
+  actions.setAttribute('data-prep-locked', open ? '0' : '1');
   if (state.status === 'none') {
-    actions.insertBefore(prepButton('start', entryId, null, null, scope),
-      actions.firstChild);
+    if (open) {
+      actions.insertBefore(prepButton('start', entryId, null, null, scope),
+        actions.firstChild);
+    }
   } else if (!done && !prepHasMyClock(state)) {
     actions.insertBefore(prepJoinButton(entryId, scope), actions.firstChild);
   }
   var hint = actions.querySelector('.prep-hint');
-  if (hint) hint.textContent = prepHint(state) + PREP_HINT_FOOTER;
+  if (hint) {
+    hint.textContent = prepHint(state, open, done) +
+      (open ? PREP_HINT_FOOTER : '');
+  }
 }
 
 function renderPrepHistory(setEl, state, scope) {
@@ -567,6 +599,110 @@ function bindPrepButtons(root) {
       btn.setAttribute('data-prep-bound', '1');
       btn.addEventListener('click', function () { runPrepAction(btn); });
     });
+}
+
+// ---------------------------------------------------------------------------
+// Selecting a vehicle
+// ---------------------------------------------------------------------------
+// The board is a wall of vehicles, and every one of them used to carry an
+// Inside and an Outside Start, so the buttons only appear for the vehicle this
+// employee has claimed. The claim is the server's (it is the same one the
+// "Now Working" board reads and pressing Start makes anyway), and it is per
+// person, so a crew sharing one screen each opens the vehicle they are at.
+var SELECT_LABEL = 'Select Vehicle';
+var SELECTED_LABEL = 'Selected ✓';
+
+function bindSelectButtons(root) {
+  root.querySelectorAll('[data-select-entry]').forEach(function (btn) {
+    if (btn.getAttribute('data-select-bound')) return;
+    btn.setAttribute('data-select-bound', '1');
+    btn.addEventListener('click', function () { runSelectVehicle(btn); });
+  });
+}
+
+function runSelectVehicle(btn) {
+  var entryId = btn.getAttribute('data-select-entry');
+  if (!entryId) return;
+  if (!CURRENT_EMPLOYEE) {
+    alert('Please pick your name first.');
+    window.location.href = '/select';
+    return;
+  }
+  // The same control both ways: a vehicle already claimed is handed back.
+  var selecting = btn.getAttribute('data-selected') !== '1';
+  btn.disabled = true;
+  var body = new FormData();
+  body.append('employee_id', CURRENT_EMPLOYEE);
+  body.append('selected', selecting ? '1' : '0');
+  postBoardAction('/entry/' + entryId + '/select', body).then(function (data) {
+    if (!data || !data.ok) {
+      btn.disabled = prepIsReadOnly();
+      alert((data && data.error) ||
+        'Could not ' + (selecting ? 'select' : 'hand back') +
+        ' this vehicle. Reload the page and try again.');
+      return;
+    }
+    applyVehicleSelection(selecting ? entryId : null, data.state,
+      data.entry_completed);
+    tickPrepTimers();
+  }).catch(function () {
+    btn.disabled = false;
+    alert('Could not ' + (selecting ? 'select' : 'hand back') +
+      ' this vehicle. Try again.');
+  });
+}
+
+// Move the claim onto one vehicle (or off every vehicle when entryId is null):
+// that vehicle's clock sets open up and build the Start buttons they were not
+// allowed to render, and every other vehicle's untouched sets close again.
+// Sets that already carry clocks stay open either way, so a colleague can
+// always join a vehicle they never claimed.
+function applyVehicleSelection(entryId, state, entryCompleted) {
+  var scopes = (state && state.scopes) || {};
+  document.querySelectorAll('.vrow').forEach(function (vrow) {
+    var id = (vrow.getAttribute('id') || '').replace(/^row-/, '');
+    var claimed = String(id) === String(entryId);
+    vrow.classList.toggle('row-selected', claimed);
+    prepScopes(prepRow(id)).forEach(function (setEl) {
+      var actions = setEl.querySelector('.prep-actions');
+      if (!actions) return;
+      var scope = setEl.getAttribute('data-prep-scope');
+      if (claimed) {
+        actions.setAttribute('data-prep-open', '1');
+        if (scopes[scope]) {
+          renderPrepActions(setEl, id, scope, scopes[scope], entryCompleted);
+        }
+        return;
+      }
+      actions.removeAttribute('data-prep-open');
+      if (!setEl.classList.contains('prep-none')) return;
+      // Idle and no longer claimed: take the Start away again and say what
+      // to press instead.
+      var buttons = actions.querySelectorAll('[data-prep-action], [data-prep-join]');
+      for (var i = 0; i < buttons.length; i++) buttons[i].remove();
+      actions.setAttribute('data-prep-locked', '1');
+      var hint = actions.querySelector('.prep-hint');
+      if (hint) {
+        // Only the vehicle just selected can be complete, and it is the one
+        // this call opened rather than closed, so nothing else needs asking.
+        hint.textContent = prepHint({ scope: scope, status: 'none' }, false);
+      }
+    });
+    // Re-rendering a set replaces its buttons, so the fresh Start needs the
+    // same click handling the server-rendered one had.
+    bindPrepButtons(prepRow(id));
+  });
+  document.querySelectorAll('[data-select-entry]').forEach(function (btn) {
+    var claimed = String(btn.getAttribute('data-select-entry')) === String(entryId);
+    btn.setAttribute('data-selected', claimed ? '1' : '0');
+    btn.setAttribute('aria-pressed', claimed ? 'true' : 'false');
+    btn.className = 'btn small select-btn ' + (claimed ? 'secondary' : 'success');
+    btn.title = claimed
+      ? 'You have claimed this vehicle — press to hand it back'
+      : 'Select this vehicle to show its Start buttons';
+    btn.textContent = claimed ? SELECTED_LABEL : SELECT_LABEL;
+    btn.disabled = prepIsReadOnly();
+  });
 }
 
 // Post one action to the server and return the answer as an object, whatever
@@ -694,6 +830,19 @@ function runPrepAction(btn) {
       // clocks is not leaving work -- their card stays for the other.
       if (isMine && !prepHasMyActiveClock(state, CURRENT_EMPLOYEE)) {
         removeNowWorker(CURRENT_EMPLOYEE);
+        // Closing their last clock also hands the vehicle back, so the next one
+        // has to be selected before its Start buttons show up. They may still
+        // be holding a claim on a different vehicle they picked and have not
+        // started, so the row that keeps its buttons is the one the server
+        // still says is theirs.
+        var stillClaimed = null;
+        document.querySelectorAll('[data-select-entry]').forEach(function (sel) {
+          if (String(sel.getAttribute('data-vehicle-id')) ===
+              String(data.current_vehicle_id)) {
+            stillClaimed = sel.getAttribute('data-select-entry');
+          }
+        });
+        applyVehicleSelection(stillClaimed, state, data.entry_completed);
       }
     }
     tickPrepTimers();
@@ -984,7 +1133,9 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   // Prep timer workflow: Start -> Pause -> Resume -> Done, per employee, so a
-  // crew can work the same vehicle at the same time.
+  // crew can work the same vehicle at the same time. A vehicle is selected
+  // first, and only a selected vehicle carries its Start buttons.
+  bindSelectButtons(document);
   bindPrepButtons(document);
 
   // Live clocks. The server supplies the banked seconds and the moment each

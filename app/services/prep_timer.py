@@ -584,12 +584,61 @@ def _claim_vehicle(employee_id, entry, at=None):
 
 
 def _release_employee(employee_id, entry):
-    """Free an employee from a vehicle they are no longer working on."""
+    """Free an employee from a vehicle they are no longer working on.
+
+    Only the vehicle they are actually on is released, so closing a clock on
+    somebody else's vehicle (a crew member pressing Done) cannot take their
+    claim away.
+    """
     if not employee_id:
-        return
+        return None
     employee = Employee.query.get(employee_id)
     if employee is not None and employee.current_vehicle_id == entry.vehicle_id:
         employee.current_vehicle_id = None
+    return employee
+
+
+def _claim_employee(employee_id):
+    """The employee a selection is for, or a refusal nobody can act on."""
+    employee_id = _employee_id(employee_id)
+    if employee_id is None:
+        raise PrepTimerError("Pick your name before selecting a vehicle", 400)
+    return employee_id
+
+
+def select(entry, employee_id=None, at=None):
+    """Claim a vehicle for an employee, before any clock is started on it.
+
+    The board is a wall of vehicles, and every one of them used to carry two
+    Start buttons, so the buttons are gated on this step: a vehicle is selected
+    first and only then do its Inside and Outside Starts appear. The claim is
+    recorded on the employee, the same field the "Now Working" board reads, so
+    on a shared board it is per person, it survives a refresh, and selecting
+    another vehicle moves the claim with them.
+
+    Pressing Start claims the vehicle too, so the two can never disagree: a
+    clock running on a vehicle is always a vehicle somebody selected.
+    """
+    if entry is None:
+        raise PrepTimerError("Vehicle not found on today's board", 404)
+    unit = _unit(entry)
+    if entry.status == "skipped":
+        raise PrepTimerError(
+            f"Vehicle {unit} is skipped — un-skip it before working it")
+    if entry.status == "completed":
+        raise PrepTimerError(f"Vehicle {unit} is already complete")
+    employee = _claim_vehicle(_claim_employee(employee_id), entry, at=at)
+    db.session.commit()
+    return employee
+
+
+def unselect(entry, employee_id=None):
+    """Hand a vehicle back without having started a clock on it."""
+    if entry is None:
+        raise PrepTimerError("Vehicle not found on today's board", 404)
+    employee = _release_employee(_claim_employee(employee_id), entry)
+    db.session.commit()
+    return employee
 
 
 def start(entry, employee_id=None, at=None, scope=INSIDE):

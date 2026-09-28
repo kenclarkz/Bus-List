@@ -41,17 +41,25 @@ report. It is not a static mockup.
 4. **Per-vehicle prep timer (Start / Pause / Resume / Done)** — each vehicle on
    the board gets **two independent clock sets, one for the inside work and one
    for the outside work**, and each clock is recorded against the employee doing
-   the work. **Start** begins the clock and puts the vehicle in progress;
+   the work. A vehicle is **selected** first: every row carries a **Select
+   Vehicle** button, and only the selected vehicle shows its Inside and Outside
+   **Start** buttons, so a board full of buses is a list of vehicles instead of
+   a wall of Start buttons. The selection belongs to the employee who made it
+   (it is the same claim the "Now Working" board shows, and pressing Start makes
+   it anyway), it survives a refresh, and pressing it a second time hands the
+   vehicle back. **Start** begins the clock and puts the vehicle in progress;
    **Pause** and **Resume** stop and restart it without ever losing the time
    already worked; **Done** stops the clock, freezes that person's total active
-   prep time, and finishes the vehicle once no clock of either set is still
-   running. The two sets never borrow time from each other: working the outside
-   of a vehicle does not advance its inside clock, and the vehicle's headline
-   number is the sum of both sides. **Several employees can work the same
-   vehicle at the same time**, on the same side or on opposite sides: the row
-   shows a clock per employee per set, a combined vehicle clock, and an
-   **+ Add Me** button for anyone else to start their own clock, and each
-   person's Pause/Resume/Done only ever touches their own clock. One employee
+   prep time, finishes the vehicle once no clock of either set is still
+   running, and hands the vehicle back. The two sets never borrow time from each
+   other: working the outside of a vehicle does not advance its inside clock,
+   and the vehicle's headline number is the sum of both sides. **Several
+   employees can work the same vehicle at the same time**, on the same side or
+   on opposite sides: the row shows a clock per employee per set, a combined
+   vehicle clock, and an **+ Add Me** button for anyone else to start their own
+   clock, and each person's Pause/Resume/Done only ever touches their own clock.
+   A set that already has a clock on it always stays open, so joining a vehicle
+   somebody else is working never needs selecting it first. One employee
    can run an inside and an outside clock at the same time, and a second clock
    in the *same* set must be paused (or finished) first. Only the buttons valid
    for the current state are shown, and an out-of-order action (starting a set
@@ -79,7 +87,9 @@ report. It is not a static mockup.
    overdue, replacements, worst overall completion %, and the day's total
    **active prep time** (all employees' clocks added together, so two people
    working the same vehicle count as two workers). A "Now Working" strip shows
-   every employee currently on the floor with their vehicle and a live clock. Search & filter by unit
+   every employee currently on the floor with their vehicle and a live clock —
+   including one who has picked a vehicle but not started a clock on it yet.
+   Search & filter by unit
    number, type, route, and status. Each vehicle row shows its report (prep)
    time, pickup time, and driver code when the wash report supplied them
    (displayed as 12-hour AM/PM Eastern time).
@@ -221,11 +231,11 @@ upgrade of an older database to allow a crew per vehicle, and the two clock
 sets per vehicle: each side timing apart, a paused clock not blocking the other
 side, one employee running both sides of one vehicle at once, two employees
 working opposite sides of one vehicle, three employees on one vehicle at once,
-each of them keeping their own start/pause/resume/finish history while the
-vehicle and day totals add everybody's labour up, every older per-vehicle key
-rebuilt to include the employee (and the rebuild staying idempotent), and the
-board/end-of-day/print report splitting the day
-by clock set.
+and the board/end-of-day/print report splitting the day
+by clock set. It also covers selecting a vehicle: no Start button before it,
+only the selected vehicle's, per-employee on a shared board, still joinable
+with **+ Add Me** without selecting, handed back by Done, and refused for a
+skipped, completed or read-only (manager) board.
 
 ---
 
@@ -258,6 +268,17 @@ data/                    # SQLite database (created at runtime)
 The clock lives on the server, so a timer can never drift from the record that
 is eventually reported.
 
+- **A vehicle is selected before it can be started.** Every row carries a
+  **Select Vehicle** button, and the two Start buttons of a vehicle that nobody
+  has selected are not rendered at all — a board of forty buses used to be
+  eighty Start buttons and eighty hints, which is noise nobody could act on.
+  The selection is recorded on the employee (`current_vehicle_id`, the same
+  claim the "Now Working" board reads and `Start` sets anyway), so on a shared
+  board each person opens the vehicle they are standing at, it survives a
+  refresh, and closing your last clock hands the vehicle back. A clock set that
+  already carries clocks is never locked, so a colleague can still **+ Add Me**
+  onto a vehicle they never selected, and a skipped or completed vehicle cannot
+  be selected at all.
 - **One session per employee per vehicle per clock set per day.** A
   `PrepSession` stores its `scope` (`inside` or `outside`), the running total in
   seconds, the status (`running` / `paused` / `finished`), the start and finish
