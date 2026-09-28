@@ -15,11 +15,13 @@
 {# One clock set of a vehicle: the Inside clocks or the Outside clocks, with
    its own total, its own per-employee clocks and its own Start/Pause/Resume/
    Done buttons. The two sets of a vehicle are completely independent, so this
-   is rendered once per scope. #}
+   is rendered once per scope -- but a vehicle is only complete once *both* sets
+   are done, so a finished set says which other set is still outstanding. #}
 {% macro prep_set_block(r, clock_set, status_badge) %}
 {% set entry = r.entry %}
 {% set v = r.vehicle %}
 {% set tasks = r.prep_tasks.get(clock_set.scope, []) %}
+{% set outstanding = r.prep.scopes_outstanding if entry.status != 'completed' else [] %}
 <section class="prepset prepset-{{ clock_set.scope }} prep-{{ clock_set.status }}"
          id="prep-{{ entry.id }}-{{ clock_set.scope }}"
          data-prep-scope="{{ clock_set.scope }}"
@@ -113,12 +115,17 @@
             {{ 'disabled' if current_role == 'manager' }}>+ Add Me</button>
     {% endif %}
     <span class="muted small prep-hint">
+      {# A finished set is reported as finished whether or not the employee
+         reading the board ran a clock in it, because a vehicle is only complete
+         once *both* of its sets are done: the set says so, and names the other
+         one it is still waiting on. The live repaint after a press (app.js,
+         prepHint) reads the same states in the same order. #}
       {% if entry.status == 'completed' %}{% if clock_set.status == 'finished' %}{{ clock_set.scope_label }} complete — {{ clock_set.total_label }} of active {{ clock_set.scope_label|lower }} prep time.{% else %}This vehicle is complete, so it is no longer started.{% endif %}
       {% elif clock_set.status == 'none' %}Press <strong>Start {{ clock_set.scope_label }}</strong> to time the {{ clock_set.scope_label|lower }} work on this vehicle.
+      {% elif clock_set.status == 'finished' %}{{ clock_set.scope_label }} complete — {{ clock_set.total_label }} of active {{ clock_set.scope_label|lower }} prep time.{% if outstanding %} The vehicle is not complete until {{ outstanding|join(' and ') }} prep is done too.{% endif %}
       {% elif my_sessions %}Your {{ clock_set.scope_label|lower }} clock for this vehicle is in the list above.
       {% elif clock_set.status == 'running' %}{{ clock_set.running_count }} clock{{ 's' if clock_set.running_count != 1 else '' }} running — the {{ clock_set.scope_label|lower }} clock keeps counting if you close the page.
-      {% elif clock_set.status == 'paused' %}Paused: paused time is not added to the {{ clock_set.scope_label|lower }} total.
-      {% else %}{{ clock_set.scope_label }} complete — {{ clock_set.total_label }} of active {{ clock_set.scope_label|lower }} prep time.{% endif %}
+      {% else %}Paused: paused time is not added to the {{ clock_set.scope_label|lower }} total.{% endif %}
       {% if clock_set.worker_count %}More than one employee can work the {{ clock_set.scope_label|lower }} of a vehicle at the same time.{% endif %}
       {% if entry.status != 'completed' %}Anyone can time either side of this vehicle, and one person can run an inside and an outside clock at once.{% endif %}
     </span>
@@ -247,6 +254,9 @@
         {% if prep.finished %}· Done {{ prep.finished }}{% endif %} ·
         <strong>Total prep {{ prep.total_label }}</strong>
         (inside {{ prep.scopes.inside.total_label }} · outside {{ prep.scopes.outside.total_label }})
+        {# A vehicle is only complete once both sides are done, so the head
+           names the side it is still waiting on instead of reading as finished. #}
+        {% if prep.scopes_outstanding and entry.status != 'completed' %}· waiting on {{ prep.scopes_outstanding|join(' and ') }}{% endif %}
       {% else %}<span class="muted">No employee recorded</span>{% endif %}
     </div>
     <div class="prep-sets">

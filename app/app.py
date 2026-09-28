@@ -1287,9 +1287,13 @@ def register_routes(app):
                                             session_id=session_id)
                 # Done closes out the employee who pressed it. The vehicle is
                 # only finished on the board once nobody is still working on
-                # it, inside or outside, so a crew can each press Done in
-                # their own time.
-                if not prep_timer.active_sessions_for(entry):
+                # it *and* both of its clock sets have been finished, so
+                # finishing one side never completes the whole vehicle: the
+                # other side still has to be started and finished. This is what
+                # keeps a crew, who each press Done in their own time, from
+                # closing the row halfway through the job.
+                if (not prep_timer.active_sessions_for(entry)
+                        and prep_timer.all_scopes_finished(entry)):
                     sched_svc.complete_entry(entry)
         except prep_timer.PrepTimerError as err:
             # A refused press still answers with the vehicle's real state, so
@@ -1318,6 +1322,9 @@ def register_routes(app):
             "entry_status": entry.status,
             "entry_completed": entry.status == "completed",
             "still_working": bool(prep_timer.active_sessions_for(entry)),
+            # The sides of the vehicle still to be finished, so a press that
+            # does not close the row can say which side is outstanding.
+            "scopes_outstanding": list(state.get("scopes_outstanding") or []),
         }
         # The clock the press actually moved, so the "Now Working" card ticks
         # the employee's own time rather than the vehicle's total.

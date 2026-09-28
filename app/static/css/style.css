@@ -409,6 +409,7 @@ details.vrow > .vrow-summary .driver-code { font-size: .95rem; }
 .prep-total { color: var(--text); }
 .prep-running .prep-total { color: var(--success); }
 .prep-paused .prep-total { color: var(--warn); }
+.prep-partial .prep-total { color: var(--warn); }
 .prep-finished .prep-total { color: var(--success); }
 
 /* one row per employee working the vehicle: each has their own clock */
@@ -435,6 +436,10 @@ details.vrow > .vrow-summary .driver-code { font-size: .95rem; }
 .prep-paused .prep-clock { color: var(--warn); }
 .prep-finished { border-left-color: var(--success); }
 .prep-finished .prep-clock { color: var(--success); }
+/* Every clock on the vehicle is closed but only one of its two sides is, so the
+   work is not over: it reads as a wait for the other side, not a finish. */
+.prep-partial { border-left-color: var(--warn); }
+.prep-partial .prep-clock { color: var(--warn); }
 .prep-skipped, .prep-none { border-left-color: var(--border); }
 .prep-skipped .prep-clock, .prep-none .prep-clock { color: var(--muted); }
 .prep-history { font-size: .8rem; }
