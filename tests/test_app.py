@@ -2433,6 +2433,65 @@ def test_finalized_day_summary_counts_skipped_as_incomplete(client, app):
         assert summary["overall"] == 0
 
 
+def test_skipped_row_progress_bar_is_nested_so_the_live_skip_repaint_works(
+        client, app):
+    """The live (AJAX) skip repaint inserts the skipped note just above the
+    progress bar, which it looks up with `row.querySelector('.progress')`.
+
+    A row's progress bar is NOT a direct child of the row element: the row is a
+    <details>, and the bar lives inside the row's body. Inserting a node before
+    a node that is not a child of the target throws NotFoundError, so a repaint
+    that called row.insertBefore(note, progress) abandoned the row half-painted
+    and was reported as "Could not skip this vehicle. Try again." even though
+    the skip had been recorded -- which is what the board showed: an error on
+    the press, and the vehicle already skipped after a refresh.
+
+    This pins the layout the repaint depends on, and the placement of the
+    server-rendered note it reproduces, so the two cannot drift apart again.
+    """
+    import re
+
+    with app.app_context():
+        from app.services import schedule as ss
+        from app.services.vehicles import find_or_create_vehicle
+        v, _ = find_or_create_vehicle("741", location_id=vehicles_loc(app).id)
+        sched = ss.get_or_create_schedule(location=vehicles_loc(app))
+        entry = ss.ensure_entry(sched, v)
+        ss.create_task_rows(entry)
+        entry.status = "skipped"
+        entry.skip_reason = "Maintenance"
+        db.session.commit()
+        eid = entry.id
+
+    html = client.get("/").data.decode()
+    row_html = _board_row_html(html, eid)
+
+    # The bar the repaint inserts against is nested inside the row's body, so
+    # the repaint must insert into the bar's own parent, not into the row.
+    assert '<div class="vrow-body">' in row_html
+    assert re.search(
+        r'<div class="vrow-body">.*?<div class="progress">', row_html, re.S), \
+        "the progress bar is no longer inside the row body"
+
+    # And the server-rendered skip note sits directly above that bar, which is
+    # exactly where the live repaint puts the note it builds.
+    assert re.search(
+        r'does not count toward completion.*?<div class="progress">',
+        row_html, re.S), \
+        "the skipped note is no longer the progress bar's preceding sibling"
+
+
+def _board_row_html(html, entry_id):
+    """The rendered markup of one vehicle row, by its `id="row-<entry_id>"`."""
+    anchor = html.find(f'id="row-{entry_id}"')
+    assert anchor != -1, f"entry {entry_id} is not on the board"
+    start = html.rfind("<details", 0, anchor)
+    assert start != -1, "the vehicle row is not a <details>"
+    end = html.find("</details>", anchor)
+    assert end != -1, "the vehicle row is never closed"
+    return html[start:end + len("</details>")]
+
+
 # ---------------------------------------------------------------------------
 # Transit buses
 # ---------------------------------------------------------------------------
