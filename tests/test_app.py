@@ -3104,6 +3104,15 @@ def add_employee(app, name="Dana Timer"):
     return emp.id
 
 
+def _board_row(html, entry_id):
+    """One vehicle's row of the rendered board, so an assertion about a
+    vehicle cannot be satisfied by some other vehicle's buttons."""
+    start = html.index(f'id="row-{entry_id}"')
+    rest = html[start + 1:]
+    end = rest.find('<div class="vrow ')
+    return rest if end == -1 else rest[:end]
+
+
 def test_prep_start_records_eastern_timestamp_and_employee(client, app):
     """Start begins the clock, records the employee, and stores an Eastern
     timestamp that carries its UTC offset (so it is unambiguous later)."""
@@ -3596,6 +3605,7 @@ def test_prep_board_shows_buttons_for_the_current_state(client, app):
     with app.app_context():
         entry_id, _ = prep_entry(app, "909")
         emp_id = add_employee(app)
+    client.post("/select", data={"employee_id": str(emp_id)})
 
     def row_html():
         html = client.get("/").data.decode()
@@ -3607,7 +3617,15 @@ def test_prep_board_shows_buttons_for_the_current_state(client, app):
         start = html.index(f'id="prep-{entry_id}-{scope}"')
         return html[start:html.index("</section>", start)]
 
-    # Both clock sets wait for a Start, each naming the set it times.
+    # Nothing is started until the vehicle is selected, so no Start has been
+    # rendered to act on yet.
+    assert "Start Inside" not in set_html("inside")
+    assert "Start Outside" not in set_html("outside")
+    assert 'data-prep-locked="1"' in set_html("inside")
+
+    # Selected, both clock sets offer a Start, each naming the set it times.
+    client.post(f"/entry/{entry_id}/select",
+                data={"employee_id": str(emp_id), "selected": "1"})
     assert 'data-prep-scope="inside"' in row_html()
     assert 'data-prep-scope="outside"' in row_html()
     assert "Start Inside" in set_html("inside")
@@ -3640,9 +3658,12 @@ def test_prep_board_shows_buttons_for_the_current_state(client, app):
     assert "Completed" in html
     assert "Inside prep history (4)" in html    # start, pause, resume, done
     assert "Started" in html and "Resumed" in html
-    # The finished set offers nothing; the untouched one still does.
+    # The finished set offers nothing, and closing the last clock completed the
+    # vehicle and handed it back, so there is no Start left to offer and no
+    # control left to open one.
     assert 'data-prep-action="start"' not in set_html("inside")
-    assert 'data-prep-action="start"' in set_html("outside")
+    assert 'data-prep-action="start"' not in set_html("outside")
+    assert f'data-select-entry="{entry_id}"' not in client.get("/").data.decode()
 
 
 def test_prep_report_shows_history_and_total(client, app):
@@ -4684,6 +4705,256 @@ def test_now_working_card_follows_the_employee_not_the_vehicle(client, app):
     html = client.get("/").data.decode()
     assert 'data-prep-employee="%d"' % ann not in html
     assert 'data-prep-employee="%d"' % bob in html
+
+
+# ---------------------------------------------------------------------------
+# A vehicle is selected before its Start buttons show up
+# ---------------------------------------------------------------------------
+
+def test_a_vehicle_must_be_selected_before_its_start_buttons_appear(client, app):
+    """The reported problem: every vehicle on the board used to carry an
+    Inside and an Outside Start, so a day of buses was a wall of buttons.
+
+    A vehicle is claimed first and only then do its Start buttons show up --
+    for that vehicle alone, and only for the employee who claimed it."""
+    with app.app_context():
+        first_id, _ = prep_entry(app, "770")
+        second_id, _ = prep_entry(app, "771")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+
+    def set_html(entry_id, scope, board):
+        html = board.get("/").data.decode()
+        start = html.index(f'id="prep-{entry_id}-{scope}"')
+        return html[start:html.index("</section>", start)]
+
+    c = app.test_client()
+    c.post("/login", data={"username": "employee", "password": "employee"})
+    c.post("/select", data={"employee_id": str(ann)})
+
+    # Untouched board: no Start anywhere, and each set says what to press
+    # instead, so the closed row is not a dead row.
+    for entry_id in (first_id, second_id):
+        for scope in ("inside", "outside"):
+            block = set_html(entry_id, scope, c)
+            assert 'data-prep-action="start"' not in block
+            assert 'data-prep-locked="1"' in block
+            assert "Select this vehicle to time the %s work." % scope in block
+    # One control per vehicle to open them.
+    html = c.get("/").data.decode()
+    assert html.count('data-select-entry=') == 2
+    assert html.count('aria-pressed="false"') == 2
+
+    r = c.post(f"/entry/{first_id}/select",
+               data={"employee_id": str(ann), "selected": "1"})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["ok"] is True
+    assert body["selected"] is True
+    assert body["vehicle"] == "770"
+    # The claim is the one the "Now Working" board already reads, and the
+    # answer reports where the employee now stands so a client can confirm it.
+    with app.app_context():
+        assert Employee.query.get(ann).current_vehicle_id == \
+            ScheduleEntry.query.get(first_id).vehicle_id
+    assert body["current_vehicle_id"] == \
+        ScheduleEntry.query.get(first_id).vehicle_id
+
+    # The selected vehicle's two clock sets opened, the other vehicle did not.
+    assert "Start Inside" in set_html(first_id, "inside", c)
+    assert "Start Outside" in set_html(first_id, "outside", c)
+    assert 'data-prep-locked="0"' in set_html(first_id, "inside", c)
+    assert 'data-prep-action="start"' not in set_html(second_id, "inside", c)
+    assert 'data-prep-locked="1"' in set_html(second_id, "inside", c)
+    html = c.get("/").data.decode()
+    assert f'data-select-entry="{first_id}" data-vehicle-id=' in html
+    assert "row-selected" in html
+
+    # Handing the vehicle back closes it again, and the button says so.
+    r = c.post(f"/entry/{first_id}/select",
+               data={"employee_id": str(ann), "selected": "0"})
+    assert r.get_json()["selected"] is False
+    with app.app_context():
+        assert Employee.query.get(ann).current_vehicle_id is None
+    assert 'data-prep-action="start"' not in set_html(first_id, "inside", c)
+    assert 'data-prep-locked="1"' in set_html(first_id, "inside", c)
+    assert 'aria-pressed="true"' not in c.get("/").data.decode()
+
+
+def test_the_selection_is_the_employees_own_on_a_shared_board(client, app):
+    """A crew shares one screen, so the claim is per person: Ann selecting a
+    bus does not open it for Bob, and each of them picks the vehicle they are
+    walking up to."""
+    with app.app_context():
+        first_id, _ = prep_entry(app, "772")
+        second_id, _ = prep_entry(app, "773")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+
+    def set_html(entry_id, scope="inside"):
+        html = board.get("/").data.decode()
+        start = html.index(f'id="prep-{entry_id}-{scope}"')
+        return html[start:html.index("</section>", start)]
+
+    def sign_in(emp_id):
+        c = app.test_client()
+        c.post("/login", data={"username": "employee", "password": "employee"})
+        c.post("/select", data={"employee_id": str(emp_id)})
+        return c
+
+    board = sign_in(ann)
+    board.post(f"/entry/{first_id}/select",
+               data={"employee_id": str(ann), "selected": "1"})
+    assert "Start Inside" in set_html(first_id)
+
+    board = sign_in(bob)
+    # Ann's claim is hers alone: Bob still sees both vehicles closed.
+    assert 'data-prep-action="start"' not in set_html(first_id)
+    assert 'data-prep-action="start"' not in set_html(second_id)
+    # ...and his own claim opens the vehicle he picked, not hers.
+    board.post(f"/entry/{second_id}/select",
+               data={"employee_id": str(bob), "selected": "1"})
+    assert "Start Inside" in set_html(second_id)
+    assert 'data-prep-action="start"' not in set_html(first_id)
+    with app.app_context():
+        assert Employee.query.get(ann).current_vehicle_id == \
+            ScheduleEntry.query.get(first_id).vehicle_id
+        assert Employee.query.get(bob).current_vehicle_id == \
+            ScheduleEntry.query.get(second_id).vehicle_id
+
+
+def test_a_crew_can_still_join_a_vehicle_it_never_selected(client, app):
+    """Gating the Start on the selection does not gate the crew out: pressing
+    Start claims the vehicle, so a colleague who never selected it is still
+    offered "+ Add Me" on the side somebody else is already working."""
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "774")
+        ann = add_employee(app, "Ann Alpha")
+        bob = add_employee(app, "Bob Beta")
+        t0 = timeutils.now_eastern().replace(microsecond=0)
+        from app.services import prep_timer
+        entry = ScheduleEntry.query.get(entry_id)
+        prep_timer.start(entry, ann, at=t0)
+        db.session.commit()
+
+    def set_html(scope):
+        html = client.get("/").data.decode()
+        start = html.index(f'id="prep-{entry_id}-{scope}"')
+        return html[start:html.index("</section>", start)]
+
+    c = app.test_client()
+    c.post("/login", data={"username": "employee", "password": "employee"})
+    c.post("/select", data={"employee_id": str(bob)})
+    # Bob never selected this vehicle, and the set he wants carries a clock, so
+    # it stays open and offers him a clock of his own.
+    assert 'data-prep-join="%d"' % entry_id in set_html("inside")
+    assert 'data-prep-locked="0"' in set_html("inside")
+    r = c.post(f"/entry/{entry_id}/prep/start",
+               data={"employee_id": str(bob), "scope": "inside"})
+    assert r.get_json()["ok"] is True
+    with app.app_context():
+        assert Employee.query.get(bob).current_vehicle_id == \
+            ScheduleEntry.query.get(entry_id).vehicle_id
+
+
+def test_pressing_done_hands_the_vehicle_back_for_the_next_one(client, app):
+    """The claim follows the work: closing the last clock somebody was holding
+    frees the vehicle, so the next bus has to be selected before its Start
+    buttons come up."""
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "775")
+        emp_id = add_employee(app)
+        c = app.test_client()
+        c.post("/login", data={"username": "employee", "password": "employee"})
+        c.post("/select", data={"employee_id": str(emp_id)})
+        c.post(f"/entry/{entry_id}/select",
+               data={"employee_id": str(emp_id), "selected": "1"})
+        r = c.post(f"/entry/{entry_id}/prep/start",
+                   data={"employee_id": str(emp_id), "scope": "inside"})
+        assert r.get_json()["current_vehicle_id"] == \
+            ScheduleEntry.query.get(entry_id).vehicle_id
+
+        r = c.post(f"/entry/{entry_id}/prep/done",
+                   data={"employee_id": str(emp_id), "scope": "inside"})
+        # The clock is closed, so the claim goes with it and the board is told.
+        assert r.get_json()["current_vehicle_id"] is None
+        with app.app_context():
+            assert Employee.query.get(emp_id).current_vehicle_id is None
+
+
+def test_a_vehicle_that_cannot_be_worked_is_not_selectable(client, app):
+    """The same refusals Start gives: a skipped or completed vehicle cannot be
+    claimed, and the manager view is read-only."""
+    with app.app_context():
+        skipped_id, _ = prep_entry(app, "776")
+        done_id, _ = prep_entry(app, "777")
+        emp_id = add_employee(app)
+        c = app.test_client()
+        c.post("/login", data={"username": "employee", "password": "employee"})
+        c.post("/select", data={"employee_id": str(emp_id)})
+        c.post(f"/entry/{skipped_id}/skip", data={"reason": "Maintenance"})
+        c.post(f"/entry/{done_id}/complete")
+        for entry_id in (skipped_id, done_id):
+            r = c.post(f"/entry/{entry_id}/select",
+                       data={"employee_id": str(emp_id), "selected": "1"})
+            assert r.get_json()["ok"] is False
+            assert r.status_code == 409
+        with app.app_context():
+            assert Employee.query.get(emp_id).current_vehicle_id is None
+        # No control to press, and nothing to press it on.
+        html = c.get("/").data.decode()
+        assert f'data-select-entry="{skipped_id}"' not in html
+        assert f'data-select-entry="{done_id}"' not in html
+
+    m = app.test_client()
+    m.post("/login", data={"username": "manager", "password": "manager"})
+    r = m.post(f"/entry/{skipped_id}/select", data={"selected": "1"})
+    assert r.status_code == 403
+
+
+def test_a_closed_clock_set_says_why_it_is_closed(client, app):
+    """Nothing on the board asks for a press it cannot accept: an unselected
+    vehicle is told to be selected, a selected one is offered its Starts, a
+    vehicle somebody else is working stays joinable, and a finished vehicle --
+    which can be neither selected nor started -- is not asked for either."""
+    with app.app_context():
+        idle_id, _ = prep_entry(app, "781")
+        mine_id, _ = prep_entry(app, "782")
+        crew_id, _ = prep_entry(app, "783")
+        done_id, _ = prep_entry(app, "784")
+        me = add_employee(app, "Ann Alpha")
+        them = add_employee(app, "Bob Beta")
+
+    # Work the board as Ann, the employee the claim is recorded on.
+    client.post("/select", data={"employee_id": str(me)})
+
+    # Idle and unselected: locked, no Start, told to select it.
+    html = client.get("/").data.decode()
+    row = _board_row(html, idle_id)
+    assert "Select this vehicle to time the inside work." in row
+    assert 'data-prep-action="start"' not in row
+    assert row.count('data-prep-locked="1"') == 2
+
+    # Selected: both Starts, and the row shows as the one being worked on.
+    assert client.post(f"/entry/{mine_id}/select",
+                       data={"employee_id": str(me)}).get_json()["ok"] is True
+    row = _board_row(client.get("/").data.decode(), mine_id)
+    assert "Start Inside" in row and "Start Outside" in row
+    assert 'data-prep-locked="1"' not in row
+
+    # Somebody else's clock: never locked, so joining needs no selection.
+    client.post(f"/entry/{crew_id}/prep/start",
+                data={"employee_id": str(them), "scope": "inside"})
+    row = _board_row(client.get("/").data.decode(), crew_id)
+    assert "+ Add Me" in row
+    assert row.count('data-prep-locked="1"') == 1  # the outside set, still shut
+
+    # Complete: closed for good, and not told to select or start anything.
+    client.post(f"/entry/{done_id}/complete")
+    row = _board_row(client.get("/").data.decode(), done_id)
+    assert "Select this vehicle" not in row
+    assert "Start Inside" not in row and "Start Outside" not in row
+    assert row.count('data-prep-locked="1"') == 2
 
 
 # ---------------------------------------------------------------------------
