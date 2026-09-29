@@ -306,14 +306,15 @@ function applyPrepState(row, state, entryCompleted) {
 // _tasks_open): a group with work already ticked in it, or a vehicle that is
 // finished, is a record of what happened and is never folded away.
 function applyTaskGroups(row, state, entryCompleted) {
-  if (!row) return;
+  var host = taskGroupHost(row);
+  if (!host) return;
   var scopes = state.scopes || {};
   // The row's own tick is the server's word for "this vehicle is finished", so
   // a re-sync that carries no status of its own cannot fold away the list of a
   // vehicle that is done.
-  var finished = !!entryCompleted || row.classList.contains('row-complete');
+  var finished = !!entryCompleted || host.classList.contains('row-complete');
   ['inside', 'outside'].forEach(function (scope) {
-    var group = row.querySelector('[data-task-group="' + scope + '"]');
+    var group = host.querySelector('[data-task-group="' + scope + '"]');
     if (!group) return;
     var setState = scopes[scope] || {};
     var started = (setState.status && setState.status !== 'none') ||
@@ -323,6 +324,20 @@ function applyTaskGroups(row, state, entryCompleted) {
     var ticked = !!group.querySelector('.ck.done');
     group.hidden = !(started || ticked || finished);
   });
+}
+
+// The element the two task groups and the finished tick both live under.
+//
+// They are not inside the clock block: the checklist sits *beside* the clocks
+// in .vrow-body, and the row-complete mark is on the <details> itself, so a
+// lookup started from the .prep block (#prep-N) finds neither and every Start
+// press left the boxes it had just made worth ticking folded away until the
+// next page load rendered them open. Callers hand over whichever block they
+// just repainted, so climb to the vehicle's own row to do the finding.
+function taskGroupHost(row) {
+  if (!row) return null;
+  if (row.querySelector('[data-task-group]')) return row;
+  return row.closest ? row.closest('.vrow') : null;
 }
 
 // One clock set: its own total, status, employee clocks, buttons and history.
