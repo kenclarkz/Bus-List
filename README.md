@@ -44,13 +44,26 @@ report. It is not a static mockup.
    skipped vehicle is never ticked, because skipping is not a way of finishing
    one. The task list is broken into two categories — **Inside**
    (Sweep, Mop, Windows, Seats, Bathroom) and **Outside** (Dump, Bay Checked,
-   Final Inspection) — both configurable in Settings. Every checkbox saves a
-   completion timestamp and the employee. Progress shows `6/8 — 75%`.
+   Final Inspection) — both configurable in Settings, and each category's boxes
+   stay folded away until **Start** has been pressed for that side of the
+   vehicle, so a vehicle nobody has picked up yet reads as two clocks and their
+   Start buttons rather than as a wall of boxes that cannot honestly be ticked
+   yet. A category with a box already ticked, and a finished vehicle's whole
+   list, are never folded away: those are a record of what happened. Every
+   checkbox saves a completion timestamp and the employee. Progress shows
+   `6/8 — 75%`.
+   Under the task list is **Done With Vehicle** — the crew's own way out of a
+   row when they are finished with it **whether or not every task is checked**.
+   It counts the vehicle as completed on the board exactly like ticking every
+   box off does, stops any clock still running on it, moves the day's totals,
+   and names the tasks it left undone on the row, so a vehicle finished early
+   can never be mistaken for one worked through in full.
 4. **Per-vehicle prep timer (Start / Pause / Resume / Done)** — each vehicle on
    the board gets **two independent clock sets, one for the inside work and one
    for the outside work**, and each clock is recorded against the employee doing
    the work. Every vehicle's Inside and Outside **Start** buttons are on the
-   board from the start, so anyone can press one without any further step.
+   board from the start, so anyone can press one without any further step, and
+   pressing one is also what opens up that side's task list.
    **Start** begins the clock and puts the vehicle in progress;
    **Pause** and **Resume** stop and restart it without ever losing the time
    already worked; **Done** stops the clock, freezes that person's total active
@@ -237,7 +250,12 @@ vehicle, and the two clock sets per vehicle: each side timing apart, a paused
 clock not blocking the other side, finishing one side never completing the
 vehicle, one employee running both sides of one vehicle at once, two employees
 working opposite sides of one vehicle, three employees on one vehicle at once,
-and the board/end-of-day/print report splitting the day by clock set.
+and the board/end-of-day/print report splitting the day by clock set. It also
+covers the two ways a vehicle is finished: every box ticked off, and **Done
+With Vehicle** with boxes left — the vehicle counting as completed either way,
+its clocks stopping, the day totals moving and the tasks left undone being
+named — and the task list of each side staying folded away until that side is
+started.
 
 ---
 

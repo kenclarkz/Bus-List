@@ -377,6 +377,9 @@ details.vrow.row-complete > .vrow-summary:hover { filter: brightness(.96); }
   flex-direction: column;
 }
 .checklist-group { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+/* The boxes for a side of the vehicle stay folded away until that side has been
+   started, so the author-level display above has to give way to [hidden]. */
+.checklist-group[hidden] { display: none; }
 .checklist-group-label {
   font-size: .75rem; font-weight: 700; letter-spacing: .04em;
   text-transform: uppercase; color: var(--muted);
@@ -397,6 +400,11 @@ details.vrow.row-complete > .vrow-summary:hover { filter: brightness(.96); }
 .progress-bar { flex: 1; height: 8px; background: var(--border); border-radius: 999px; overflow: hidden; }
 .progress-fill { height: 100%; background: var(--success); border-radius: 999px; transition: width .3s; }
 .progress-fill.fill-warn { background: var(--warn); }
+
+/* The crew's own way out of a vehicle: done with it, whether or not every box
+   got ticked. Sits directly under the task list it applies to. */
+.vehicle-done { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 4px; }
+.vehicle-done-btn { min-width: 170px; }
 
 /* badges / status */
 .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: .75rem; font-weight: 700; }

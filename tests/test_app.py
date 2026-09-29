@@ -15,6 +15,7 @@ from app.services import timeutils
 from app.services.pdf_parser import normalize_unit
 from app.services.pdf_parser import parse_prep_report
 from app.services import schedule as sched_svc
+from app.services import prep_timer
 
 
 @pytest.fixture()
@@ -1804,6 +1805,27 @@ def test_settings_page_renders_inside_outside(manager_client, app):
     assert r.status_code == 200
     assert b"Inside tasks" in r.data
     assert b"Outside tasks" in r.data
+
+
+def test_task_category_matches_the_two_clock_sets(app):
+    """A task and the clock set that opens it are the same one, so the board
+    never offers the outside boxes on a vehicle nobody has started outside."""
+    from app.services import settings as s
+    with app.app_context():
+        assert s.task_category("Sweep") == "inside"
+        assert s.task_category("Dump") == "outside"
+        # A name left behind by an edited checklist is treated as inside, so it
+        # is never stranded in a group nothing can open.
+        assert s.task_category("Retired Task") == "inside"
+        s.set_setting("checklist_inside", "Vacuum,Wipe Seats")
+        s.set_setting("checklist_outside", "Wash Body")
+        assert s.task_category("Vacuum") == "inside"
+        assert s.task_category("Wash Body") == "outside"
+        # A checklist already read is reusable, so categorising a whole
+        # vehicle's tasks does not re-read the same two settings per task.
+        checklist = s.get_categorized_checklist()
+        assert [s.task_category(n, checklist)
+                for n in ("Vacuum", "Wash Body")] == ["inside", "outside"]
 
 
 # ---------------------------------------------------------------------------
@@ -6068,3 +6090,158 @@ def test_a_crew_on_one_vehicle_adds_up_on_the_board_and_the_reports(client, app)
     assert "Ann Alpha" in inside and "Bob Beta" in inside
     report = client.get(f"/print/{t0.date().isoformat()}").data.decode()
     assert "Ann Alpha" in report and "Bob Beta" in report
+
+
+# ---------------------------------------------------------------------------
+# The task list opens with the work, and the crew's way out of a vehicle
+# ---------------------------------------------------------------------------
+
+def board_row(html, entry_id):
+    """One vehicle's card off the board page, summary line and body.
+
+    Cut at the row's own skip modal, because a vehicle with clock history has
+    nested <details> inside its card and the first </details> is not its own.
+    """
+    anchor = html.index(f'id="row-{entry_id}"')
+    start = html.rindex('<details class="vrow', 0, anchor)
+    return html[start:html.index(f'id="modal-skip-{entry_id}"', anchor)]
+
+
+def task_group(row, scope):
+    """The Inside or Outside box group of a card, as the browser reads it."""
+    start = row.index(f'data-task-group="{scope}"')
+    return row[start:row.index("</div>", row.index('checklist-group-items', start))]
+
+
+def test_task_boxes_wait_for_start_on_that_side(client, app):
+    """The boxes inside a vehicle and the boxes outside it are only worth
+    showing once somebody is working that side, so a vehicle nobody has started
+    shows its two clocks and their Start buttons and nothing else."""
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "960")
+        emp_id = add_employee(app)
+
+    row = board_row(client.get("/").data.decode(), entry_id)
+    # Both clocks and both Start buttons are on the row from the start.
+    assert f'id="prep-{entry_id}-inside"' in row
+    assert f'id="prep-{entry_id}-outside"' in row
+    assert row.count(">Start Inside</button>") == 1
+    assert row.count(">Start Outside</button>") == 1
+    # But neither group of boxes is on show yet: they are in the card, folded
+    # away, so the browser is showing the crew two clocks and nothing else.
+    assert "hidden" in task_group(row, "inside")
+    assert "hidden" in task_group(row, "outside")
+    assert 'data-task="Sweep"' in task_group(row, "inside")
+    assert 'data-task="Dump"' in task_group(row, "outside")
+
+    # Starting the inside opens that group and only that group.
+    client.post(f"/entry/{entry_id}/prep/start",
+                data={"employee_id": str(emp_id), "scope": "inside"})
+    row = board_row(client.get("/").data.decode(), entry_id)
+    assert "hidden" not in task_group(row, "inside")
+    assert 'data-task="Sweep"' in task_group(row, "inside")
+    assert 'data-task="Mop"' in task_group(row, "inside")
+    assert "hidden" in task_group(row, "outside")
+
+
+def test_task_boxes_stay_shown_for_work_already_recorded(client, app):
+    """A group with a box already ticked is a record of what happened, not an
+    invitation, so it is never folded away by a clock nobody started -- and
+    neither is a finished vehicle's list."""
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "961")
+        # One box ticked through the board: the inside group opens on the work
+        # alone, with no clock ever started for it.
+        client.post(f"/task/{entry_id}/Sweep", data={"checked": "true"})
+        row = board_row(client.get("/").data.decode(), entry_id)
+        assert "hidden" not in task_group(row, "inside")
+        assert "hidden" in task_group(row, "outside")
+
+        # Finishing the vehicle off brings its outside list back with it, so
+        # what was ticked and what was not is on the record.
+        for t in list(ScheduleEntry.query.get(entry_id).tasks):
+            if not t.completed:
+                sched_svc.toggle_task(entry_id, t.task_name, True)
+
+    row = board_row(client.get("/").data.decode(), entry_id)
+    assert "hidden" not in task_group(row, "inside")
+    assert "hidden" not in task_group(row, "outside")
+
+
+def test_done_with_vehicle_completes_it_with_tasks_left(client, app):
+    """The crew's own way out of a vehicle: finished with it, boxes ticked or
+    not. It counts the vehicle as completed, stops its clocks and reports the
+    tasks it left undone, so finishing early never reads as working in full."""
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "962")
+        emp_id = add_employee(app)
+        client.post(f"/entry/{entry_id}/prep/start",
+                    data={"employee_id": str(emp_id), "scope": "inside"})
+
+    client.post(f"/task/{entry_id}/Sweep", data={"checked": "true"})
+    row = board_row(client.get("/").data.decode(), entry_id)
+    assert 'data-vehicle-done="%d"' % entry_id in row
+    # The button sits under the task list it applies to.
+    assert row.index('class="checklist"') < row.index("data-vehicle-done")
+    assert 'class="btn success vehicle-done-btn"' in row
+
+    r = client.post(f"/entry/{entry_id}/complete")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["ok"] is True
+    assert body["entry_status"] == "completed"
+    assert body["entry_completed"] is True
+    assert body["unit"] == "962"
+    # The tasks left undone are named, so the record says which ones.
+    incomplete = sorted(t.task_name for t in sched_svc_entry_tasks(app, entry_id)
+                        if not t.completed)
+    assert incomplete
+    assert sorted(body["incomplete"]) == incomplete
+    # It counts the vehicle as completed, which moves the day's totals.
+    assert body["counters"]["completed"] == 1
+    assert body["counters"]["remaining"] == 0
+
+    # The finished row carries the tick, and the way out of it is gone with the
+    # actions that no longer apply to it.
+    row = board_row(client.get("/").data.decode(), entry_id)
+    assert "row-complete" in row
+    assert "data-vehicle-done" not in row
+    assert 'data-modal-target="modal-skip-%d"' % entry_id not in row
+    assert "Not completed" in row
+
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        assert entry.status == "completed"
+        # No clock is left running in the background by finishing a vehicle.
+        assert prep_timer.active_sessions_for(entry) == []
+
+
+def test_done_with_vehicle_is_employee_only(manager_client, app):
+    """The Manager account reads the board; it does not finish vehicles."""
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "963")
+    r = manager_client.post(f"/entry/{entry_id}/complete")
+    assert r.status_code == 403
+    with app.app_context():
+        assert ScheduleEntry.query.get(entry_id).status == "pending"
+
+
+def test_task_toggle_reports_the_status_the_row_follows(client, app):
+    """The status the row's tick follows is handed back by the press that
+    changed it, under both names the board reads it by."""
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "964")
+        names = [t.task_name for t in sched_svc_entry_tasks(app, entry_id)]
+
+    r = client.post(f"/task/{entry_id}/{quote(names[0], safe='')}",
+                    data={"checked": "true"})
+    body = r.get_json()
+    assert body["status"] == body["entry_status"] == "in_progress"
+    for name in names[1:]:
+        r = client.post(f"/task/{entry_id}/{quote(name, safe='')}",
+                        data={"checked": "true"})
+        body = r.get_json()
+    assert body["entry_status"] == "completed"
+    r = client.post(f"/task/{entry_id}/{quote(names[-1], safe='')}",
+                    data={"checked": "false"})
+    assert r.get_json()["entry_status"] == "in_progress"

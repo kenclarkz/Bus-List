@@ -121,6 +121,27 @@ def get_categorized_checklist():
     }
 
 
+def task_category(task_name, categorized=None):
+    """Which of a vehicle's two clock sets a task belongs to.
+
+    A task and the clock set that opens it are always the same one, so the
+    board asks this rather than working it out again wherever it needs to know.
+    A task that is not on either list (a name left behind by an edited
+    checklist, a task from a vehicle type's own list) is treated as inside.
+
+    ``categorized`` is a checklist already read from settings, for a caller
+    categorising a whole vehicle's tasks that would otherwise read the same two
+    settings once per task.
+    """
+    if categorized is None:
+        categorized = get_categorized_checklist()
+    if task_name in categorized["inside"]:
+        return "inside"
+    if task_name in categorized["outside"]:
+        return "outside"
+    return "inside"
+
+
 def _parse_categorized_checklist(raw):
     """Parse a comma-separated checklist string that may use 'Inside:' and
     'Outside:' prefixes. Returns dict with 'inside' and 'outside' keys.

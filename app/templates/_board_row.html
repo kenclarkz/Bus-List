@@ -292,9 +292,16 @@
 
   {% if entry.status != 'skipped' and not r.replaced_by %}
   {# Opening the row is what reveals the task list, so the checklist is never
-     hidden behind a flag of its own: the row is either folded or it is not. #}
+     hidden behind a flag of its own: the row is either folded or it is not.
+     The boxes themselves are the second thing: they stay folded away until the
+     crew has hit Start on that side of the vehicle, because the boxes inside
+     and the boxes outside are only worth ticking once somebody is working
+     that side. A group with work already ticked in it, or a finished vehicle,
+     is always shown -- that is a record of what happened, not an invitation,
+     so neither is ever hidden away by a clock nobody started. #}
   <div class="checklist">
-    <div class="checklist-group">
+    <div class="checklist-group" data-task-group="inside"
+         {% if not r.tasks_open.inside %}hidden{% endif %}>
       <span class="checklist-group-label">Inside</span>
       <div class="checklist-group-items">
       {% for t in entry.tasks if t.task_name|task_category == 'inside' %}
@@ -309,7 +316,8 @@
       {% endfor %}
       </div>
     </div>
-    <div class="checklist-group">
+    <div class="checklist-group" data-task-group="outside"
+         {% if not r.tasks_open.outside %}hidden{% endif %}>
       <span class="checklist-group-label">Outside</span>
       <div class="checklist-group-items">
       {% for t in entry.tasks if t.task_name|task_category == 'outside' %}
@@ -325,6 +333,19 @@
       </div>
     </div>
   </div>
+  {# The last way out of a vehicle: the crew has finished with it and says so,
+     whether or not every box got ticked. It counts the vehicle as completed on
+     the board exactly like ticking them all off does, stops any clock still
+     running on it, and records which tasks were left undone on the row -- so a
+     vehicle finished early can never be mistaken for one worked in full. #}
+  {% if entry.status not in ('completed', 'skipped') and not r.replaced_by %}
+  <div class="vehicle-done">
+    <button type="button" class="btn success vehicle-done-btn"
+            data-vehicle-done="{{ entry.id }}"
+            {{ 'disabled' if current_role == 'manager' }}>Done With Vehicle</button>
+    <span class="muted small">Counts this vehicle as completed, even if every task is not checked.</span>
+  </div>
+  {% endif %}
   {% else %}
   {% if entry.status == 'skipped' %}
   <p class="muted small" style="margin:12px 0 4px">Skipped — {% if r.is_auto_skipped %}excluded from today's work totals{% else %}does not count toward completion{% endif %}.{% if entry.skip_reason %} <strong>Reason:</strong> {{ entry.skip_reason }}{% endif %} Un-skip to work this vehicle.</p>
@@ -354,10 +375,14 @@
     <a class="btn small" href="{{ url_for('vehicle_detail', vehicle_id=v.id) }}">History</a>
     {% endif %}
   </div>
-  {% if current_role == 'manager' and entry.status in ('completed', 'in_progress') %}
+  {# A vehicle can be finished without every box being ticked (Done With
+     Vehicle), so the tasks left undone are named on the row itself: whoever
+     finished it early sees what they left, and a manager opening the row later
+     sees the same thing. app.js builds this same note on the press. #}
+  {% if entry.status == 'completed' or (current_role == 'manager' and entry.status == 'in_progress') %}
   {% set incomplete_tasks = entry.tasks|selectattr('completed', 'false')|list %}
   {% if incomplete_tasks %}
-  <div class="flash flash-warn" style="margin-top:8px;padding:8px 12px;font-size:.8rem">
+  <div class="flash flash-warn incomplete-tasks" style="margin-top:8px;padding:8px 12px;font-size:.8rem">
     <strong>Not completed:</strong>
     {% for t in incomplete_tasks %}{{ t.task_name }} ({{ t.task_name|task_category }}){% if not loop.last %}, {% endif %}{% endfor %}
   </div>
