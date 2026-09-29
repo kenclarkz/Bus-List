@@ -170,7 +170,9 @@ independent of the color themes (Light / Dark / System / Futuristic /
      and timers are recorded against them and the board opens on their name with
      no name picker. Removing an account takes effect at once — the person is
      signed out and cannot sign back in — while their completed work and history
-     are kept.
+     are kept. A Manager can also **Delete** an account or a staff record for
+     good: the username is freed up, or the name comes off the board, while the
+     work that person did stays on file unattributed.
 
 ---
 
@@ -269,6 +271,23 @@ plain text in the source. **Sign-in is now a database table.**
   are untouched. Removing an employee from the staff list closes their account
   too, and the last active Manager account cannot be removed at all — otherwise
   nobody could get back into the Staff page.
+- **Deleting takes either of them off the books for good.** Remove is reversible
+  and keeps the person on file; **Delete** is not, and is there for a login or a
+  staff record the Manager never wants to see again.
+  - **`POST /accounts/<id>/delete`** removes the `UserAccount` row itself. The
+    username is free again for whoever is given it next, and the person can
+    never sign in on it. Deleting the account a Manager is signed in on clears
+    the session and returns them to the login page with a note saying why. The
+    last active Manager account is refused, exactly as it is for Remove.
+  - **`POST /employees/<id>/delete`** (`app/services/staff.py`) removes the
+    `Employee` row, but never the work. Every task, timer, note, report and
+    incident that person touched is kept and simply stops being credited to
+    anybody, so the history still adds up. Two things are refused rather than
+    left broken: a login still tied to the record — delete it first, since an
+    Employee login with no staff record behind it is handed a brand new one the
+    moment that person signs in, which would quietly undo the delete — and a
+    clock still `running` or `paused`, which belongs to the work in front of
+    them.
 - **Everyone can change their own password** from the **Password** tab
   (`/account/password`), which asks for the current password and confirms the
   new one, then returns to the dashboard. A Manager can also reset a forgotten

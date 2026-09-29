@@ -15,7 +15,7 @@ from .models import db, Vehicle, Employee, ScheduleEntry, Replacement, Note, \
     IncidentReport, IncidentNote, IncidentPhoto, UserAccount
 from .services import settings, vehicles, schedule as sched_svc
 from .services import incidents as incidents_svc
-from .services import prep_timer, timeutils
+from .services import prep_timer, staff as staff_svc, timeutils
 from .services.incidents import ISSUE_TYPES, SEVERITIES, STATUSES, \
     allowed_photo, save_incident_photo, SEVERITY_CLASSES, STATUS_CLASSES
 
@@ -43,9 +43,11 @@ MANAGER_ONLY_ENDPOINTS = {
     "vehicle_toggle_active",
     "employees_page",
     "employee_toggle_active",
+    "employee_delete",
     "account_create",
     "account_toggle_active",
     "account_reset_password",
+    "account_delete",
     # Incident management (review / edit / assign / note / photos / resolve).
     "incident_edit",
     "incident_note",
@@ -2193,6 +2195,52 @@ def register_routes(app):
         db.session.commit()
         return redirect(url_for("employees_page"))
 
+    @app.route("/employees/<int:employee_id>/delete", methods=["POST"])
+    def employee_delete(employee_id):
+        """Delete a staff record for good, rather than just taking it off the
+        list.
+
+        Remove keeps the person on file so everything they ever did still says
+        who did it. Delete is the Manager saying the record itself was wrong or
+        is no longer wanted, so the row goes -- but the work does not: every
+        task they checked, clock they ran and note they wrote stays exactly
+        where it is, just no longer credited to anybody.
+
+        Two things are refused rather than left broken. A login still tied to
+        the record goes first, because an Employee account with no staff record
+        behind it is handed a brand new one the moment that person signs in --
+        which would quietly undo the delete. A clock still running does too: it
+        belongs to the work in front of them, and the Manager stops it the same
+        way they stop any other.
+        """
+        employee = Employee.query.get_or_404(employee_id)
+        name = employee.name
+
+        accounts = staff_svc.tied_accounts(employee.id)
+        if accounts:
+            who = ", ".join(a.username for a in accounts)
+            flash(f"{name} still signs in on {who}. Delete that login first, "
+                  "then the staff record.", "error")
+            return redirect(url_for("employees_page"))
+
+        clock = staff_svc.open_clock(employee.id)
+        if clock is not None:
+            unit = clock.vehicle.unit_number if clock.vehicle else "their vehicle"
+            state = "running" if clock.status == "running" else "paused"
+            flash(f"{name} still has a {state} clock on {unit}. Stop that clock "
+                  "first, then the staff record can go.", "error")
+            return redirect(url_for("employees_page"))
+
+        work = staff_svc.work_summary(employee.id)
+        staff_svc.purge_employee(employee.id)
+        if work:
+            flash(f"{name} has been deleted from the staff list. Their work is "
+                  f"still on file ({work}), no longer credited to anybody.",
+                  "success")
+        else:
+            flash(f"{name} has been deleted from the staff list", "success")
+        return redirect(url_for("employees_page"))
+
     @app.route("/accounts", methods=["POST"])
     def account_create():
         """Add an account for one person and hand them their credentials."""
@@ -2266,6 +2314,47 @@ def register_routes(app):
         flash(f"{account.name}'s password has been reset. Tell them the new "
               "one so they can change it to something only they know.",
               "success")
+        return redirect(url_for("employees_page"))
+
+    @app.route("/accounts/<int:account_id>/delete", methods=["POST"])
+    def account_delete(account_id):
+        """Delete a login for good, rather than just closing it.
+
+        Remove keeps the row so it can be reactivated. Delete is the Manager
+        saying the username is never coming back -- a login typed in by
+        mistake, or somebody who never started -- so it goes, and the username
+        is free again for whoever is given it next.
+
+        The person's work is not touched by any of it: tasks, timers and
+        reports are recorded against their staff record, not their login, so
+        every bit of it stays exactly where it is. Deleting the login is the
+        first half of removing somebody; the staff record follows once the
+        account is gone.
+
+        The last active Manager account is refused, exactly as it is for
+        Remove, because deleting it would lock everyone out of the Staff page
+        with no way back in.
+        """
+        account = UserAccount.query.get_or_404(account_id)
+        if account.active and account.is_manager and \
+                _active_manager_count() <= 1:
+            flash("This is the only active Manager account. Add another "
+                  "Manager before deleting this one.", "error")
+            return redirect(url_for("employees_page"))
+        name = account.name
+        username = account.username
+        # Deleting the login the Manager is signed in on ends their session
+        # here rather than on their next page, where the message would be lost
+        # with the rest of the session.
+        signing_in = account.id == session.get("user_id")
+        db.session.delete(account)
+        db.session.commit()
+        if signing_in:
+            session.clear()
+            flash("Your own account has been deleted, so you have been signed "
+                  "out. Sign in with another account.", "success")
+            return redirect(url_for("login"))
+        flash(f"{name}'s account ({username}) has been deleted", "success")
         return redirect(url_for("employees_page"))
 
     def _active_manager_count():
