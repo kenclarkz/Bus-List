@@ -890,7 +890,11 @@ def test_today_board_tracks_import(client, app):
 
 def test_delete_previous_day_removes_schedule_entries_and_tasks(client, app):
     """Deleting a previous day removes its schedule, entries and tasks but
-    keeps the vehicle records and service history."""
+    keeps the vehicle records and service history.
+
+    A *finalized* day is not deletable at all (see
+    ``test_finalized_day_cannot_be_deleted``), so this covers the ordinary
+    case: a previous day that is still an open, editable board."""
     from datetime import timedelta
     past_day = date.today() - timedelta(days=1)
     with app.app_context():
@@ -901,9 +905,6 @@ def test_delete_previous_day_removes_schedule_entries_and_tasks(client, app):
         v, _ = find_or_create_vehicle("301", location_id=loc.id)
         entry = ss.ensure_entry(sched, v)
         ss.toggle_task(entry.id, "Sweep", True)
-        sched.finalized = True
-        sched.summary = json.dumps(
-            dict(total=1, completed=1, incomplete=0, overall=100))
         db.session.commit()
         sched_id = sched.id
         entry_id = entry.id
@@ -1252,7 +1253,13 @@ def test_replaced_vehicle_counts_toward_completion(client, app):
 # End day / finalize
 # ---------------------------------------------------------------------------
 
-def test_end_day(client, app):
+def test_end_day_is_a_read_only_day_report(client, app):
+    """The day report is a view, not an action.
+
+    There is no manual finalization left in the UI: the page renders the day,
+    it does not accept a POST, and it offers no "END MY DAY" control. The day is
+    closed automatically by the nightly job.
+    """
     with app.app_context():
         from app.services.vehicles import find_or_create_vehicle
         from app.services import schedule as ss
@@ -1264,13 +1271,16 @@ def test_end_day(client, app):
 
     r = client.get("/end")
     assert r.status_code == 200
-
-    today = date.today().isoformat()
-    r = client.post("/end", data={"date": today, "confirm": "yes"})
-    assert r.status_code == 302
+    html = r.data.decode()
+    assert "END MY DAY" not in html
+    assert "modal-finalize" not in html
+    assert 'name="confirm"' not in html
+    # Nothing finalizes the day just because the report was opened.
     with app.app_context():
-        sched = DailySchedule.query.filter_by(work_date=date.today()).first()
-        assert sched.finalized is True
+        assert DailySchedule.query.filter_by(
+            work_date=date.today()).first().finalized is False
+    # The manual finalization endpoint is gone entirely, not merely hidden.
+    assert client.post("/end", data={"confirm": "yes"}).status_code == 405
 
 
 def test_print_report(client, app):
@@ -1279,8 +1289,9 @@ def test_print_report(client, app):
 
 
 def test_auto_end_day_job_finalizes_open_today(app):
-    """The 11:50 PM auto end-of-day job finalizes today's schedule when no
-    employee ended it, and computes the same summary as the End My Day route."""
+    """The nightly 10:30 PM Eastern auto end-of-day job finalizes today's
+    schedule when nobody closed it, and computes the same summary the report
+    shows."""
     from app.app import _auto_end_day_job
     with app.app_context():
         from app.services.vehicles import find_or_create_vehicle
@@ -1306,7 +1317,7 @@ def test_auto_end_day_job_finalizes_open_today(app):
 
 
 def test_auto_end_day_job_spares_days_employees_ended(app):
-    """A today schedule that an employee already finalized is left untouched."""
+    """A today schedule that is already finalized is left untouched."""
     from app.app import _auto_end_day_job, finalize_day
     with app.app_context():
         from app.services.vehicles import find_or_create_vehicle
@@ -1324,7 +1335,7 @@ def test_auto_end_day_job_spares_days_employees_ended(app):
 
 
 def test_auto_end_day_job_ignores_past_and_future_days(app):
-    """The job only closes today's open schedule; other days are untouched."""
+    """The job only closes the day it was asked to; other days are untouched."""
     from app.app import _auto_end_day_job
     from datetime import timedelta
     with app.app_context():
@@ -1345,21 +1356,21 @@ def test_auto_end_day_job_ignores_past_and_future_days(app):
 
 def test_auto_end_day_time_helper_defaults_and_parses(monkeypatch):
     """AUTO_END_DAY_TIME controls the daily cutoff; invalid input falls back
-    to the 11:50 PM default."""
+    to the 10:30 PM Eastern default."""
     from app.app import _auto_end_time
     monkeypatch.delenv("AUTO_END_DAY_TIME", raising=False)
+    assert _auto_end_time() == (22, 30)
+    monkeypatch.setenv("AUTO_END_DAY_TIME", "23:50")
     assert _auto_end_time() == (23, 50)
-    monkeypatch.setenv("AUTO_END_DAY_TIME", "11:50")
-    assert _auto_end_time() == (11, 50)
     monkeypatch.setenv("AUTO_END_DAY_TIME", "not-a-time")
-    assert _auto_end_time() == (23, 50)
+    assert _auto_end_time() == (22, 30)
     monkeypatch.setenv("AUTO_END_DAY_TIME", "27:99")
     assert _auto_end_time() == (23, 59)
 
 
-def test_auto_end_day_scheduler_registers_daily_2350_job(app):
+def test_auto_end_day_scheduler_registers_daily_1030pm_eastern_job(app):
     """Starting the scheduler wires a job named auto_end_day on a cron trigger
-    for the configured cutoff."""
+    for the configured cutoff, pinned to Eastern Time."""
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
     from app.app import _start_auto_end_day_scheduler
@@ -2932,8 +2943,10 @@ def test_skip_json_and_unskip_fragment(client, app):
 
 
 def test_finalized_day_summary_counts_skipped_as_incomplete(client, app):
-    """Ending a day with a skipped vehicle records it as skipped and still
-    incomplete, so the day never looks finished on the strength of a skip."""
+    """Finalizing a day that has a skipped vehicle records it as skipped and
+    still incomplete, so the day never looks finished on the strength of a
+    skip."""
+    from app.app import _auto_end_day_job, finalize_day
     with app.app_context():
         from app.services import schedule as ss
         from app.services.vehicles import find_or_create_vehicle
@@ -2943,7 +2956,8 @@ def test_finalized_day_summary_counts_skipped_as_incomplete(client, app):
         entry = ss.ensure_entry(sched, v)
         sched_svc.set_entry_skipped(entry, skipped=True, reason="Maintenance")
 
-    assert client.post("/end", data={"confirm": "yes"}).status_code == 302
+    # The day is closed by the automatic job, not by a button press.
+    assert _auto_end_day_job(app) == 1
 
     with app.app_context():
         summary = json.loads(sched_svc.get_or_create_schedule(
@@ -3012,6 +3026,476 @@ def _board_row_html(html, entry_id):
     end = html.find("</details>", anchor)
     assert end != -1, "the vehicle row is never closed"
     return html[start:end + len("</details>")]
+
+
+# ---------------------------------------------------------------------------
+# Finalized days are read-only (the 10:30 PM automatic close)
+#
+# A day's schedule is finalized automatically every night at 10:30 PM Eastern.
+# After that the day's totals are stored and the day is a report, not a work
+# list: every write path refuses, the UI stops offering the actions, and the
+# only way back is a Manager reopening the day.
+# ---------------------------------------------------------------------------
+
+def _lock_today(app):
+    """Finalize today's schedule and return ``(schedule_id, entry_id)``.
+
+    Uses the real automatic job rather than poking ``finalized`` so the tests
+    below are asserting the behaviour the shop actually gets, summary and
+    ``finalized_at`` included.
+    """
+    from app.app import _auto_end_day_job
+    with app.app_context():
+        loc = vehicles_loc(app)
+        v, _ = find_or_create_vehicle("610", location_id=loc.id)
+        sched = sched_svc.get_or_create_schedule(location=loc)
+        entry = sched_svc.ensure_entry(sched, v)
+        sched_id, entry_id = sched.id, entry.id
+        db.session.commit()
+    assert _auto_end_day_job(app) == 1
+    with app.app_context():
+        assert DailySchedule.query.get(sched_id).finalized is True
+    return sched_id, entry_id
+
+
+def test_finalize_day_stamps_finalized_at_as_naive_utc(app):
+    """`finalized_at` is a naive UTC datetime, like every other DateTime column.
+
+    The nightly job runs on an Eastern clock but the column is naive UTC, so an
+    aware timestamp would be silently wrong rather than obviously wrong.
+    """
+    from app.app import finalize_day
+    with app.app_context():
+        sched = sched_svc.get_or_create_schedule(location=vehicles_loc(app))
+        # 10:30 PM Eastern on Mar 1 is 02:30 UTC on Mar 2.
+        finalize_day(sched, at=timeutils.to_naive_utc(
+            datetime(2026, 3, 2, 2, 30)))
+        assert sched.finalized_at == datetime(2026, 3, 2, 2, 30)
+        assert sched.finalized_at.tzinfo is None
+
+    # Finalized with no explicit moment, it still lands naive.
+    with app.app_context():
+        sched = DailySchedule.query.one()
+        sched.finalized = False
+        sched.finalized_at = None
+        db.session.commit()
+        finalize_day(sched)
+        assert sched.finalized_at is not None
+        assert sched.finalized_at.tzinfo is None
+        # Close to now, and stored in UTC rather than Eastern wall-clock.
+        assert abs((timeutils.to_naive_utc() - sched.finalized_at)
+                   .total_seconds()) < 60
+        assert abs(sched.finalized_at
+                   - timeutils.to_naive_utc(timeutils.now_eastern())) < timedelta(minutes=1)
+
+
+def test_finalize_day_stops_an_active_prep_timer(app):
+    """Closing the day shuts any clock still running.
+
+    A timer left running would otherwise keep accruing time against a shift that
+    is over, and would still show as active work on a finalized report.
+    """
+    from app.app import finalize_day
+    from app.models import PrepSession
+    with app.app_context():
+        loc = vehicles_loc(app)
+        v, _ = find_or_create_vehicle("611", location_id=loc.id)
+        sched = sched_svc.get_or_create_schedule(location=loc)
+        entry = sched_svc.ensure_entry(sched, v)
+        emp = Employee.query.filter_by(active=True).first()
+        db.session.commit()
+
+        prep_timer.start(entry, employee_id=emp.id)
+        prep_timer.start(entry, employee_id=emp.id, scope=prep_timer.OUTSIDE)
+        assert PrepSession.query.filter_by(
+            entry_id=entry.id, status="running").count() == 2
+
+        finalize_day(sched, at=timeutils.to_naive_utc())
+
+        # No clock is left running or paused, and each one was closed where it
+        # stood rather than billed for the hours after the shop closed.
+        assert PrepSession.query.filter_by(
+            entry_id=entry.id, status="running").count() == 0
+        assert PrepSession.query.filter_by(
+            entry_id=entry.id, status="paused").count() == 0
+        for session in PrepSession.query.filter_by(entry_id=entry.id).all():
+            assert session.status == "finished"
+            assert session.finished_at is not None
+        state = prep_timer.state(entry)
+        assert state["status"] == "finished"
+        assert state["active"] is False
+
+
+def test_finalize_day_is_idempotent(app):
+    """Re-running the nightly job does not restamp or double-count a day."""
+    from app.app import finalize_day
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched = sched_svc.get_or_create_schedule(location=loc)
+        v, _ = find_or_create_vehicle("612", location_id=loc.id)
+        entry = sched_svc.ensure_entry(sched, v)
+        sched_svc.toggle_task(entry.id, "Sweep", True)
+        db.session.commit()
+
+        finalize_day(sched, at=timeutils.to_naive_utc())
+        first_at = sched.finalized_at
+        first_summary = sched.summary
+
+        finalize_day(sched, at=timeutils.to_naive_utc())
+        assert sched.finalized_at == first_at
+        assert sched.summary == first_summary
+
+
+def test_task_toggle_refused_on_finalized_day(client, app):
+    """A tick or an untick after the nightly close changes the saved report,
+    so both are refused -- and the task is left exactly as it was."""
+    sched_id, entry_id = _lock_today(app)
+    with app.app_context():
+        task_name = ScheduleEntry.query.get(
+            entry_id).tasks[0].task_name
+        db.session.commit()
+
+    r = client.post(f"/task/{entry_id}/{task_name}",
+                    data={"checked": "true"})
+    assert r.status_code == 409
+    body = r.get_json()
+    assert body["ok"] is False
+    assert body["locked"] is True
+    assert "22:30" in body["error"]
+
+    with app.app_context():
+        task = TaskCompletion.query.filter_by(
+            entry_id=entry_id, task_name=task_name).first()
+        assert task is None or task.completed is False, \
+            "the refused tick must not have been recorded"
+
+
+def test_task_untick_refused_on_finalized_day(client, app):
+    """Un-ticking is refused just as firmly as ticking: both would rewrite the
+    saved totals."""
+    with app.app_context():
+        loc = vehicles_loc(app)
+        v, _ = find_or_create_vehicle("612", location_id=loc.id)
+        sched = sched_svc.get_or_create_schedule(location=loc)
+        entry = sched_svc.ensure_entry(sched, v)
+        sched_svc.toggle_task(entry.id, "Sweep", True)
+        entry_id = entry.id
+        db.session.commit()
+
+    from app.app import _auto_end_day_job
+    assert _auto_end_day_job(app) == 1
+
+    r = client.post(f"/task/{entry_id}/Sweep", data={"checked": "false"})
+    assert r.status_code == 409
+    assert r.get_json()["locked"] is True
+    with app.app_context():
+        task = TaskCompletion.query.filter_by(
+            entry_id=entry_id, task_name="Sweep").first()
+        assert task is not None and task.completed is True
+
+
+def test_entry_skip_and_unskip_refused_on_finalized_day(client, app):
+    """A skip is counted as incomplete, so the finalized report states it.
+    Changing it afterwards would make the report wrong."""
+    sched_id, entry_id = _lock_today(app)
+    unit = None
+    with app.app_context():
+        unit = ScheduleEntry.query.get(entry_id).vehicle.unit_number
+
+    r = client.post(f"/entry/{entry_id}/skip",
+                    headers={"Accept": "application/json"},
+                    data={"reason": "Maintenance"})
+    assert r.status_code == 409
+    assert r.get_json()["locked"] is True
+
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        assert entry.status != "skipped"
+        assert entry.skip_reason is None
+        summary = json.loads(DailySchedule.query.get(sched_id).summary)
+        assert summary["skipped"] == 0
+
+    # The plain form post (no JSON Accept) redirects with the reason, and still
+    # changes nothing.
+    r = client.post(f"/entry/{entry_id}/skip", data={"reason": "Maintenance"})
+    assert r.status_code == 302
+    with app.app_context():
+        assert ScheduleEntry.query.get(entry_id).status != "skipped"
+
+    # Un-skipping a vehicle that was skipped *before* the close is refused too.
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        entry.status = "skipped"
+        entry.skip_reason = "Maintenance"
+        entry.completed_at = None
+        db.session.commit()
+    r = client.post(f"/entry/{entry_id}/unskip")
+    assert r.status_code == 302
+    with app.app_context():
+        assert ScheduleEntry.query.get(entry_id).status == "skipped"
+
+
+def test_entry_replace_refused_on_finalized_day(client, app):
+    """A substitution changes which vehicle was worked, so it is refused."""
+    sched_id, entry_id = _lock_today(app)
+    with app.app_context():
+        unit = ScheduleEntry.query.get(entry_id).vehicle.unit_number
+        original_id = ScheduleEntry.query.get(entry_id).vehicle_id
+
+    r = client.post(f"/schedule/{entry_id}/replace",
+                    data={"replacement_unit": "999",
+                          "reason": "down for service"})
+    assert r.status_code == 302
+    with app.app_context():
+        entry = ScheduleEntry.query.get(entry_id)
+        assert entry.vehicle.unit_number == unit
+        assert entry.vehicle_id == original_id
+        # No replacement entry was created and no substitution was recorded.
+        assert len(DailySchedule.query.get(sched_id).entries) == 1
+        assert Replacement.query.filter_by(
+            original_vehicle_id=original_id).count() == 0
+        assert Vehicle.query.filter_by(unit_number="999").first() is None
+
+
+def test_entry_complete_refused_on_finalized_day(client, app):
+    """Marking a vehicle complete after the close would change the totals."""
+    sched_id, entry_id = _lock_today(app)
+    r = client.post(f"/entry/{entry_id}/complete")
+    assert r.status_code == 409
+    assert r.get_json()["locked"] is True
+    with app.app_context():
+        assert ScheduleEntry.query.get(entry_id).status != "completed"
+
+
+def test_prep_timer_actions_refused_on_finalized_day(client, app):
+    """No clock may be started, paused, resumed or finished after the close."""
+    from app.models import PrepSession
+    sched_id, entry_id = _lock_today(app)
+    with app.app_context():
+        emp = Employee.query.filter_by(active=True).first()
+        emp_id = emp.id
+        db.session.commit()
+
+    for action in ("start", "pause", "resume", "done"):
+        r = client.post(f"/entry/{entry_id}/prep/{action}",
+                        headers={"Accept": "application/json"},
+                        data={"employee_id": emp_id})
+        assert r.status_code == 409, action
+        body = r.get_json()
+        assert body["ok"] is False
+        assert body["locked"] is True, action
+
+    with app.app_context():
+        assert PrepSession.query.filter_by(
+            entry_id=entry_id, status="running").count() == 0
+        assert prep_timer.state(
+            ScheduleEntry.query.get(entry_id))["status"] == "none"
+
+
+def test_add_vehicle_refused_on_finalized_day(client, app):
+    """The work list of a closed day cannot grow."""
+    sched_id, _ = _lock_today(app)
+    today = timeutils.today_eastern().isoformat()
+    r = client.post("/schedule/add",
+                    data={"date": today, "unit_number": "777"})
+    assert r.status_code == 302
+    with app.app_context():
+        sched = DailySchedule.query.get(sched_id)
+        assert len(sched.entries) == 1
+        assert Vehicle.query.filter_by(unit_number="777").first() is None
+
+
+def test_note_refused_on_finalized_day(client, app):
+    """A note is printed with the day's report, so a closed day takes no more."""
+    from app.models import Note
+    sched_id, _ = _lock_today(app)
+    today = timeutils.today_eastern().isoformat()
+    r = client.post(f"/notes/{today}", data={"text": "added late"})
+    assert r.status_code == 302
+    with app.app_context():
+        assert Note.query.filter_by(text="added late").count() == 0
+
+
+def test_finalized_day_cannot_be_deleted(client, app):
+    """A finalized day is the saved record of a closed shift; deleting it is
+    refused, and the day survives the attempt."""
+    sched_id, entry_id = _lock_today(app)
+    r = client.post(f"/schedule/{sched_id}/delete")
+    assert r.status_code == 302
+    with app.app_context():
+        assert DailySchedule.query.get(sched_id) is not None
+        assert ScheduleEntry.query.get(entry_id) is not None
+
+
+def test_service_layer_refuses_direct_mutation_of_a_finalized_day(app):
+    """The lock is enforced by the service, not only by the routes.
+
+    The routes are the ones the UI happens to call; a scheduled import, a script
+    or a future endpoint would reach the same functions without going near them.
+    """
+    from app.services.schedule import FinalizedDayError
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched = sched_svc.get_or_create_schedule(location=loc)
+        v, _ = find_or_create_vehicle("813", location_id=loc.id)
+        entry = sched_svc.ensure_entry(sched, v)
+        other, _ = find_or_create_vehicle("814", location_id=loc.id)
+        db.session.commit()
+        sched.finalized = True
+        sched.finalized_at = timeutils.to_naive_utc()
+        db.session.commit()
+
+        with pytest.raises(FinalizedDayError):
+            sched_svc.toggle_task(entry.id, "Sweep", True)
+        with pytest.raises(FinalizedDayError):
+            sched_svc.set_entry_skipped(entry, skipped=True, reason="x")
+        with pytest.raises(FinalizedDayError):
+            sched_svc.complete_entry(entry)
+        with pytest.raises(FinalizedDayError):
+            sched_svc.move_entry_to_replacement(
+                sched, entry, other, "test", None)
+        with pytest.raises(FinalizedDayError):
+            sched_svc.ensure_entry(sched, other)
+        with pytest.raises(FinalizedDayError):
+            sched_svc.delete_schedule(sched)
+        with pytest.raises(FinalizedDayError):
+            sched_svc.apply_import({"new": [], "updated": [],
+                                    "unchanged": [], "removed": []},
+                                   location=loc,
+                                   schedule_date=sched.work_date)
+
+        # ... and nothing above wrote anything.
+        assert not any(t.completed for t in entry.tasks)
+        assert len(sched.entries) == 1
+        assert Replacement.query.filter_by(
+            original_vehicle_id=entry.vehicle_id).count() == 0
+        assert DailySchedule.query.get(sched.id) is not None
+        # The refusal names the day, so the route can send them to its report.
+        try:
+            sched_svc.toggle_task(entry.id, "Sweep", True)
+        except FinalizedDayError as err:
+            assert err.work_date == sched.work_date
+            assert sched.work_date.strftime("%b %d") in err.message
+
+
+def test_locked_day_hides_the_employee_actions_on_the_board(client, app):
+    """The locked board offers none of the actions that would change it."""
+    sched_id, entry_id = _lock_today(app)
+    html = client.get("/").data.decode()
+    row = _board_row_html(html, entry_id)
+    assert "Replace Vehicle" not in row
+    assert "modal-replace-" not in row
+    assert "modal-skip-" not in row
+    assert f'action="/task/{entry_id}/' not in html
+    assert f'action="/schedule/{entry_id}/replace"' not in row
+    assert f'action="/entry/{entry_id}/skip"' not in row
+    assert f'/entry/{entry_id}/prep/start' not in html
+    assert f'action="/schedule/add"' not in html
+    # The day is clearly announced as closed rather than just quietly inert.
+    assert "finalized and locked" in html
+
+
+def test_locked_day_can_be_reopened_by_a_manager_and_edited_again(manager_client, app):
+    """The controlled unlock: a Manager reopens the day, and the board works."""
+    sched_id, entry_id = _lock_today(app)
+    with app.app_context():
+        task_name = ScheduleEntry.query.get(entry_id).tasks[0].task_name
+        closed_at = DailySchedule.query.get(sched_id).finalized_at
+        assert closed_at is not None
+
+    r = manager_client.post(f"/schedule/{sched_id}/reopen")
+    assert r.status_code == 302
+    with app.app_context():
+        sched = DailySchedule.query.get(sched_id)
+        assert sched.finalized is False
+        assert sched.finalized_at is None
+        # The stale summary is cleared so the report cannot show the old totals
+        # for a day that is open again.
+        assert not sched.summary
+
+    # An employee can now tick a task on the reopened day.
+    r = employee_client(app, "Jane Smith").post(
+        f"/task/{entry_id}/{task_name}", data={"checked": "true"})
+    assert r.status_code == 200
+    with app.app_context():
+        assert TaskCompletion.query.filter_by(
+            entry_id=entry_id, task_name=task_name).first().completed is True
+
+    # And the next automatic run closes it again with the corrected totals.
+    from app.app import _auto_end_day_job
+    assert _auto_end_day_job(app) == 1
+    with app.app_context():
+        sched = DailySchedule.query.get(sched_id)
+        assert sched.finalized is True
+        # Re-closed, with a fresh summary and a fresh stamp.
+        assert sched.summary
+        assert sched.finalized_at > closed_at
+        assert sched_svc.is_locked(sched)
+
+
+def test_employee_cannot_reopen_a_finalized_day(client, app):
+    """Reopening is Manager-only: the crew has no way to rewrite a closed
+    report, however the request is addressed."""
+    sched_id, _ = _lock_today(app)
+    r = client.post(f"/schedule/{sched_id}/reopen")
+    assert r.status_code in (302, 403)
+    with app.app_context():
+        assert DailySchedule.query.get(sched_id).finalized is True
+
+
+def test_reopen_of_an_open_day_is_a_no_op(manager_client, app):
+    """Reopening a day that was never finalized changes nothing."""
+    with app.app_context():
+        sched = sched_svc.get_or_create_schedule(location=vehicles_loc(app))
+        sched_id = sched.id
+    r = manager_client.post(f"/schedule/{sched_id}/reopen")
+    assert r.status_code == 302
+    with app.app_context():
+        assert DailySchedule.query.get(sched_id).finalized is False
+
+
+def test_day_report_shows_the_saved_totals_of_a_finalized_day(client, app):
+    """A finalized day is presented as a locked report of what happened."""
+    sched_id, _ = _lock_today(app)
+    with app.app_context():
+        stored = json.loads(DailySchedule.query.get(sched_id).summary)
+        assert stored["total"] == 1
+
+    html = client.get("/end").data.decode()
+    assert "Day finalized" in html
+    assert "22:30" in html
+    assert "Day Report" in html
+    # No manual finalize affordance anywhere on the page.
+    assert "END MY DAY" not in html
+    assert "modal-finalize" not in html
+    assert 'name="confirm"' not in html
+
+
+def test_day_rollover_uses_the_eastern_date():
+    """The 'today' every automatic finalization acts on is the Eastern date.
+
+    At 10:30 PM Eastern it is still that same calendar day in New York, and
+    already the next day in UTC -- which is exactly the trap that would
+    finalize tomorrow's board.
+    """
+    from datetime import timezone
+    at = datetime(2026, 3, 1, 22, 30, tzinfo=timezone.utc)  # 5:30 PM ET Mar 1
+    assert timeutils.to_eastern(at).strftime("%Y-%m-%d") == "2026-03-01"
+    # 02:30 UTC on Mar 2 is 10:30 PM Eastern on Mar 1 -- still Mar 1 locally.
+    at = datetime(2026, 3, 2, 2, 30, tzinfo=timezone.utc)
+    assert timeutils.to_eastern(at).strftime("%Y-%m-%d") == "2026-03-01"
+
+
+def test_naive_utc_helpers_round_trip():
+    """The naive-UTC helpers agree with each other and never leak a timezone
+    into a naive DateTime column."""
+    from datetime import timezone
+    aware = datetime(2026, 3, 2, 2, 30, tzinfo=timezone.utc)
+    assert timeutils.to_naive_utc(aware) == datetime(2026, 3, 2, 2, 30)
+    assert timeutils.to_naive_utc(aware).tzinfo is None
+    now = timeutils.to_naive_utc()
+    assert now.tzinfo is None
+    assert timeutils.to_eastern(aware).tzinfo is not None
 
 
 # ---------------------------------------------------------------------------
@@ -3682,8 +4166,8 @@ def test_manager_can_access_all_pages(manager_client):
 
 
 def test_employee_header_hides_manager_only_tabs(client):
-    """Employees see Today, Import, End Day, History, Trash and their own
-    Settings (theme) tab but not the Vehicles or Staff tabs."""
+    """Employees see Today, Import, the Day Report, History, Trash and their
+    own Settings (theme) tab but not the Vehicles or Staff tabs."""
     html = client.get("/").data.decode()
     for href in ['href="/vehicles"', 'href="/employees"']:
         assert href not in html

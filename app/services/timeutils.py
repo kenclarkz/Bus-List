@@ -11,10 +11,14 @@ Rules used across the app:
 - Timestamps are *displayed* to people as normal 12-hour AM/PM Eastern time.
 - Naive datetimes handed to these helpers are assumed to already be Eastern
   wall-clock time (that is how the rest of the app records "when").
+- The "which day is it" question is always answered in Eastern Time
+  (:func:`today_eastern`), and anything written to a ``DateTime`` database
+  column goes through :func:`to_naive_utc` so every stored column keeps the
+  same naive-UTC convention.
 """
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 EASTERN_TZ = "America/New_York"
@@ -30,6 +34,39 @@ _CLOCK_RE = re.compile(
 def now_eastern():
     """The current time as an aware datetime in Eastern Time."""
     return datetime.now(EASTERN)
+
+
+def today_eastern():
+    """Today's calendar date **in Eastern Time**.
+
+    The shop closes its books on Eastern dates, so every "which day is it"
+    question -- the board's day picker, the nightly end-of-day job, the
+    finalized-day lookup -- is answered here rather than by ``date.today()``.
+    A server running on UTC (or anywhere west of New York) would otherwise close
+    the wrong day: at 22:30 Eastern on a winter day it is already 03:30
+    *tomorrow* in UTC, so ``date.today()`` would finalize tomorrow's board and
+    leave today's running.
+    """
+    return now_eastern().date()
+
+
+def to_naive_utc(value=None):
+    """A timestamp as a naive UTC ``datetime``, the form the DB columns hold.
+
+    Every ``DateTime`` column in this app stores naive UTC (``created_at``,
+    ``completed_at``, ``finalized_at``, ...), so a moment decided in Eastern
+    Time has to be converted before it is written or a finalized day would
+    read four or five hours out of step with every other timestamp beside it.
+    Naive input is already taken to be UTC and is returned unchanged; a naive
+    value that is *meant* to be Eastern wall-clock time must be made aware with
+    :func:`to_eastern` first.
+    """
+    moment = parse_iso(value) if value is not None else now_eastern()
+    if moment is None:
+        return None
+    if moment.tzinfo is None:
+        return moment
+    return moment.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def parse_iso(value):

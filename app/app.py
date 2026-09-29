@@ -48,6 +48,9 @@ MANAGER_ONLY_ENDPOINTS = {
     "account_toggle_active",
     "account_reset_password",
     "account_delete",
+    # Reopening a finalized day: a Manager-only correction path, so a closed
+    # report can only be unlocked deliberately and never by the crew.
+    "schedule_reopen",
     # Incident management (review / edit / assign / note / photos / resolve).
     "incident_edit",
     "incident_note",
@@ -786,13 +789,21 @@ def _seed_vehicles(loc):
 # ---------------------------------------------------------------------------
 
 def current_date(form=None):
+    """The calendar date a request is about, defaulting to today in Eastern
+    Time.
+
+    The shop runs on Eastern Time, so "today" is the Eastern date and not the
+    server's own: a server on UTC would otherwise look a day ahead for four
+    hours every evening, which is exactly the window the 10:30 PM automatic
+    end-of-day job runs in.
+    """
     dt = (form or request.args).get("date")
     if dt:
         try:
             return datetime.strptime(dt, "%Y-%m-%d").date()
         except ValueError:
             pass
-    return date.today()
+    return timeutils.today_eastern()
 
 
 def fmt_days_since(days):
@@ -832,6 +843,8 @@ def _prep_time_sort_key(entry):
 
 def build_schedule_view(sched):
     entries_by_id = {e.id: e for e in sched.entries}
+    # A finalized day's board is a record, not a work list.
+    locked = sched_svc.is_locked(sched)
     # original entry id -> replacement entry (the vehicle that took its place)
     replaced_by = {}
     for e in sched.entries:
@@ -877,6 +890,10 @@ def build_schedule_view(sched):
             "replacement_of": original.vehicle if original else None,
             # The vehicle that replaced this row (for replaced originals).
             "replaced_by": replacer.vehicle if replacer else None,
+            # Whether this row's day is finalized, so the board renders every
+            # control on it closed rather than inviting a press the server
+            # would refuse.
+            "locked": locked,
             # Prep timer: Start / Pause / Resume / Done state for this vehicle,
             # one clock set for the inside work and one for the outside work.
             "prep": prep,
@@ -950,17 +967,30 @@ def schedule_counters(rows):
 def finalize_day(sched, at=None):
     """Finalize a day's schedule: mark it finalized, record when, and store the
     summary. Returns True if this call finalized it, False if it was already
-    finalized (no-op). Shared by the End My Day route and the automatic
-    11:50 PM end-of-day job so both produce identical summaries.
+    finalized (no-op).
+
+    This is the single place a day is closed, and the nightly automatic job is
+    now the only caller: at :data:`sched_svc.AUTO_FINALIZE_HOUR`:
+    :data:`sched_svc.AUTO_FINALIZE_MINUTE` Eastern every day's board is closed
+    without anybody pressing anything, so the totals are the same whoever (or
+    whatever) asked. It is idempotent, so a job that fires twice -- a restart,
+    two workers at the same instant, a re-run in a test -- cannot write a
+    second report over the first.
+
+    The summary is always recalculated from ``sched`` itself, so it describes
+    the calendar date being processed rather than whatever day it happens to be
+    when the code runs. ``at`` is the moment to record as finalized; it is
+    stored as naive UTC (the convention every ``DateTime`` column here uses)
+    while the day it belongs to is chosen in Eastern Time.
     """
-    if sched.finalized:
+    if sched is None or sched.finalized:
         return False
     counts = schedule_counters(build_schedule_view(sched))
     # A finalized day never leaves a prep timer running in the background.
     for entry in sched.entries:
-        prep_timer.stop_active(entry)
+        prep_timer.stop_active(entry, at=at)
     sched.finalized = True
-    sched.finalized_at = at or datetime.utcnow()
+    sched.finalized_at = timeutils.to_naive_utc(at)
     sched.summary = json.dumps(dict(
         total=counts["total"], completed=counts["completed"],
         incomplete=counts["incomplete"], skipped=counts["skipped"],
@@ -969,41 +999,87 @@ def finalize_day(sched, at=None):
     return True
 
 
-def _auto_end_day_job(app):
-    """Finalize every schedule the employees left open for today. This is the
-    scheduled task body: at 11:50 PM each day, any day that wasn't ended by an
-    employee is ended automatically. Idempotent, so an employee who already
-    clicked End My Day is never touched."""
+def reopen_day(sched):
+    """Manager-only controlled unlock of a finalized day.
+
+    A finalized day is a report, so undoing it is a deliberate act reserved for
+    a Manager, never something the crew can do to get their board back. This
+    clears the lock and the saved totals (the day becomes an open board again
+    and will be re-finalized -- with whatever the corrections made it -- by the
+    next nightly run). Returns True if this call reopened it, False if the day
+    was already open.
+    """
+    if sched is None or not sched.finalized:
+        return False
+    sched.finalized = False
+    sched.finalized_at = None
+    sched.summary = None
+    db.session.commit()
+    return True
+
+
+# The nightly automatic end-of-day cutoff, in Eastern Time. The default is
+# 10:30 PM America/New_York: the last of the crew's shift, after which nobody is
+# left to press anything.
+AUTO_FINALIZE_DEFAULT = "{:02d}:{:02d}".format(
+    sched_svc.AUTO_FINALIZE_HOUR, sched_svc.AUTO_FINALIZE_MINUTE)
+
+
+def _auto_end_day_job(app, work_date=None):
+    """Finalize every schedule left open for one day. This is the scheduled
+    task body: every day at 10:30 PM Eastern, whatever the crew did not close
+    is closed automatically. Idempotent, so a day that is already finalized is
+    never touched and no duplicate report is written.
+
+    ``work_date`` names the calendar date to close. It defaults to *today in
+    Eastern Time* -- not ``date.today()``, which is the server's own local date
+    and is the next day in UTC for five months of the year. The date is passed
+    in explicitly so a run (or a test) can finalize a specific day without
+    depending on the host's clock.
+    """
+    target = work_date or timeutils.today_eastern()
     count = 0
     with app.app_context():
         unfinalized = DailySchedule.query.filter_by(
-            work_date=date.today(), finalized=False).all()
+            work_date=target, finalized=False).all()
         for sched in unfinalized:
             if finalize_day(sched):
                 count += 1
         if count:
-            app.logger.info("Auto end-of-day: finalized %s day(s)", count)
+            app.logger.info(
+                "Auto end-of-day: finalized %s open day(s) for %s", count, target)
     return count
 
 
 def _auto_end_time():
-    """Parse AUTO_END_DAY_TIME (HH:MM, default 23:50) into (hour, minute).
-    Invalid values fall back to 23:50."""
-    raw = os.environ.get("AUTO_END_DAY_TIME", "23:50").strip()
+    """Parse AUTO_END_DAY_TIME (HH:MM, default 22:30 = 10:30 PM Eastern) into
+    (hour, minute). Invalid values fall back to the default. The value is an
+    Eastern wall-clock time; the trigger is pinned to America/New_York below, so
+    it lands at 10:30 PM local across both EST and EDT."""
+    raw = os.environ.get("AUTO_END_DAY_TIME", AUTO_FINALIZE_DEFAULT).strip()
     try:
         hour, minute = (int(x) for x in raw.split(":", 1))
     except (TypeError, ValueError):
-        hour, minute = 23, 50
+        hour = sched_svc.AUTO_FINALIZE_HOUR
+        minute = sched_svc.AUTO_FINALIZE_MINUTE
     return min(max(hour, 0), 23), min(max(minute, 0), 59)
 
 
 def _start_auto_end_day_scheduler(app):
-    """Start the daily 11:50 PM auto end-of-day job (in-process Background
-    Scheduler). Skipped while testing so test apps don't spawn threads.
+    """Start the daily 10:30 PM Eastern auto end-of-day job (in-process
+    Background Scheduler). Skipped while testing so test apps don't spawn
+    threads.
 
-    Time comes from AUTO_END_DAY_TIME (HH:MM, default 23:50) so operators can
-    adjust the cutoff without code changes. Multiple admins/workers firing the
-    job at the same instant are harmless because finalize_day() is idempotent.
+    The trigger is pinned to ``America/New_York`` so the cutoff is 10:30 PM
+    Eastern on the day the shop closes, not 10:30 PM wherever the server
+    happens to be configured: an unpinned cron trigger fires on the host's
+    local time, which is 03:30 the following morning in UTC and would finalize
+    tomorrow's board instead of today's for most of the year.
+
+    Time comes from AUTO_END_DAY_TIME (HH:MM, default 22:30 Eastern) so
+    operators can adjust the cutoff without code changes. Multiple
+    admins/workers firing the job at the same instant are harmless because
+    finalize_day() is idempotent.
 
     The scheduler is an optional add-on: if APScheduler isn't installed the
     site keeps serving normally and the auto end-of-day job is simply disabled
@@ -1019,17 +1095,27 @@ def _start_auto_end_day_scheduler(app):
             "requirements.txt` to enable it.")
         return None
 
-    app.logger.info("Starting auto end-of-day scheduler")
-
     hour, minute = _auto_end_time()
 
-    scheduler = BackgroundScheduler(daemon=True)
+    app.logger.info(
+        "Starting auto end-of-day scheduler: every day at %02d:%02d %s",
+        hour, minute, timeutils.EASTERN_TZ)
+
+    scheduler = BackgroundScheduler(daemon=True, timezone=timeutils.EASTERN)
     scheduler.add_job(
         _auto_end_day_job,
         args=[app],
-        trigger=CronTrigger(hour=hour, minute=minute),
+        # The date is deliberately *not* passed here: the job decides which
+        # calendar date it is closing when it runs, in Eastern Time, rather than
+        # when it was registered.
+        trigger=CronTrigger(hour=hour, minute=minute,
+                            timezone=timeutils.EASTERN),
         id="auto_end_day",
+        name="Automatic end-of-day finalization",
         replace_existing=True,
+        # Two workers firing together must not double-report a day.
+        max_instances=1,
+        coalesce=True,
     )
     scheduler.start()
 
@@ -1056,7 +1142,7 @@ def _nav_links(role):
     if role == "manager":
         links.append(("vehicle_list", "Vehicles", "🚌"))
     links.append(("import_report", "Import", "📥"))
-    links.append(("end_day", "End Day", "🏁"))
+    links.append(("end_day", "Day Report", "🏁"))
     links.append(("history_days", "History", "🕓"))
     links.append(("incidents_list", "Incidents", "⚠️"))
     links.append(("trash_page", "Trash", "🗑️"))
@@ -1080,6 +1166,109 @@ def replacement_count_for_date(d):
 
 def notes_for_date(d):
     return Note.query.filter_by(work_date=d).all()
+
+
+def _employee_stats(applicable_rows):
+    """Per-employee task counts for a day, in the order both report surfaces use."""
+    emp_done = {}
+    total_tasks = 0
+    for r in applicable_rows:
+        for t in r["entry"].tasks:
+            total_tasks += 1
+            if t.completed and t.employee:
+                emp_done[t.employee.name] = emp_done.get(t.employee.name, 0) + 1
+    return sorted(
+        [{"name": n,
+          "initials": Employee.query.filter_by(name=n).first().initials,
+          "done": done, "total": total_tasks,
+          "pct": round(done / total_tasks * 100) if total_tasks else 0}
+         for n, done in emp_done.items()],
+        key=lambda x: x["name"])
+
+
+def _day_report_context(sched, d):
+    """Everything the day report and the printable report both render.
+
+    For a day that is still open the totals are calculated live, because that
+    is the best current picture. For a finalized day the *saved* summary is used
+    for the headline figures instead: the report then shows exactly the numbers
+    that were stored, so a report can never quietly disagree with the record it
+    claims to be -- whatever else is on screen.
+    """
+    rows = build_schedule_view(sched)
+    notes = notes_for_date(d)
+    replacements = replacement_count_for_date(d)
+    locked = sched_svc.is_locked(sched)
+
+    counts = schedule_counters(rows)
+    if locked:
+        saved = {}
+        if sched.summary:
+            try:
+                saved = json.loads(sched.summary)
+            except (ValueError, TypeError):
+                saved = {}
+        # Fall back to the live count for anything the saved summary is
+        # missing, so a report from an older database still renders.
+        counts = {
+            "total": saved.get("total", counts["total"]),
+            "completed": saved.get("completed", counts["completed"]),
+            "skipped": saved.get("skipped", counts["skipped"]),
+            "incomplete": saved.get("incomplete", counts["incomplete"]),
+            "overall": saved.get("overall", counts["overall"]),
+        }
+
+    applicable_rows = [r for r in rows if not r["is_auto_skipped"]]
+    incomplete_rows = [r for r in applicable_rows if not r["is_complete"]]
+    completed_rows = []
+    for r in applicable_rows:
+        if not r["is_complete"]:
+            continue
+        emp_tasks = {}
+        for t in r["entry"].tasks:
+            if t.completed and t.employee:
+                emp_tasks.setdefault(t.employee.name, []).append(t.task_name)
+        completed_rows.append({**r, "employees": emp_tasks})
+
+    prep_scopes = prep_timer.scope_totals(sched)
+    return dict(
+        rows=rows, sched=sched, notes=notes, replacements=replacements, d=d,
+        total=counts["total"], completed=counts["completed"],
+        incomplete=counts["incomplete"], skipped=counts["skipped"],
+        overall=counts["overall"], incomplete_rows=incomplete_rows,
+        completed_rows=completed_rows,
+        finalized=locked, locked=locked,
+        # Eastern wall-clock time the automatic job closes the books, and the
+        # moment this particular day was actually closed.
+        finalized_at=timeutils.fmt_datetime(sched.finalized_at)
+        if sched.finalized_at else None,
+        auto_finalize_at=AUTO_FINALIZE_DEFAULT,
+        eastern_tz=timeutils.EASTERN_TZ,
+        employees=employees_list(),
+        nav_dates=_report_nav_dates(d),
+        employee_stats=_employee_stats(applicable_rows),
+        prep_states=[r["prep"] for r in rows],
+        prep_total_label=timeutils.fmt_duration(
+            prep_timer.total_active_seconds(sched)),
+        prep_inside_label=timeutils.fmt_duration(prep_scopes["inside"]),
+        prep_outside_label=timeutils.fmt_duration(prep_scopes["outside"]),
+        prep_timed=sum(1 for r in rows if r["prep"]["status"] == "finished"),
+        prep_running=sum(r["prep"]["running_count"] for r in rows),
+    )
+
+
+def _report_nav_dates(d):
+    """Today / Tomorrow / +2 Days links, anchored on the Eastern date."""
+    today = timeutils.today_eastern()
+    nav_dates = []
+    for offset in range(3):
+        nd = today + timedelta(days=offset)
+        nav_dates.append({
+            "date": nd, "iso": nd.isoformat(),
+            "label": ["Today", "Tomorrow", "+2 Days"][offset],
+            "active": d == nd,
+        })
+    return nav_dates
 
 
 def _render_vehicle_detail(vehicle):
@@ -1420,6 +1609,16 @@ def register_routes(app):
         entry = ScheduleEntry.query.get(entry_id)
         if entry is None:
             return jsonify(ok=False, error="Vehicle not found"), 404
+        # A finalized day is a report, not a work list: no clock may be started,
+        # paused, resumed or finished on it, so the prep times already saved in
+        # that day's report cannot change afterwards. This is enforced here
+        # rather than by hiding the buttons, so a press that races the nightly
+        # job (or comes from a tab left open) is refused the same way.
+        if sched_svc.is_locked(sched_svc.schedule_for_entry(entry)):
+            return jsonify(
+                ok=False, locked=True,
+                error=sched_svc.locked_message(
+                    sched_svc.schedule_for_entry(entry).work_date)), 409
         employee_id = _acting_employee_id()
         source = request.json if request.is_json else request.form
         session_id = source.get("session_id") or None
@@ -1453,6 +1652,10 @@ def register_routes(app):
             return jsonify(ok=False, error=err.message,
                            state=prep_timer.state(entry),
                            entry_completed=entry.status == "completed"), err.code
+        except sched_svc.FinalizedDayError as err:
+            # The day was finalized between the check above and this write.
+            db.session.rollback()
+            return jsonify(ok=False, locked=True, error=err.message), 409
         except _DATABASE_BUSY_ERRORS:
             # Another employee's press, page load or timer re-sync held the
             # write lock. Nothing was written, so answer like any other refused
@@ -1657,6 +1860,11 @@ def register_routes(app):
             nav_dates=nav_dates, view_date=view_date,
             imported_dates=imported_dates,
             active_employees=active_employees,
+            # A finalized day is a saved report: the board still shows it, but
+            # every control that would change it is closed.
+            day_locked=sched_svc.is_locked(sched),
+            auto_finalize_at=AUTO_FINALIZE_DEFAULT,
+            eastern_tz=timeutils.EASTERN_TZ,
             prep_total=prep_total,
             prep_total_label=timeutils.fmt_duration(prep_total),
             prep_inside_label=timeutils.fmt_duration(prep_scopes["inside"]),
@@ -1774,9 +1982,10 @@ def register_routes(app):
             # Which day to import for (default today)
             sched_date = request.form.get("sched_date", "").strip()
             try:
-                sched_dt = date.fromisoformat(sched_date) if sched_date else date.today()
+                sched_dt = date.fromisoformat(sched_date) if sched_date \
+                    else timeutils.today_eastern()
             except ValueError:
-                sched_dt = date.today()
+                sched_dt = timeutils.today_eastern()
             from app.services.pdf_parser import parse_prep_report
             from app.services import schedule as ss
             parsed, method, warnings = parse_prep_report(data, file.filename)
@@ -1820,15 +2029,22 @@ def register_routes(app):
         preview = json.loads(imp.preview_json)
         sched_date_str = request.form.get("sched_date", "").strip()
         try:
-            sched_dt = date.fromisoformat(sched_date_str) if sched_date_str else date.today()
+            sched_dt = date.fromisoformat(sched_date_str) if sched_date_str \
+                else timeutils.today_eastern()
         except ValueError:
-            sched_dt = date.today()
-        sched = sched_svc.apply_import(
-            preview,
-            location=vehicles.default_location(),
-            employee_id=request.form.get("employee_id") or None,
-            source="import",
-            schedule_date=sched_dt)
+            sched_dt = timeutils.today_eastern()
+        try:
+            sched = sched_svc.apply_import(
+                preview,
+                location=vehicles.default_location(),
+                employee_id=request.form.get("employee_id") or None,
+                source="import",
+                schedule_date=sched_dt)
+        except sched_svc.FinalizedDayError as err:
+            # Rebuilding a closed day's work list would rewrite the report the
+            # nightly job saved, so an import cannot be applied to it.
+            flash(err.message, "error")
+            return redirect(url_for("dashboard", date=sched_dt.isoformat()))
         imp.applied = True
         imp.applied_at = datetime.utcnow()
         imp.schedule_date = sched.work_date
@@ -1848,7 +2064,12 @@ def register_routes(app):
         # knows it too -- so a request without one is still recorded against
         # the person who actually pressed the tick.
         emp = _acting_employee_id()
-        task = sched_svc.toggle_task(entry_id, task_name, checked, emp)
+        try:
+            task = sched_svc.toggle_task(entry_id, task_name, checked, emp)
+        except sched_svc.FinalizedDayError as err:
+            # A check-off after the nightly finalization would change the saved
+            # report, so it is refused whether it is a tick or an untick.
+            return jsonify(ok=False, locked=True, error=err.message), 409
         done = total = pct = None
         status = None
         if task:
@@ -1870,6 +2091,16 @@ def register_routes(app):
             flash("Manager view is read-only", "error")
             return redirect(url_for("dashboard"))
         entry = ScheduleEntry.query.get_or_404(entry_id)
+        sched = db.session.get(DailySchedule, entry.schedule_id)
+        if sched_svc.is_locked(sched):
+            # A finalized day's saved report already states how many vehicles
+            # were skipped and why, so neither skipping nor un-skipping is
+            # possible once the nightly job has closed the books.
+            if wants_json:
+                return jsonify(ok=False, locked=True,
+                               error=sched_svc.locked_message(sched.work_date)), 409
+            flash(sched_svc.locked_message(sched.work_date), "error")
+            return redirect(request.referrer or url_for("end_day"))
         reason = request.form.get("reason", "").strip()
         if not reason:
             reason = entry.skip_reason or ""
@@ -1893,7 +2124,12 @@ def register_routes(app):
             flash("Manager view is read-only", "error")
             return redirect(url_for("dashboard"))
         entry = ScheduleEntry.query.get_or_404(entry_id)
-        sched_svc.set_entry_skipped(entry, skipped=False)
+        try:
+            sched_svc.set_entry_skipped(entry, skipped=False)
+        except sched_svc.FinalizedDayError as err:
+            flash(err.message, "error")
+            ref = (request.referrer or url_for("dashboard")).split("#", 1)[0]
+            return redirect(f"{ref}#row-{entry_id}")
         flash(f"Vehicle {entry.vehicle.unit_number} un-skipped", "success")
         # Drop back to the same row after the full reload instead of the top.
         ref = (request.referrer or url_for("dashboard")).split("#", 1)[0]
@@ -1904,10 +2140,13 @@ def register_routes(app):
         if session.get("user") != "employee":
             return jsonify(ok=False, error="Manager view is read-only"), 403
         entry = ScheduleEntry.query.get_or_404(entry_id)
-        # A vehicle finished any other way still closes out its prep timer, so
-        # no timer is ever left running in the background.
-        prep_timer.stop_active(entry, employee_id=_acting_employee_id())
-        sched_svc.complete_entry(entry)
+        try:
+            # A vehicle finished any other way still closes out its prep timer,
+            # so no timer is ever left running in the background.
+            prep_timer.stop_active(entry, employee_id=_acting_employee_id())
+            sched_svc.complete_entry(entry)
+        except sched_svc.FinalizedDayError as err:
+            return jsonify(ok=False, locked=True, error=err.message), 409
         done, total, pct = sched_svc.entry_progress(entry)
         incomplete = sched_svc.entry_incomplete_labels(entry)
         # Finishing a vehicle off early (with the boxes not all ticked) still
@@ -1926,6 +2165,11 @@ def register_routes(app):
     @app.route("/schedule/<int:entry_id>/replace", methods=["POST"])
     def entry_replace(entry_id):
         entry = ScheduleEntry.query.get_or_404(entry_id)
+        # A substitution changes which vehicle was washed, so it changes the
+        # saved report: refused on a finalized day.
+        if sched_svc.is_locked(entry.schedule):
+            flash(sched_svc.locked_message(entry.schedule.work_date), "error")
+            return redirect(request.referrer or url_for("dashboard"))
         repl_unit = request.form.get("replacement_unit", "").strip()
         reason = request.form.get("reason", "")
         if not repl_unit:
@@ -1944,14 +2188,23 @@ def register_routes(app):
     def schedule_add():
         sched_date = request.form.get("date", "").strip()
         try:
-            sched_dt = date.fromisoformat(sched_date) if sched_date else date.today()
+            sched_dt = date.fromisoformat(sched_date) if sched_date \
+                else timeutils.today_eastern()
         except ValueError:
-            sched_dt = date.today()
+            sched_dt = timeutils.today_eastern()
         unit = request.form.get("unit_number", "").strip()
         if not unit:
             flash("Unit number is required", "error")
             return redirect(url_for("dashboard", date=sched_dt.isoformat()))
         loc = vehicles.default_location()
+        sched = sched_svc.get_or_create_schedule(d=sched_dt, location=loc)
+        # Adding a vehicle rewrites the day's work list and its totals, which a
+        # finalized day no longer allows. This is checked *before* the vehicle
+        # record is created, so a refused add leaves the fleet exactly as it
+        # was rather than quietly adding a vehicle nobody asked to keep.
+        if sched_svc.is_locked(sched):
+            flash(sched_svc.locked_message(sched.work_date), "error")
+            return redirect(url_for("dashboard", date=sched_dt.isoformat()))
         vehicle, _ = vehicles.find_or_create_vehicle(
             unit,
             vehicle_type=request.form.get("vehicle_type") or None,
@@ -1966,7 +2219,6 @@ def register_routes(app):
         prep_time = request.form.get("prep_time") or None
         pickup_time = request.form.get("pickup_time") or None
         driver_code = request.form.get("driver_code") or None
-        sched = sched_svc.get_or_create_schedule(d=sched_dt, location=loc)
         order = (max((e.order_index for e in sched.entries), default=-1) + 1)
         entry = sched_svc.ensure_entry(
             sched, vehicle, order_index=order, prep_time=prep_time,
@@ -1980,11 +2232,16 @@ def register_routes(app):
     def add_note(date):
         text = request.form.get("text", "").strip()
         employee_id = request.form.get("employee_id") or None
+        d = datetime.strptime(date, "%Y-%m-%d").date()
+        loc = vehicles.default_location()
+        sess = DailySchedule.query.filter_by(
+            work_date=d, location_id=loc.id).first()
+        # A note is part of the day's report (it is printed with it), so a
+        # finalized day cannot take one more.
+        if sched_svc.is_locked(sess):
+            flash(sched_svc.locked_message(d), "error")
+            return redirect(request.referrer or url_for("end_day", date=date))
         if text:
-            d = datetime.strptime(date, "%Y-%m-%d").date()
-            sess = DailySchedule.query.filter_by(
-                work_date=d,
-                location_id=vehicles.default_location().id).first()
             note = Note(work_date=d, text=text, employee_id=employee_id,
                         schedule_id=sess.id if sess else None)
             db.session.add(note)
@@ -1992,127 +2249,35 @@ def register_routes(app):
             flash("Note added", "success")
         return redirect(request.referrer or url_for("end_day", date=date))
 
-    @app.route("/end", methods=["GET", "POST"])
+    @app.route("/end", methods=["GET"])
     def end_day():
+        """The day report: one day's work list, totals, prep clocks and notes.
+
+        This page is a *view*, not an action. There is deliberately no button
+        and no POST handler here any more: a day is finalized automatically at
+        :data:`AUTO_FINALIZE_DEFAULT` Eastern by the nightly job, and once it
+        is the report below is the record of that shift. Managers can still
+        open it, print it, and -- if a correction is genuinely needed -- reopen
+        the day from History.
+        """
         d = current_date()
         loc = vehicles.default_location()
         sched = sched_svc.get_or_create_schedule(d, loc)
-        rows = build_schedule_view(sched)
-        notes = notes_for_date(d)
-        replacements = replacement_count_for_date(d)
-
-        counts = schedule_counters(rows)
-        total = counts["total"]
-        completed = counts["completed"]
-        skipped = counts["skipped"]
-        incomplete = counts["incomplete"]
-        overall = counts["overall"]
-        applicable_rows = [r for r in rows if not r["is_auto_skipped"]]
-        incomplete_rows = [r for r in applicable_rows if not r["is_complete"]]
-        prep_scopes = prep_timer.scope_totals(sched)
-        completed_rows = []
-        for r in applicable_rows:
-            if not r["is_complete"]:
-                continue
-            emp_tasks = {}
-            for t in r["entry"].tasks:
-                if t.completed and t.employee:
-                    emp_tasks.setdefault(t.employee.name, []).append(t.task_name)
-            completed_rows.append({**r, "employees": emp_tasks})
-
-        if request.method == "POST" and request.form.get("confirm") == "yes":
-            finalize_day(sched)
-            flash("Day finalized and saved to history", "success")
-            return redirect(url_for("history_days"))
-
-        # Date nav for end day (today, tomorrow, +2 days)
-        from datetime import timedelta
-        nav_dates = []
-        for offset in range(3):
-            nd = date.today() + timedelta(days=offset)
-            nav_dates.append({
-                "date": nd, "iso": nd.isoformat(),
-                "label": ["Today", "Tomorrow", "+2 Days"][offset],
-                "active": d == nd,
-            })
-
-        # Per-employee stats
-        emp_done = {}
-        total_tasks = 0
-        for r in applicable_rows:
-            for t in r["entry"].tasks:
-                total_tasks += 1
-                if t.completed and t.employee:
-                    emp_done[t.employee.name] = emp_done.get(t.employee.name, 0) + 1
-        employee_stats = sorted(
-            [{"name": n,
-              "initials": Employee.query.filter_by(name=n).first().initials,
-              "done": d, "total": total_tasks,
-              "pct": round(d / total_tasks * 100) if total_tasks else 0}
-             for n, d in emp_done.items()],
-            key=lambda x: x["name"])
-
-        return render_template(
-            "end_day.html", rows=rows, sched=sched, notes=notes,
-            replacements=replacements, d=d,
-            total=total, completed=completed, incomplete=incomplete,
-            skipped=skipped,
-            overall=overall, incomplete_rows=incomplete_rows,
-            completed_rows=completed_rows,
-            finalized=sched.finalized, employees=employees_list(),
-            nav_dates=nav_dates, employee_stats=employee_stats,
-            prep_states=[r["prep"] for r in rows],
-            prep_total_label=timeutils.fmt_duration(
-                prep_timer.total_active_seconds(sched)),
-            prep_inside_label=timeutils.fmt_duration(
-                prep_scopes["inside"]),
-            prep_outside_label=timeutils.fmt_duration(
-                prep_scopes["outside"]),
-            prep_timed=sum(1 for r in rows if r["prep"]["status"] == "finished"),
-            prep_running=sum(r["prep"]["running_count"] for r in rows))
+        return render_template("end_day.html", **_day_report_context(sched, d))
 
     @app.route("/print/<path:date>")
     def print_report(date):
+        """The printable daily summary, for a finalized day or an open one.
+
+        Reads the same context as the on-screen day report, so the two can never
+        print different numbers, and a finalized day prints the totals that were
+        saved when it closed.
+        """
         d = datetime.strptime(date, "%Y-%m-%d").date()
         loc = vehicles.default_location()
         sched = sched_svc.get_or_create_schedule(d, loc)
-        rows = build_schedule_view(sched)
-        notes = notes_for_date(d)
-        replacements = replacement_count_for_date(d)
-        counts = schedule_counters(rows)
-        total = counts["total"]
-        completed = counts["completed"]
-        skipped = counts["skipped"]
-        overall = counts["overall"]
-        applicable_rows = [r for r in rows if not r["is_auto_skipped"]]
-        prep_total = prep_timer.total_active_seconds(sched)
-        prep_scopes = prep_timer.scope_totals(sched)
-        # Per-employee stats
-        emp_done = {}
-        total_tasks = 0
-        for r in applicable_rows:
-            for t in r["entry"].tasks:
-                total_tasks += 1
-                if t.completed and t.employee:
-                    emp_done[t.employee.name] = emp_done.get(t.employee.name, 0) + 1
-        employee_stats = sorted(
-            [{"name": n,
-              "initials": Employee.query.filter_by(name=n).first().initials,
-              "done": d, "total": total_tasks,
-              "pct": round(d / total_tasks * 100) if total_tasks else 0}
-             for n, d in emp_done.items()],
-            key=lambda x: x["name"])
         return render_template(
-            "print_report.html", rows=rows, notes=notes, d=d, sched=sched,
-            replacements=replacements, total=total, completed=completed,
-            skipped=skipped,
-            overall=overall, employee_stats=employee_stats,
-            prep_states=[r["prep"] for r in rows],
-            prep_total_label=timeutils.fmt_duration(prep_total),
-            prep_inside_label=timeutils.fmt_duration(prep_scopes["inside"]),
-            prep_outside_label=timeutils.fmt_duration(prep_scopes["outside"]),
-            prep_timed=sum(1 for r in rows if r["prep"]["status"] == "finished"),
-            eastern_tz=timeutils.EASTERN_TZ)
+            "print_report.html", **_day_report_context(sched, d))
 
     @app.route("/history")
     def history_days():
@@ -2123,7 +2288,10 @@ def register_routes(app):
         replacements = Replacement.query.order_by(
             Replacement.replaced_at.desc()).limit(50).all()
         return render_template(
-            "history.html", days=days, imports=imports, replacements=replacements)
+            "history.html", days=days, imports=imports,
+            replacements=replacements,
+            auto_finalize_at=AUTO_FINALIZE_DEFAULT,
+            eastern_tz=timeutils.EASTERN_TZ)
 
     @app.route("/import/<int:import_id>/delete", methods=["POST"])
     def import_delete(import_id):
@@ -2135,12 +2303,48 @@ def register_routes(app):
     @app.route("/schedule/<int:schedule_id>/delete", methods=["POST"])
     def schedule_delete(schedule_id):
         sched = DailySchedule.query.get_or_404(schedule_id)
-        if sched.work_date == date.today():
+        if sched.work_date == timeutils.today_eastern():
             flash("Today's board cannot be deleted", "error")
             return redirect(url_for("history_days"))
-        count = sched_svc.delete_schedule(sched)
+        try:
+            count = sched_svc.delete_schedule(sched)
+        except sched_svc.FinalizedDayError as err:
+            # A finalized day is the saved report of a closed shift. Deleting it
+            # would throw that record away, so it has to be reopened first -- a
+            # deliberate Manager act, not a stray click on History.
+            flash(err.message, "error")
+            return redirect(url_for("history_days"))
         flash(f"Deleted previous day {sched.work_date.strftime('%b %d %Y')} "
               f"with {count} vehicle(s)", "success")
+        return redirect(url_for("history_days"))
+
+    @app.route("/schedule/<int:schedule_id>/reopen", methods=["POST"])
+    def schedule_reopen(schedule_id):
+        """Manager-only controlled unlock of a finalized day.
+
+        Finalization is automatic, so occasionally a correction is needed after
+        the nightly job has closed the books. This is the only way back: a
+        Manager deliberately reopens the day on History, the board becomes
+        editable again, and the next automatic run re-finalizes it with the
+        corrected totals. Employees have no such route, and the whole endpoint
+        is manager-only (see ``MANAGER_ONLY_ENDPOINTS``), so a closed report
+        cannot be quietly rewritten by the crew.
+        """
+        sched = DailySchedule.query.get_or_404(schedule_id)
+        account = _signed_in_account()
+        if account is None or not account.is_manager:
+            # Defence in depth: the before_request guard already refuses this
+            # endpoint to non-managers, but reopening a finalized report is not
+            # something that may depend on a single check elsewhere.
+            flash("Only a Manager can reopen a finalized day", "error")
+            return redirect(url_for("history_days"))
+        if reopen_day(sched):
+            flash(
+                f"{sched.work_date.strftime('%b %d %Y')} has been reopened and "
+                f"can be corrected. It will be finalized again automatically at "
+                f"{AUTO_FINALIZE_DEFAULT} Eastern.", "success")
+        else:
+            flash("That day is not finalized", "error")
         return redirect(url_for("history_days"))
 
     @app.route("/history/vehicle/<int:vehicle_id>")
@@ -2748,13 +2952,18 @@ def register_routes(app):
                          as_attachment=True, download_name=filename)
 
     def _import_date_options():
-        """Build date options for import: today, tomorrow, +2 days."""
-        from datetime import timedelta
+        """Build date options for import: today, tomorrow, +2 days.
+
+        Anchored on the Eastern date, so a report offered for "Today" is the
+        day the shop is actually working -- and the day the nightly job will
+        finalize.
+        """
         labels = ["Today", "Tomorrow", "+2 Days"]
+        today = timeutils.today_eastern()
         return [
-            {"iso": (date.today() + timedelta(days=i)).isoformat(),
+            {"iso": (today + timedelta(days=i)).isoformat(),
              "label": labels[i],
-             "display": (date.today() + timedelta(days=i)).strftime("%b %d"),
+             "display": (today + timedelta(days=i)).strftime("%b %d"),
              "is_today": i == 0}
             for i in range(3)
         ]
