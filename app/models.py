@@ -14,6 +14,8 @@ Design notes:
 from datetime import datetime, date
 
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm import validates
+from werkzeug.security import check_password_hash, generate_password_hash
 
 db = SQLAlchemy()
 
@@ -119,6 +121,10 @@ class Employee(db.Model):
         foreign_keys="Replacement.employee_id"
     )
     current_vehicle = db.relationship("Vehicle", foreign_keys=[current_vehicle_id])
+    accounts = db.relationship(
+        "UserAccount", back_populates="employee",
+        foreign_keys="UserAccount.employee_id"
+    )
 
     @property
     def initials(self):
@@ -127,6 +133,77 @@ class Employee(db.Model):
         if len(parts) >= 2:
             return (parts[0][0] + parts[-1][0]).upper()
         return self.name[:2].upper() if self.name else "?"
+
+
+class UserAccount(db.Model):
+    """One person's sign-in: the Manager creates it, they sign in with it.
+
+    This replaces the three hardcoded role accounts. A Manager adds an account
+    with a name, a username and a password; the Employee or Driver signs in
+    with those credentials instead of sharing one login with everybody else on
+    shift, so their tasks, timers and reports are recorded against them.
+
+    An account is linked to an :class:`Employee` when the person works the
+    board, which is what their checked tasks and running timers are recorded
+    against. Drivers have no board work, so their account is simply unlinked.
+    An unlinked Employee account is the shared board login: it still picks a
+    name from the picker on each visit.
+    """
+    __tablename__ = "user_accounts"
+
+    ROLE_MANAGER = "manager"
+    ROLE_EMPLOYEE = "employee"
+    ROLE_DRIVER = "driver"
+    ROLES = (ROLE_MANAGER, ROLE_EMPLOYEE, ROLE_DRIVER)
+    ROLE_LABELS = {ROLE_MANAGER: "Manager", ROLE_EMPLOYEE: "Employee",
+                   ROLE_DRIVER: "Driver"}
+
+    # Short enough to type on a phone at the start of a shift, long enough that
+    # a four-digit PIN is not a valid password.
+    MIN_PASSWORD_LENGTH = 4
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), nullable=False, unique=True)
+    name = db.Column(db.String(120), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default=ROLE_EMPLOYEE)
+    password_hash = db.Column(db.String(255), nullable=False)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"))
+    active = db.Column(db.Boolean, default=True, nullable=False)
+    password_changed_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_login_at = db.Column(db.DateTime)
+
+    employee = db.relationship(
+        "Employee", back_populates="accounts", foreign_keys=[employee_id]
+    )
+
+    @validates("username")
+    def _normalize_username(self, key, value):
+        """Usernames are matched case-insensitively, so store one spelling."""
+        return (value or "").strip().lower()
+
+    def set_password(self, raw_password):
+        """Store a new password. Only the hash is ever written down."""
+        self.password_hash = generate_password_hash(raw_password or "")
+        self.password_changed_at = datetime.utcnow()
+
+    def check_password(self, raw_password):
+        """Whether this is the account's password.
+
+        An account with no stored hash never matches, so a row that somehow
+        lost one locks itself rather than signing anyone in.
+        """
+        if not self.password_hash or not raw_password:
+            return False
+        return check_password_hash(self.password_hash, raw_password)
+
+    @property
+    def role_label(self):
+        return self.ROLE_LABELS.get(self.role, self.role)
+
+    @property
+    def is_manager(self):
+        return self.role == self.ROLE_MANAGER
 
 
 class DailySchedule(db.Model):

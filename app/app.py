@@ -12,7 +12,7 @@ from werkzeug.utils import secure_filename
 
 from .models import db, Vehicle, Employee, ScheduleEntry, Replacement, Note, \
     DailySchedule, PrepReportImport, TrashPickup, Location, \
-    IncidentReport, IncidentNote, IncidentPhoto
+    IncidentReport, IncidentNote, IncidentPhoto, UserAccount
 from .services import settings, vehicles, schedule as sched_svc
 from .services import incidents as incidents_svc
 from .services import prep_timer, timeutils
@@ -25,15 +25,16 @@ from .services.incidents import ISSUE_TYPES, SEVERITIES, STATUSES, \
 # used to escape as an HTML 500 the board could not read.
 _DATABASE_BUSY_ERRORS = (OperationalError, PoolTimeoutError)
 
-# The only three accounts. Passwords are the lowercase role name. No accounts
-# can be created through the app.
-ROLE_ACCOUNTS = {
-    "employee": {"display": "Employee", "password": "employee"},
-    "driver": {"display": "Driver", "password": "driver"},
-    "manager": {"display": "Manager", "password": "manager"},
-}
+# The logins a brand-new database starts with, so there is always a way in and
+# the first Manager can add real accounts from the Staff page. Once real
+# accounts exist these are ordinary rows the Manager can remove like any other.
+DEFAULT_ACCOUNTS = (
+    ("manager", "Manager", UserAccount.ROLE_MANAGER),
+    ("employee", "Employee", UserAccount.ROLE_EMPLOYEE),
+    ("driver", "Driver", UserAccount.ROLE_DRIVER),
+)
 
-# Pages only the Manager account may visit.
+# Pages only a Manager account may visit.
 MANAGER_ONLY_ENDPOINTS = {
     "vehicle_list",
     "vehicle_new",
@@ -42,6 +43,9 @@ MANAGER_ONLY_ENDPOINTS = {
     "vehicle_toggle_active",
     "employees_page",
     "employee_toggle_active",
+    "account_create",
+    "account_toggle_active",
+    "account_reset_password",
     # Incident management (review / edit / assign / note / photos / resolve).
     "incident_edit",
     "incident_note",
@@ -49,6 +53,10 @@ MANAGER_ONLY_ENDPOINTS = {
     "incident_resolve",
     "incident_photo_delete",
 }
+
+# Only ever a role name, never a password: these are checked on every request
+# to decide which screens a signed-in person may open.
+VALID_ROLES = frozenset(UserAccount.ROLES)
 
 
 def role_home(role):
@@ -652,6 +660,23 @@ def seed_defaults():
         _seed_vehicles(loc)
     else:
         _restore_seed_vehicles(loc)
+    _seed_default_accounts()
+
+
+def _seed_default_accounts():
+    """Give a database with no accounts at all the three starting logins.
+
+    Only ever runs on an empty accounts table, so an existing installation
+    keeps exactly the accounts its Manager created -- and a database that has
+    had them all removed on purpose is not quietly given them back.
+    """
+    if UserAccount.query.count() > 0:
+        return
+    for username, name, role in DEFAULT_ACCOUNTS:
+        account = UserAccount(username=username, name=name, role=role)
+        account.set_password(username)
+        db.session.add(account)
+    db.session.commit()
 
 
 def _restore_seed_vehicles(loc):
@@ -1023,6 +1048,7 @@ def _nav_links(role):
     if role == "driver":
         links.append(("driver_dashboard", "Finished", "✅"))
         links.append(("settings_page", "Settings", "⚙️"))
+        links.append(("change_password", "Password", "🔑"))
         return links
     links.append(("dashboard", "Today", "📋"))
     if role == "manager":
@@ -1035,6 +1061,7 @@ def _nav_links(role):
     if role == "manager":
         links.append(("employees_page", "Staff", "👥"))
     links.append(("settings_page", "Settings", "⚙️"))
+    links.append(("change_password", "Password", "🔑"))
     return links
 
 
@@ -1135,14 +1162,60 @@ def register_routes(app):
         is left untouched, so the 24-hour time on the source report survives."""
         return timeutils.prep_time_label(value)
 
+    def _signed_in_account():
+        """The account row behind this session, or None when nobody is signed
+        in. Re-read on every request so removing an account takes effect at
+        once instead of at the next sign-in."""
+        account_id = session.get("user_id")
+        if not account_id:
+            return None
+        return UserAccount.query.get(account_id)
+
+    def _bound_employee(account):
+        """The staff record an individual account is tied to, when it is still
+        an active employee. None for Managers, Drivers, and for the shared
+        employee login that picks its own name each visit."""
+        if account is None or account.role != UserAccount.ROLE_EMPLOYEE:
+            return None
+        if not account.employee_id:
+            return None
+        emp = Employee.query.get(account.employee_id)
+        return emp if emp and emp.active else None
+
+    def _sign_in(account):
+        """Start a session for ``account``.
+
+        The role is stored alongside the account id so the rest of the request
+        handling can still ask "is this an employee?" the way it always has,
+        while the account id is what actually identifies the person.
+        """
+        session.clear()
+        session["user_id"] = account.id
+        session["user"] = account.role
+        session["username"] = account.name
+        emp = _bound_employee(account)
+        if emp is not None:
+            # An individual account is already that person: their tasks and
+            # timers are recorded against them, so the board opens straight
+            # away instead of asking who they are.
+            session["employee_id"] = emp.id
+            session["employee_name"] = emp.name
+        account.last_login_at = datetime.utcnow()
+        db.session.commit()
+
     @app.context_processor
     def inject_globals():
-        user = session.get("user")
-        emp = None
-        emp_id = None
-        if user == "employee" and session.get("employee_id"):
-            emp_id = session["employee_id"]
-            emp = Employee.query.get(emp_id)
+        account = _signed_in_account()
+        user = account.role if account else None
+        emp = _bound_employee(account)
+        if emp is None and user == UserAccount.ROLE_EMPLOYEE and \
+                session.get("employee_id"):
+            # The shared employee login: whoever was picked on the board. A
+            # staff record taken off the list since they picked it does not
+            # come back with the session.
+            picked = Employee.query.get(session["employee_id"])
+            emp = picked if picked and picked.active else None
+        emp_id = emp.id if emp is not None else None
         # Resolve the signed-in user's own stored theme ("on"|"off"|"system"|
         # "futuristic"|"halloween"|"bloomberg"|"retro"|"holographic"|
         # "synthwave"|"cosmos"|"cyberpunk"|"aurora"|"ocean"|"crystal"|
@@ -1151,16 +1224,17 @@ def register_routes(app):
         # must map to "dark"; "system" is resolved live by the browser.
         raw_dark_mode = settings.get_user_theme(user, emp_id)
         resolved_dark_mode = "dark" if raw_dark_mode == "on" else raw_dark_mode
+        role = user if user in VALID_ROLES else UserAccount.ROLE_EMPLOYEE
         return {
             "today": date.today,
             "app_name": "Detailing Operations Dashboard",
-            "current_role": user if user in ROLE_ACCOUNTS else "employee",
-            "current_user": ROLE_ACCOUNTS.get(user, {}).get(
-                "display") if user else None,
+            "current_role": role,
+            "current_user": account.name if account else None,
+            "current_account": account,
             "current_employee": emp,
             "dark_mode": resolved_dark_mode,
             "layout": settings.get_user_layout(user, emp_id),
-            "nav_links": _nav_links(user if user in ROLE_ACCOUNTS else "employee"),
+            "nav_links": _nav_links(role),
             # The server's clock, so live timers in the browser can correct for
             # a skewed device clock instead of drifting.
             "server_epoch": timeutils.epoch_ms(),
@@ -1171,22 +1245,35 @@ def register_routes(app):
         """Every page except login/logout requires a signed-in account."""
         if request.endpoint in ("static", "login", "logout"):
             return None
-        user = session.get("user")
-        if not user or user not in ROLE_ACCOUNTS:
+        account = _signed_in_account()
+        if account is None:
             session.clear()
             return redirect(url_for("login"))
+        if not account.active:
+            # The Manager removed this account while the person was signed in.
+            session.clear()
+            flash("Your account has been removed. Please contact your Manager.",
+                  "error")
+            return redirect(url_for("login"))
+        # session["user"] is a copy of the account's role. Trust the row, not
+        # the cookie, so a tampered or stale session cannot widen access.
+        if session.get("user") != account.role:
+            session["user"] = account.role
+        user = account.role
         # Drivers only see the finished-vehicles screen (plus their own Settings
-        # page for their theme choice and the incident report submission flow).
+        # and Password pages and the incident report submission flow).
         if user == "driver" and request.endpoint not in (
-                "driver_dashboard", "settings_page", "incidents_list",
-                "incident_new", "incident_detail", "incident_pdf",
-                "incident_photo"):
+                "driver_dashboard", "settings_page", "change_password",
+                "incidents_list", "incident_new", "incident_detail",
+                "incident_pdf", "incident_photo"):
             return redirect(url_for("driver_dashboard"))
         # Vehicles, Staff and operational Settings are manager-only.
         if user != "manager" and request.endpoint in MANAGER_ONLY_ENDPOINTS:
             return redirect(url_for("dashboard"))
         # Employees must pick their name from the dropdown before using the
-        # board. Login, the splash animation and the picker itself are exempt.
+        # board. An account tied to one person skips this: they already are
+        # that person. Login, the splash animation and the picker itself are
+        # exempt.
         if user == "employee" and not session.get("employee_id") and \
                 request.endpoint not in ("splash", "select_employee"):
             return redirect(url_for("select_employee"))
@@ -1194,17 +1281,17 @@ def register_routes(app):
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
-        if session.get("user") in ROLE_ACCOUNTS:
+        if _signed_in_account() is not None:
             return redirect(url_for("splash"))
         if request.method == "POST":
             username = (request.form.get("username") or "").strip().lower()
             password = request.form.get("password") or ""
-            account = ROLE_ACCOUNTS.get(username)
-            if account and password == account["password"]:
-                session.clear()
-                session["user"] = username
-                session["username"] = account["display"]
-                flash(f"Welcome, {account['display']}", "success")
+            account = UserAccount.query.filter_by(username=username).first()
+            # A removed account is refused exactly like a wrong password, so
+            # the login page never confirms that a username exists.
+            if account and account.active and account.check_password(password):
+                _sign_in(account)
+                flash(f"Welcome, {account.name}", "success")
                 return redirect(url_for("splash"))
             flash("Invalid username or password", "error")
             return redirect(url_for("login"))
@@ -1222,11 +1309,17 @@ def register_routes(app):
         It is also how a shared board changes hands: picking a name here is how
         the next person takes over, so their tasks and timers are recorded
         against them instead of against whoever is signed in at the time.
+        Someone on their own account has no name to pick -- they are already
+        that person -- so they go straight to the board.
         """
-        role = session.get("user")
-        if role == "driver":
+        account = _signed_in_account()
+        if account is None:
+            return redirect(url_for("login"))
+        if account.role == UserAccount.ROLE_DRIVER:
             return redirect(url_for("driver_dashboard"))
-        if role != "employee":
+        if account.role != UserAccount.ROLE_EMPLOYEE:
+            return redirect(url_for("dashboard"))
+        if _bound_employee(account) is not None:
             return redirect(url_for("dashboard"))
         if request.method == "POST":
             try:
@@ -1249,6 +1342,34 @@ def register_routes(app):
         session.clear()
         flash("You have been logged out", "success")
         return redirect(url_for("login"))
+
+    @app.route("/account/password", methods=["GET", "POST"])
+    def change_password():
+        """Let a signed-in person change their own password.
+
+        The Manager sets the first one; this is how an Employee or Driver takes
+        it over afterwards. Back on the dashboard when it is done.
+        """
+        account = _signed_in_account()
+        if account is None:
+            return redirect(url_for("login"))
+        if request.method == "POST":
+            current = request.form.get("current_password") or ""
+            new = request.form.get("new_password") or ""
+            confirm = request.form.get("confirm_password") or ""
+            if not account.check_password(current):
+                flash("Your current password is not correct", "error")
+            elif len(new) < UserAccount.MIN_PASSWORD_LENGTH:
+                flash("Your new password must be at least "
+                      f"{UserAccount.MIN_PASSWORD_LENGTH} characters", "error")
+            elif new != confirm:
+                flash("The new passwords do not match", "error")
+            else:
+                account.set_password(new)
+                db.session.commit()
+                flash("Your password has been changed", "success")
+                return redirect(role_home(account.role))
+        return render_template("change_password.html")
 
     def _acting_employee_id():
         """Who is driving a board action: the employee the board posted (the
@@ -1722,7 +1843,10 @@ def register_routes(app):
         if session.get("user") != "employee":
             return jsonify(ok=False, error="Manager view is read-only"), 403
         checked = request.form.get("checked") == "true"
-        emp = request.form.get("employee_id") or None
+        # The board sends the signed-in employee's id, and the session already
+        # knows it too -- so a request without one is still recorded against
+        # the person who actually pressed the tick.
+        emp = _acting_employee_id()
         task = sched_svc.toggle_task(entry_id, task_name, checked, emp)
         done = total = pct = None
         status = None
@@ -2023,6 +2147,43 @@ def register_routes(app):
         vehicle = Vehicle.query.get_or_404(vehicle_id)
         return _render_vehicle_detail(vehicle)
 
+    def _unique_username(name, requested=""):
+        """A free username for a new account.
+
+        The Manager can type one; otherwise it is built from the person's
+        name ("Jane Doe" -> "janedoe") and given a number when that is taken.
+        """
+        base = (requested or "").strip().lower()
+        if not base:
+            base = re.sub(r"[^a-z0-9]+", "", (name or "").lower()) or "user"
+        candidate = base
+        suffix = 2
+        while UserAccount.query.filter_by(username=candidate).first() is not None:
+            candidate = f"{base}{suffix}"
+            suffix += 1
+        return candidate
+
+    def _employee_for_account(name, employee_id=None):
+        """The staff record an Employee account's work is recorded against.
+
+        Uses the one the Manager picked; otherwise matches one already on file
+        under that name, so re-adding somebody does not duplicate them; and
+        otherwise adds them, because an account with nobody to work as could
+        never check off a task.
+        """
+        if employee_id:
+            emp = Employee.query.get(employee_id)
+            if emp and emp.active:
+                return emp
+        existing = Employee.query.filter(
+            db.func.lower(Employee.name) == (name or "").strip().lower()).first()
+        if existing is not None:
+            return existing
+        emp = Employee(name=name, location_id=vehicles.default_location().id)
+        db.session.add(emp)
+        db.session.flush()
+        return emp
+
     @app.route("/employees", methods=["GET", "POST"])
     def employees_page():
         if request.method == "POST":
@@ -2033,8 +2194,11 @@ def register_routes(app):
                 db.session.commit()
                 flash("Employee added", "success")
             return redirect(url_for("employees_page"))
-        employees = Employee.query.all()
-        return render_template("employees.html", employees=employees)
+        return render_template("employees.html",
+                               employees=Employee.query.all(),
+                               account_name=(request.args.get("name") or "").strip(),
+                               accounts=UserAccount.query.order_by(
+                                   UserAccount.role, UserAccount.name).all())
 
     @app.route("/employees/<int:employee_id>/toggle-active", methods=["POST"])
     def employee_toggle_active(employee_id):
@@ -2043,14 +2207,99 @@ def register_routes(app):
         if not employee.active:
             # Free the removed employee from any vehicle they were working on.
             employee.current_vehicle_id = None
+            # ...and close their account too, so somebody the Manager has taken
+            # off the staff list cannot keep signing in on it.
+            for account in UserAccount.query.filter_by(
+                    employee_id=employee.id).all():
+                account.active = False
         db.session.commit()
         return redirect(url_for("employees_page"))
+
+    @app.route("/accounts", methods=["POST"])
+    def account_create():
+        """Add an account for one person and hand them their credentials."""
+        name = (request.form.get("name") or "").strip()
+        role = (request.form.get("role") or "").strip().lower()
+        password = request.form.get("password") or ""
+        username = (request.form.get("username") or "").strip().lower()
+        # A refusal comes back with the name still filled in, so the Manager
+        # does not retype the one thing that was right.
+        back = url_for("employees_page", name=name) if name \
+            else url_for("employees_page")
+        if not name:
+            flash("Enter the person's name", "error")
+            return redirect(back)
+        if role not in VALID_ROLES:
+            flash("Choose whether this is an Employee, Driver or Manager "
+                  "account", "error")
+            return redirect(back)
+        if len(password) < UserAccount.MIN_PASSWORD_LENGTH:
+            flash(f"Give them a password of at least "
+                  f"{UserAccount.MIN_PASSWORD_LENGTH} characters", "error")
+            return redirect(back)
+        if username and UserAccount.query.filter_by(username=username).first():
+            flash(f"The username {username} is already taken", "error")
+            return redirect(back)
+
+        account = UserAccount(
+            username=_unique_username(name, username),
+            name=name,
+            role=role,
+        )
+        account.set_password(password)
+        if role == UserAccount.ROLE_EMPLOYEE:
+            account.employee = _employee_for_account(
+                name, request.form.get("employee_id"))
+        db.session.add(account)
+        db.session.commit()
+        flash(f"Account created for {name} — username: {account.username}",
+              "success")
+        return redirect(url_for("employees_page"))
+
+    @app.route("/accounts/<int:account_id>/toggle-active", methods=["POST"])
+    def account_toggle_active(account_id):
+        """Remove or restore an account. Removing one ends the session of
+        anybody signed in on it, from their very next page."""
+        account = UserAccount.query.get_or_404(account_id)
+        if account.active and account.is_manager and \
+                _active_manager_count() <= 1:
+            # Otherwise removing the last Manager locks everyone out of the
+            # Staff page with no way back in.
+            flash("This is the only active Manager account. Add another "
+                  "Manager before removing this one.", "error")
+            return redirect(url_for("employees_page"))
+        account.active = not account.active
+        db.session.commit()
+        flash(f"{account.name}'s account has been "
+              f"{'restored' if account.active else 'removed'}", "success")
+        return redirect(url_for("employees_page"))
+
+    @app.route("/accounts/<int:account_id>/reset-password", methods=["POST"])
+    def account_reset_password(account_id):
+        """Set a new password for somebody who cannot get into their own."""
+        account = UserAccount.query.get_or_404(account_id)
+        password = request.form.get("password") or ""
+        if len(password) < UserAccount.MIN_PASSWORD_LENGTH:
+            flash(f"Give {account.name} a password of at least "
+                  f"{UserAccount.MIN_PASSWORD_LENGTH} characters", "error")
+            return redirect(url_for("employees_page"))
+        account.set_password(password)
+        db.session.commit()
+        flash(f"{account.name}'s password has been reset. Tell them the new "
+              "one so they can change it to something only they know.",
+              "success")
+        return redirect(url_for("employees_page"))
+
+    def _active_manager_count():
+        return UserAccount.query.filter_by(
+            role=UserAccount.ROLE_MANAGER, active=True).count()
 
     @app.route("/settings", methods=["GET", "POST"])
     def settings_page():
         from .models import VehicleType
         from .services.schedule import refresh_type_entries
-        user = session.get("user")
+        account = _signed_in_account()
+        user = account.role if account else None
         emp_id = session.get("employee_id")
         if request.method == "POST":
             # Theme is the one setting every account can change, and it is

@@ -132,10 +132,11 @@ report. It is not a static mockup.
 10. **Data architecture** — real persistent database (SQLite via SQLAlchemy).
     Models: Vehicles, Employees, Daily Prep Schedules, Checklist Tasks,
     Prep Sessions & Prep Session Events, Cleaning/Service History, Vehicle
-    Replacements, Prep Report Imports,
-    Activity/Notes, Locations, Vehicle Types, Settings, and **Incident
-    Reports** (with notes & photos). Designed to support multiple employees
-    and locations later (Location is a first-class model).
+     Replacements, Prep Report Imports,
+     Activity/Notes, Locations, Vehicle Types, Settings, **User Accounts**, and
+     **Incident Reports** (with notes & photos). Designed to support multiple
+     employees and locations later (Location is a first-class model).
+
 11. **UI** — mobile/tablet/desktop responsive, large checkboxes & buttons,
     minimal typing, clean professional interface, color-coded statuses, fast
     search, clear daily workflow. Two site layouts are available and can be
@@ -159,7 +160,16 @@ independent of the color themes (Light / Dark / System / Futuristic /
     employee, and status. Incident reports follow the official **ECHO East
     Coast Accident/Incident Report** form: the app's form captures every field
     on that template, and a **Download PDF** button renders the completed
-    report onto the blank form for managers to save, print, or email.
+     report onto the blank form for managers to save, print, or email.
+13. **Individual accounts** — every Employee and Driver signs in with their own
+     username and password instead of sharing one login for the whole crew. A
+     Manager creates and removes accounts from **Staff**, sets the first
+     password, and can reset one somebody has forgotten; each person then
+     changes it to their own from the **Password** tab. An Employee account is
+     tied to that person, so their tasks and timers are recorded against them
+     and they go straight to the board with no name picker. Removing an account
+     takes effect at once — the person is signed out and cannot sign back in —
+     while their completed work and history are kept.
 
 ---
 
@@ -175,7 +185,12 @@ python run.py
 Open http://127.0.0.1:5000
 
 A default **Main Depot** location and a **User** employee are created the
-first time the app runs.
+first time the app runs, along with the three starting logins — `manager`,
+`employee` and `driver` (each password is the same as the username). Sign in
+as **manager** and use **Staff** to give each Employee and Driver their own
+account; the starting logins are ordinary accounts you can remove once you
+have.
+
 
 ### Generate a sample prep report (to try Import)
 
@@ -212,6 +227,47 @@ degrades gracefully: it warns that the scanned PDF could not be read and points
 to the missing dependency rather than guessing.
 
 ---
+
+## Accounts and sign-in
+
+There used to be exactly three logins hardcoded in `app/app.py` — one shared
+`employee`, one shared `driver` and one `manager`, each with its password in
+plain text in the source. **Sign-in is now a database table.**
+
+- **`UserAccount`** (`app/models.py`) is one person's sign-in: `username`,
+  `name`, `role` (`manager` / `employee` / `driver`), `password_hash`, an
+  optional link to an `Employee`, and `active`. Passwords are stored as a
+  salted hash via `werkzeug.security.generate_password_hash` and checked with
+  `check_password_hash`; the plain text is never written down anywhere. Usernames
+  are compared case-insensitively, and the row is the single source of truth
+  for the role — the session only caches the account's id, and
+  `require_login` re-reads it on every request.
+- **A Manager adds an account** from **Staff** (`/employees`) with a name, a
+  password and an account type. The username is optional: leave it blank and it
+  is built from the name (`Jane Doe` → `janedoe`, with a number appended if
+  that is taken). Passwords must be at least 4 characters.
+- **An Employee account is tied to that person.** Creating one for a name that
+  is not on the staff list adds the staff record; a name that is already there
+  reuses the existing record rather than duplicating it. The person is signed in
+  as themselves, so the name picker is skipped, the "Not you? Switch name"
+  button is hidden, and a tick on the board is attributed to them even if the
+  request carries no employee id.
+- **The shared `employee` login still works.** It has no linked employee, so it
+  keeps picking a name from the dropdown on each visit — the board is shared
+  hardware and the next person takes it over without logging out. The Manager can
+  remove it once everyone has an account of their own.
+- **Removing an account takes effect immediately.** The account's `active` flag
+  is re-read on every request, so the person is signed out on their next page
+  load and refused at the login page; their completed work, timers and history
+  are untouched. Removing an employee from the staff list closes their account
+  too, and the last active Manager account cannot be removed at all — otherwise
+  nobody could get back into the Staff page.
+- **Everyone can change their own password** from the **Password** tab
+  (`/account/password`), which asks for the current password and confirms the
+  new one, then returns to the dashboard. A Manager can also reset a forgotten
+  password directly from the Staff table.
+- **A removed or wrong login says the same thing** ("Invalid username or
+  password"), so the login page never confirms that a username exists.
 
 ## Configuration
 
@@ -354,7 +410,9 @@ is eventually reported.
   person takes the board over in turn, presses Start on their side, and gets a
   clock of their own. Without it their press would be recorded against the
   colleague already on the vehicle — which still works, but under the wrong
-  name, so the stamps would credit the wrong person.
+  name, so the stamps would credit the wrong person. Switching is offered on the
+  shared `employee` login only: somebody signed in on their own account is
+  already that person, so the button is not shown and the picker is skipped.
 - **Existing databases are upgraded in place.** Sessions from the one-clock-per-
   vehicle schema are backfilled as `scope = 'both'`, so they count towards both
   the inside and the outside totals while still being reported only once, and
