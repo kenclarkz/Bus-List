@@ -5,6 +5,9 @@
 
 <div class="card">
   <h2>Previous Days</h2>
+  <p class="muted small">Every day is finalized automatically at {{ auto_finalize_at }}
+    Eastern ({{ eastern_tz }}). A finalized day is a saved report and cannot be
+    changed or deleted; a Manager can reopen one to make a correction.</p>
   {% if days %}
   <div class="table-wrap">
   <table>
@@ -13,13 +16,29 @@
     {% set s = day.summary and day.summary|fromjson or {} %}
     <tr>
       <td>{{ day.work_date.strftime('%b %d %Y') }}</td>
-      <td><span class="badge {{ 'success' if day.finalized else 'warn' }}">{{ 'Finalized' if day.finalized else 'In progress' }}</span></td>
+      <td>
+        <span class="badge {{ 'success' if day.finalized else 'warn' }}">{{ 'Finalized' if day.finalized else 'In progress' }}</span>
+        {% if day.finalized and day.finalized_at %}
+        <div class="muted small">{{ day.finalized_at|et_datetime }}</div>
+        {% endif %}
+      </td>
       <td>{{ s.get('total', '—') }}</td>
       <td>{{ s.get('completed', '—') }}</td>
       <td>{{ s.get('overall', '—') }}%</td>
       <td><a target="_blank" href="{{ url_for('print_report', date=day.work_date.isoformat()) }}">View</a></td>
       <td>
-        {% if day.work_date != today() %}
+        {% if day.finalized %}
+        {# A finalized day is the record of a closed shift: it is not deleted
+           from here, only deliberately reopened by a Manager. #}
+        {% if current_role == 'manager' %}
+        <form method="post" action="{{ url_for('schedule_reopen', schedule_id=day.id) }}" style="display:inline"
+              onsubmit="return confirm('Reopen {{ day.work_date.strftime('%b %d %Y') }}? It becomes editable again and will be re-finalized automatically at {{ auto_finalize_at }} Eastern.')">
+          <button type="submit" class="btn small warn">Reopen</button>
+        </form>
+        {% else %}
+        <span class="muted small">Locked</span>
+        {% endif %}
+        {% elif day.work_date != today() %}
         <form method="post" action="{{ url_for('schedule_delete', schedule_id=day.id) }}" style="display:inline"
               onsubmit="return confirm('Delete all work for {{ day.work_date.strftime('%b %d %Y') }}? This cannot be undone.')">
           <button type="submit" class="btn small danger">Delete</button>

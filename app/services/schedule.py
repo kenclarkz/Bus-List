@@ -1,4 +1,14 @@
-"""Daily schedule / detailing board logic."""
+"""Daily schedule / detailing board logic.
+
+A day's schedule is **locked once it is finalized**. Finalization happens
+automatically every night at :data:`AUTO_FINALIZE_TIME` Eastern and stores the
+day's totals, so a finalized day is a report, not a work list: nothing about it
+may change afterwards, because the numbers already saved would stop describing
+what happened. Every write path below therefore refuses to touch a finalized
+day, and the routes that call them turn that refusal into an answer the person
+who pressed can act on. Reopening a day is a Manager-only act
+(``reopen_day``), never something an employee can do for themselves.
+"""
 import re
 from datetime import date, datetime
 
@@ -7,10 +17,65 @@ from app.models import (
     Replacement, Note, Setting,
 )
 from app.services import prep_timer, settings, vehicles
+from app.services import timeutils
+
+# The nightly automatic finalization cutoff, as Eastern wall-clock time. Kept
+# here (rather than only in the scheduler) so the documentation of "when does a
+# day close" lives with the day itself, and so tests can assert the schedule
+# against it.
+AUTO_FINALIZE_HOUR = 22
+AUTO_FINALIZE_MINUTE = 30
+
+
+class FinalizedDayError(Exception):
+    """A change was refused because that day has already been finalized.
+
+    Raised by every write path that would alter a finalized day's report. The
+    routes catch it and answer in the shape the caller expects (JSON for the
+    board's fetch calls, a flash + redirect for the form posts), so the lock is
+    enforced by the service rather than by the UI hiding buttons.
+    """
+
+    def __init__(self, message, work_date=None):
+        super().__init__(message)
+        self.message = message
+        self.work_date = work_date
+
+
+def is_locked(sched):
+    """Whether a day's schedule is finalized and therefore read-only."""
+    return bool(sched is not None and sched.finalized)
+
+
+def locked_message(work_date):
+    """The refusal a person sees when they touch a finalized day."""
+    when = work_date.strftime('%b %d') if work_date else "this day"
+    return (f"{when} was finalized automatically at "
+            f"{AUTO_FINALIZE_HOUR:02d}:{AUTO_FINALIZE_MINUTE:02d} Eastern and its "
+            f"report is locked. Ask a Manager to reopen it if something needs "
+            f"correcting.")
+
+
+def _refuse_if_locked(sched):
+    """Raise :class:`FinalizedDayError` when ``sched`` is finalized.
+
+    The offending day rides along on the exception so the route that catches it
+    can send the person back to the report that just refused them.
+    """
+    if is_locked(sched):
+        work_date = sched.work_date if sched is not None else None
+        raise FinalizedDayError(locked_message(work_date), work_date=work_date)
+
+
+def schedule_for_entry(entry):
+    """The day an entry belongs to."""
+    if entry is None:
+        return None
+    return entry.schedule or db.session.get(DailySchedule, entry.schedule_id)
 
 
 def today():
-    return date.today()
+    return timeutils.today_eastern()
 
 
 def clear_stale_current_vehicles():
@@ -61,6 +126,7 @@ def refresh_type_entries(vtype):
 
 def ensure_entry(sched, vehicle, order_index=0, prep_time=None,
                  pickup_time=None, driver_code=None):
+    _refuse_if_locked(sched)
     entry = ScheduleEntry.query.filter_by(schedule_id=sched.id,
                                           vehicle_id=vehicle.id).first()
     if not entry:
@@ -202,7 +268,11 @@ def complete_entry(entry, employee_id=None):
     Incomplete tasks are left as-is (not checked) so the manager can see
     exactly what was and wasn't completed. The entry is marked completed
     and the employee is freed from the vehicle.
+
+    Refused outright on a finalized day: the vehicle's status is part of the
+    report that was already saved.
     """
+    _refuse_if_locked(schedule_for_entry(entry))
     if entry.status not in ("in_progress", "pending"):
         return entry.status
     entry.status = "completed"
@@ -220,7 +290,11 @@ def set_entry_skipped(entry, skipped=True, reason=""):
     Manual skips never count toward completion: the entry keeps its own progress
     and is reported separately as skipped. Transit auto-skips are also reported
     separately and excluded from the day's work totals.
+
+    A finalized day is locked, so neither skipping nor un-skipping is possible
+    there: the saved report says how many vehicles were skipped and why.
     """
+    _refuse_if_locked(schedule_for_entry(entry))
     if skipped:
         entry.status = "skipped"
         entry.skip_reason = (reason or "").strip()[:255] or None
@@ -241,6 +315,10 @@ def toggle_task(entry_id, task_name, checked, employee_id=None):
     entry = ScheduleEntry.query.get(entry_id)
     if not entry:
         return None
+    # Ticking (or unticking) a box changes the day totals, so it is refused on a
+    # finalized day -- including a stray request that arrives after the nightly
+    # job closed the books.
+    _refuse_if_locked(schedule_for_entry(entry))
     was_outside_complete = _outside_tasks_complete(entry)
     task = next((t for t in entry.tasks if t.task_name == task_name), None)
     if not task:
@@ -255,7 +333,7 @@ def toggle_task(entry_id, task_name, checked, employee_id=None):
         emp = Employee.query.get(employee_id)
         if emp:
             emp.current_vehicle_id = entry.vehicle_id
-            emp.current_vehicle_set_on = date.today()
+            emp.current_vehicle_set_on = timeutils.today_eastern()
     db.session.commit()
     # Record last washed / detailed in history when appropriate
     if checked:
@@ -321,8 +399,10 @@ def move_entry_to_replacement(sched, original_entry, replacement_vehicle,
 
     Completed tasks are preserved on the original (historical); only pending
     tasks are carried forward so the replacement starts where the original
-    left off.
+    left off. A finalized day is locked, so a substitution cannot be recorded
+    against one after the fact.
     """
+    _refuse_if_locked(sched)
     replacement_entry = ScheduleEntry.query.filter_by(
         schedule_id=sched.id, vehicle_id=replacement_vehicle.id).first()
     if not replacement_entry:
@@ -390,9 +470,15 @@ def delete_schedule(sched):
     Vehicle records and service history are kept; only the day's work is
     removed. Employees currently assigned to a vehicle in that day are freed
     so the board doesn't show stale 'now working' state.
+
+    A finalized day cannot be deleted: it is the saved report of a shift that
+    has already been closed, and taking it away is not a Manager's ordinary
+    housekeeping. It has to be reopened first (and then a Manager is free to
+    delete the reopened day if it really was wrong).
     """
     if sched is None:
         return 0
+    _refuse_if_locked(sched)
     vehicle_ids = [e.vehicle_id for e in sched.entries if e.vehicle_id]
     clear_employee_assignments(vehicle_ids)
 
@@ -498,9 +584,14 @@ def build_preview(parsed, location=None):
 def apply_import(preview, location=None, employee_id=None, source="import",
                  schedule_date=None):
     """Apply a preview: create vehicles, update routes, build today's schedule,
-    handle replacements, deactivate removed vehicles. Never deletes history."""
+    handle replacements, deactivate removed vehicles. Never deletes history.
+
+    Refused on a finalized day: rebuilding a closed day's work list would
+    rewrite the report the nightly job already saved.
+    """
     loc = location or vehicles.default_location()
     sched = get_or_create_schedule(schedule_date, loc)
+    _refuse_if_locked(sched)
     position = 0
 
     for item in preview["new"] + preview["updated"] + preview["unchanged"]:
