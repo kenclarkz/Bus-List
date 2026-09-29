@@ -67,10 +67,14 @@
           <button type="submit" class="btn small secondary">Reset</button>
         </form>
         <form method="post" action="{{ url_for('account_toggle_active', account_id=a.id) }}" style="display:inline"
-              onsubmit="{% if a.active %}return confirm('Remove {{ a.name }}'s account? They will not be able to sign in again.{% endif %}">
+              onsubmit='{% if a.active %}return confirm({{ ("Remove " ~ a.name ~ "'s account? They will not be able to sign in again.")|tojson }}){% endif %}'>
           <button type="submit" class="btn small {{ 'danger' if a.active else 'success' }}">
             {{ 'Remove' if a.active else 'Reactivate' }}
           </button>
+        </form>
+        <form method="post" action="{{ url_for('account_delete', account_id=a.id) }}" style="display:inline"
+              onsubmit='return confirm({{ ("Delete " ~ a.name ~ "'s account (" ~ a.username ~ ") for good? They will never be able to sign in on it, the username is freed up for somebody else, and this cannot be undone.")|tojson }})'>
+          <button type="submit" class="btn small danger">Delete</button>
         </form>
       </td>
     </tr>
@@ -78,7 +82,11 @@
   </table>
   </div>
   <p class="muted small">Removing an account signs that person out of the app
-    the next time they load a page. Their completed work and history are kept.</p>
+    the next time they load a page, and can be undone with Reactivate. Their
+    completed work and history are kept either way — the work is recorded
+    against their staff record, not their login. Delete is for a login you never
+    want to see again: the account and its username are gone for good, so
+    delete the login before deleting the staff record behind it.</p>
 </div>
 <div class="card">
   <h2>Add Employee</h2>
@@ -98,15 +106,24 @@
       <td>{{ 'Yes' if e.active else 'No' }}</td>
       <td>
         <form method="post" action="{{ url_for('employee_toggle_active', employee_id=e.id) }}" style="display:inline"
-              onsubmit="{% if e.active %}return confirm('Remove {{ e.name }} from staff? Completed work and history will be kept.'){% endif %}">
+              onsubmit='{% if e.active %}return confirm({{ ("Remove " ~ e.name ~ " from staff? Completed work and history will be kept.")|tojson }}){% endif %}'>
           <button type="submit" class="btn small {{ 'danger' if e.active else 'success' }}">
             {{ 'Remove' if e.active else 'Reactivate' }}
           </button>
+        </form>
+        <form method="post" action="{{ url_for('employee_delete', employee_id=e.id) }}" style="display:inline"
+              onsubmit='return confirm({{ ("Delete " ~ e.name ~ " from the staff list for good? Delete their login first and stop any clock they still have running. Their work stays on file, no longer credited to anybody, and this cannot be undone.")|tojson }})'>
+          <button type="submit" class="btn small danger">Delete</button>
         </form>
       </td>
     </tr>
     {% endfor %}
   </table>
   </div>
+  <p class="muted small">Remove takes somebody off the board but keeps them on
+    file, so every task, clock and report they ever did still says who did it.
+    Delete is for a record you want gone for good: the person is taken off that
+    work rather than it being thrown away, and it is refused while a login or a
+    running clock still belongs to them.</p>
 </div>
 {% endblock %}

@@ -1995,6 +1995,286 @@ def test_employee_cannot_manage_staff(client, app):
         assert Employee.query.get(emp_id).active is True
 
 
+# ---------------------------------------------------------------------------
+# Deleting a login and a staff record for good
+# ---------------------------------------------------------------------------
+
+def test_manager_deletes_a_login_account(manager_client, app):
+    """Delete takes the username away for good, not just closes it."""
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee",
+    })
+    with app.app_context():
+        account_id = UserAccount.query.filter_by(username="jane").first().id
+
+    assert manager_client.post(f"/accounts/{account_id}/delete").status_code == 302
+    with app.app_context():
+        assert UserAccount.query.filter_by(username="jane").first() is None
+
+    c = app.test_client()
+    r = c.post("/login", data={"username": "jane", "password": "sunflower"})
+    assert r.headers["Location"].endswith("/login")
+    assert b"Invalid username or password" in c.get("/login").data
+
+
+def test_a_deleted_username_can_be_given_to_somebody_else(manager_client, app):
+    """The point of deleting rather than removing: the name is free again."""
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee",
+    })
+    with app.app_context():
+        account_id = UserAccount.query.filter_by(username="jane").first().id
+    manager_client.post(f"/accounts/{account_id}/delete")
+
+    r = manager_client.post("/accounts", data={
+        "name": "Jane Doe Again", "username": "jane", "password": "roadwork",
+        "role": "employee",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        assert UserAccount.query.filter_by(username="jane").count() == 1
+
+
+def test_deleting_a_login_keeps_the_staff_record_and_the_work(manager_client,
+                                                              app):
+    """The work belongs to the staff record, not the login, so none of it goes
+    when the login does -- and the person stays on the staff list until the
+    Manager says otherwise."""
+    with app.app_context():
+        emp = Employee(name="Jane Doe", active=True)
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee", "employee_id": str(emp_id),
+    })
+    c = app.test_client()
+    c.post("/login", data={"username": "jane", "password": "sunflower"})
+    entry_id, _ = prep_entry(app, "970")
+    c.post(f"/task/{entry_id}/Sweep", data={"checked": "true"})
+
+    with app.app_context():
+        account_id = UserAccount.query.filter_by(username="jane").first().id
+        assert TaskCompletion.query.filter_by(employee_id=emp_id).count() == 1
+    manager_client.post(f"/accounts/{account_id}/delete")
+
+    with app.app_context():
+        assert Employee.query.get(emp_id) is not None
+        assert Employee.query.get(emp_id).name == "Jane Doe"
+        # The work is untouched and still says who did it.
+        assert TaskCompletion.query.filter_by(employee_id=emp_id).count() == 1
+    assert "Jane Doe" in manager_client.get("/employees").get_data(as_text=True)
+
+
+def test_the_last_manager_account_cannot_be_deleted(manager_client, app):
+    """Otherwise deleting it locks everyone out of the Staff page for good."""
+    with app.app_context():
+        manager_id = UserAccount.query.filter_by(username="manager").first().id
+    assert manager_client.post(f"/accounts/{manager_id}/delete").status_code == 302
+    with app.app_context():
+        assert UserAccount.query.get(manager_id) is not None
+    assert "only active Manager" in manager_client.get("/employees").data.decode()
+
+
+def test_the_last_manager_account_can_be_deleted_once_another_one_exists(
+        manager_client, app):
+    manager_client.post("/accounts", data={
+        "name": "Second Boss", "username": "boss2", "password": "roadwork",
+        "role": "manager",
+    })
+    with app.app_context():
+        manager_id = UserAccount.query.filter_by(username="manager").first().id
+    manager_client.post(f"/accounts/{manager_id}/delete")
+    with app.app_context():
+        assert UserAccount.query.filter_by(username="manager").first() is None
+
+
+def test_deleting_the_account_you_signed_in_on_signs_you_out(manager_client, app):
+    """Otherwise the session outlives the account behind it."""
+    with app.app_context():
+        manager_id = UserAccount.query.filter_by(username="manager").first().id
+    manager_client.post("/accounts", data={
+        "name": "Second Boss", "username": "boss2", "password": "roadwork",
+        "role": "manager",
+    })
+    r = manager_client.post(f"/accounts/{manager_id}/delete")
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/login")
+    # The reason is on the login page, so the Manager is not left wondering
+    # why they were signed out mid-click.
+    assert b"signed out" in manager_client.get("/login").data
+    # ...and the session really is gone, not just the page it was on.
+    assert "/login" in manager_client.get("/employees").headers["Location"]
+
+
+def test_manager_deletes_a_staff_record(manager_client, app):
+    with app.app_context():
+        emp = Employee(name="Gone For Good", active=True)
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+
+    assert manager_client.post(f"/employees/{emp_id}/delete").status_code == 302
+    with app.app_context():
+        assert Employee.query.get(emp_id) is None
+    body = manager_client.get("/employees").get_data(as_text=True)
+    assert f'action="/employees/{emp_id}/delete"' not in body
+    assert "has been deleted from the staff list" in body
+
+
+def test_a_staff_record_with_a_login_on_it_cannot_be_deleted(manager_client,
+                                                              app):
+    """An Employee login with no staff record behind it is handed a brand new
+    one the moment that person signs in, which would quietly undo the delete."""
+    with app.app_context():
+        emp = Employee(name="Jane Doe", active=True)
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee", "employee_id": str(emp_id),
+    })
+
+    assert manager_client.post(f"/employees/{emp_id}/delete").status_code == 302
+    with app.app_context():
+        assert Employee.query.get(emp_id) is not None
+    body = manager_client.get("/employees").get_data(as_text=True)
+    assert "Delete that login first" in body
+
+    # The login goes first, and then the record is free to go too.
+    with app.app_context():
+        account_id = UserAccount.query.filter_by(username="jane").first().id
+    manager_client.post(f"/accounts/{account_id}/delete")
+    manager_client.post(f"/employees/{emp_id}/delete")
+    with app.app_context():
+        assert Employee.query.get(emp_id) is None
+
+
+def test_the_service_refuses_to_purge_a_record_with_a_login_on_it(app):
+    """The backstop under the route: an orphaned login would hand the person a
+    new staff record the moment they signed in, undoing the delete."""
+    from app.services import staff as staff_svc
+    with app.app_context():
+        emp = Employee(name="Jane Doe", active=True)
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+        account = UserAccount(username="jane", name="Jane Doe",
+                              role=UserAccount.ROLE_EMPLOYEE)
+        account.set_password("sunflower")
+        account.employee_id = emp_id
+        db.session.add(account)
+        db.session.commit()
+
+        with pytest.raises(staff_svc.StaffDeleteError) as err:
+            staff_svc.purge_employee(emp_id)
+        assert "jane" in str(err.value)
+        assert Employee.query.get(emp_id) is not None
+
+
+def test_a_staff_record_with_a_clock_still_running_cannot_be_deleted(
+        manager_client, app):
+    from app.models import PrepSession
+    with app.app_context():
+        emp = Employee(name="Still Timing", active=True)
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+        entry_id, _ = prep_entry(app, "965")
+        entry = ScheduleEntry.query.get(entry_id)
+        started_id = prep_timer.start(entry, emp_id).id
+
+    assert manager_client.post(f"/employees/{emp_id}/delete").status_code == 302
+    with app.app_context():
+        assert Employee.query.get(emp_id) is not None
+    body = manager_client.get("/employees").get_data(as_text=True)
+    assert "still has a running clock" in body
+
+    # Stopping the clock frees the record to go, and the finished clock stays on
+    # file with the record gone.
+    with app.app_context():
+        prep_timer.finish(ScheduleEntry.query.get(entry_id), emp_id)
+        assert PrepSession.query.get(started_id).status == "finished"
+    manager_client.post(f"/employees/{emp_id}/delete")
+    with app.app_context():
+        assert Employee.query.get(emp_id) is None
+        assert PrepSession.query.get(started_id) is not None
+
+
+def test_deleting_a_staff_record_keeps_the_work_and_takes_the_name_off_it(
+        manager_client, app):
+    """The work is not thrown away: it stays on file, no longer credited to
+    anybody, so the history still adds up."""
+    from app.models import PrepSession
+    c = employee_client(app, "Anna Timer")
+    entry_id, _ = prep_entry(app, "963")
+    c.post(f"/task/{entry_id}/Sweep", data={"checked": "true"})
+    c.post(f"/entry/{entry_id}/prep/start")
+    c.post(f"/entry/{entry_id}/prep/done")
+
+    with app.app_context():
+        emp = Employee.query.filter_by(name="Anna Timer").one()
+        emp_id = emp.id
+        account_id = UserAccount.query.filter_by(employee_id=emp_id).one().id
+        task_id = TaskCompletion.query.filter_by(employee_id=emp_id).one().id
+        session_id = PrepSession.query.filter_by(employee_id=emp_id).one().id
+        assert PrepSession.query.get(session_id).total_seconds is not None
+
+    # The order the Staff page asks for: the login first, then the record.
+    manager_client.post(f"/accounts/{account_id}/delete")
+    r = manager_client.post(f"/employees/{emp_id}/delete")
+    assert r.status_code == 302
+
+    with app.app_context():
+        assert Employee.query.get(emp_id) is None
+        # The work is all still there...
+        assert TaskCompletion.query.get(task_id) is not None
+        assert TaskCompletion.query.get(task_id).employee_id is None
+        # ...including the finished clock, which keeps its own timings.
+        kept = PrepSession.query.get(session_id)
+        assert kept is not None
+        assert kept.employee_id is None
+        assert kept.total_seconds is not None
+
+    body = manager_client.get("/employees").get_data(as_text=True)
+    assert f'action="/employees/{emp_id}/delete"' not in body
+    assert "no longer credited to anybody" in body
+
+
+def test_employees_and_drivers_cannot_delete_anything(client, app):
+    with app.app_context():
+        emp = Employee(name="Worker Bee", active=True)
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+        manager_id = UserAccount.query.filter_by(username="manager").first().id
+        employee_account_id = UserAccount.query.filter_by(
+            username="employee").first().id
+
+    assert client.post(f"/employees/{emp_id}/delete").status_code == 302
+    assert client.post(f"/accounts/{employee_account_id}/delete") \
+        .status_code == 302
+    assert client.post(f"/accounts/{manager_id}/delete").status_code == 302
+    with app.app_context():
+        assert Employee.query.get(emp_id) is not None
+        assert UserAccount.query.get(manager_id) is not None
+        assert UserAccount.query.get(employee_account_id) is not None
+
+
+def test_the_staff_page_offers_a_delete_button_for_each_row(manager_client, app):
+    manager_client.post("/employees", data={"name": "Sally Driver"})
+    with app.app_context():
+        emp_id = Employee.query.filter_by(name="Sally Driver").first().id
+        account_id = UserAccount.query.filter_by(username="driver").first().id
+    body = manager_client.get("/employees").get_data(as_text=True)
+    assert f'action="/employees/{emp_id}/delete"' in body
+    assert f'action="/accounts/{account_id}/delete"' in body
+
+
 def test_trash_page_lists_lots_before_any_pickup(client, app):
     page = client.get("/trash")
     assert page.status_code == 200
