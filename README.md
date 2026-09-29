@@ -165,11 +165,12 @@ independent of the color themes (Light / Dark / System / Futuristic /
      username and password instead of sharing one login for the whole crew. A
      Manager creates and removes accounts from **Staff**, sets the first
      password, and can reset one somebody has forgotten; each person then
-     changes it to their own from the **Password** tab. An Employee account is
-     tied to that person, so their tasks and timers are recorded against them
-     and they go straight to the board with no name picker. Removing an account
-     takes effect at once — the person is signed out and cannot sign back in —
-     while their completed work and history are kept.
+     changes it to their own from the **Password** tab. Signing in is what says
+     who somebody is, so an Employee account is tied to that person and their
+     tasks and timers are recorded against them — there is no name to pick at
+     the board. Removing an account takes effect at once — the person is signed
+     out and cannot sign back in — while their completed work and history are
+     kept.
 
 ---
 
@@ -246,22 +247,33 @@ plain text in the source. **Sign-in is now a database table.**
   password and an account type. The username is optional: leave it blank and it
   is built from the name (`Jane Doe` → `janedoe`, with a number appended if
   that is taken). Passwords must be at least 4 characters.
-- **An Employee account is tied to that person.** Creating one for a name that
-  is not on the staff list adds the staff record; a name that is already there
-  reuses the existing record rather than duplicating it. The person is signed in
-  as themselves, so the name picker is skipped, the "Not you? Switch name"
-  button is hidden, and a tick on the board is attributed to them even if the
-  request carries no employee id.
-- **The shared `employee` login still works.** It has no linked employee, so it
-  keeps picking a name from the dropdown on each visit — the board is shared
-  hardware and the next person takes it over without logging out. The Manager can
+- **Signing in is what says who you are.** There is no name picker and no
+  "who's working?" screen. An Employee account is a particular person, so the
+  board opens as them and says so, and every press it sends is recorded against
+  the staff record that account is tied to. The old shared `employee` login
+  keeps working: it has no staff record of its own, so the first time it signs
+  in it is given one under its own name and the link is saved. A Manager can
   remove it once everyone has an account of their own.
+- **An Employee account is tied to that staff record.** Creating one for a name
+  that is not on file adds the staff record; a name that is already there reuses
+  the existing record rather than duplicating it, which is what the **Work as**
+  dropdown on the account form overrides. A tick on the board is attributed to
+  that person even if the request carries no employee id.
+- **The Login Accounts table is the whole staff list.** Each row shows the
+  account's username, its type, and the staff record it works as — name,
+  initials, and the vehicle they are on the floor of if they are on one — so
+  there is no second list of staff to keep in step with the logins. Drivers
+  have no board work and are marked as such. The same row is also where a person
+  is taken off the staff list (**Take off staff**, which closes their account
+  too) or put back on it. **Add Employee** is only for putting a staff record
+  on file ahead of the account that will work as it.
 - **Removing an account takes effect immediately.** The account's `active` flag
   is re-read on every request, so the person is signed out on their next page
   load and refused at the login page; their completed work, timers and history
-  are untouched. Removing an employee from the staff list closes their account
-  too, and the last active Manager account cannot be removed at all — otherwise
-  nobody could get back into the Staff page.
+  are untouched. An Employee account whose staff record has been taken off the
+  list is signed out too, with a message saying so rather than a board whose
+  every press would be refused. The last active Manager account cannot be
+  removed at all — otherwise nobody could get back into the Staff page.
 - **Everyone can change their own password** from the **Password** tab
   (`/account/password`), which asks for the current password and confirms the
   new one, then returns to the dashboard. A Manager can also reset a forgotten
@@ -400,19 +412,18 @@ is eventually reported.
   *same* set on the same vehicle on the same day, so the same press cannot be
   recorded twice; the other set is always theirs to start, whether it is idle,
   already being worked by a colleague, or their own running clock. The refusal
-  names the clock that is in the way and points at **Not you? Switch name**, so
-  somebody who pressed Start on a side they had already started is told whose
-  clock is in the way and how to get one of their own.
-- **The board is shared, so it can change hands.** Every press is recorded
-  against the employee the board is currently working as, and **Not you? Switch
-  name** at the top of the board hands it to the next person without logging
-  out. That is what lets a crew share one screen to work one vehicle: each
-  person takes the board over in turn, presses Start on their side, and gets a
-  clock of their own. Without it their press would be recorded against the
-  colleague already on the vehicle — which still works, but under the wrong
-  name, so the stamps would credit the wrong person. Switching is offered on the
-  shared `employee` login only: somebody signed in on their own account is
-  already that person, so the button is not shown and the picker is skipped.
+  names the clock that is in the way and says the press is recorded against
+  whoever is signed in, so somebody who pressed Start on a side they had already
+  started is told whose clock is in the way and how to get one of their own.
+- **Signing in is what says who is working.** Every press is recorded against the
+  account that sent it, and the **Login Accounts** table on the Staff page shows
+  the staff record each account works as, so the board's own **Now Working**
+  strip and the stamps on every task and clock line up with the logins behind
+  them. A crew can still work one vehicle together — each person presses Start
+  for their own side and gets a clock of their own — but the handover is
+  signing in as yourself rather than taking the board over from whoever is on
+  it. A press that arrives without a signed-in person is refused rather than
+  recorded against a name somebody else chose.
 - **Existing databases are upgraded in place.** Sessions from the one-clock-per-
   vehicle schema are backfilled as `scope = 'both'`, so they count towards both
   the inside and the outside totals while still being reported only once, and
@@ -447,10 +458,9 @@ is eventually reported.
   was never started are all rejected with an explanation and leave the record
   untouched. A rejection is answered with the vehicle's real state as well as
   the reason, so the board repaints the row rather than leaving the refused
-  button on screen. Because the board is shared, a press is recorded against
-  whoever is signed in, so a refusal that says "for you" also says what to do
-  when the board is *not* signed in as you ("Not you? Switch name"). Managers
-  get a read-only board.
+  button on screen. Because a press is recorded against the account that sent
+  it, a refusal that says "for you" also says that the board is signed in as
+  somebody else when it is not you. Managers get a read-only board.
 - **A crew working at the same time never blocks itself.** Several employees are
   on the board from their own devices at once, so a press regularly overlaps
   somebody else's page load or timer re-sync. The SQLite database is therefore

@@ -579,7 +579,7 @@ def _your_clock_error(unit, set_name, status):
     so "for you" can be the wrong person: a colleague who walked up to a
     vehicle somebody had already started is told about a clock of their own
     they know nothing about. So the refusal says what to do either way -- let
-    it run, or take the board over and press again -- instead of leaving them
+    it run, or sign in as yourself and press again -- instead of leaving them
     to work out that the board is not signed in as them.
     """
     if status in ("running", "paused"):
@@ -587,14 +587,14 @@ def _your_clock_error(unit, set_name, status):
         return PrepTimerError(
             f"Vehicle {unit} {set_name} prep is already started "
             f"for you (timer {verb}) — if that is you it is already "
-            f"counting and there is nothing to press; if it is not, press "
-            f"\"Not you? Switch name\" at the top of the board and press "
-            f"{set_name} again to run a clock of your own")
+            f"counting and there is nothing to press; if it is not, this "
+            f"board is signed in as somebody else, so sign in as yourself "
+            f"and press {set_name} again to run a clock of your own")
     return PrepTimerError(
         f"Vehicle {unit} {set_name} prep has already been finished "
         f"for you — if that is you, this set of work is done; if it is "
-        f"not, press \"Not you? Switch name\" at the top of the board and "
-        f"press {set_name} again to run a clock of your own")
+        f"not, this board is signed in as somebody else, so sign in as "
+        f"yourself and press {set_name} again to run a clock of your own")
 
 
 def _refused_by_clock_rule(entry, employee_id, scope, unit, set_name):

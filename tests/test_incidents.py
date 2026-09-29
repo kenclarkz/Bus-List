@@ -28,10 +28,6 @@ def app(tmp_path):
 def client(app):
     c = app.test_client()
     c.post("/login", data={"username": "employee", "password": "employee"})
-    with app.app_context():
-        emp = Employee.query.filter_by(active=True).first()
-        emp_id = str(emp.id) if emp else ""
-    c.post("/select", data={"employee_id": emp_id})
     return c
 
 
@@ -324,9 +320,6 @@ def test_incident_photos_uploaded_and_served(manager_client, app):
     # Photo viewing is allowed for staff (not just managers).
     c = app.test_client()
     c.post("/login", data={"username": "employee", "password": "employee"})
-    with app.app_context():
-        emp = Employee.query.filter_by(active=True).first()
-    c.post("/select", data={"employee_id": str(emp.id)})
     r = c.get(f"/incidents/photo/{pid}")
     assert r.status_code == 200
     assert r.data == b"fakeimagebytes"

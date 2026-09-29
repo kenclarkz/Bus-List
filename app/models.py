@@ -143,11 +143,12 @@ class UserAccount(db.Model):
     with those credentials instead of sharing one login with everybody else on
     shift, so their tasks, timers and reports are recorded against them.
 
-    An account is linked to an :class:`Employee` when the person works the
-    board, which is what their checked tasks and running timers are recorded
-    against. Drivers have no board work, so their account is simply unlinked.
-    An unlinked Employee account is the shared board login: it still picks a
-    name from the picker on each visit.
+    Signing in is what says who somebody is. An Employee account is linked to
+    an :class:`Employee`, and that link is the staff record their checked tasks
+    and running timers are recorded against; an account with no link is given
+    one from its own name the first time it signs in, so an Employee account is
+    always somebody in particular. Drivers have no board work, so their account
+    is simply unlinked.
     """
     __tablename__ = "user_accounts"
 

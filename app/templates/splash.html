@@ -40,9 +40,7 @@
 </head>
 <body class="splash-body">
 
-  {% if current_role == 'employee' %}
-    {% set dest = url_for('select_employee') %}
-  {% elif current_role == 'driver' %}
+  {% if current_role == 'driver' %}
     {% set dest = url_for('driver_dashboard') %}
   {% else %}
     {% set dest = url_for('dashboard') %}
