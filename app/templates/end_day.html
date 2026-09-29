@@ -109,8 +109,12 @@
       <td>{{ r.vehicle.route or '—' }}</td>
       <td>{{ r.done }}/{{ r.total }}</td>
       <td>
-        {% for t in r.entry.tasks if not t.completed %}
-          <span class="badge danger">{{ t.task_name }} <span class="muted small">({{ t.task_name|task_category }})</span></span>
+        {# The unticked tasks in this vehicle type's own order, Inside first,
+           each named with the side it belongs to. #}
+        {% for scope in ['inside', 'outside'] %}
+          {% for t in r.task_groups[scope] if not t.completed %}
+            <span class="badge danger">{{ t.task_name }} <span class="muted small">({{ scope }})</span></span>
+          {% endfor %}
         {% endfor %}
       </td>
     </tr>

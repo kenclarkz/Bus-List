@@ -6,7 +6,7 @@ from app.models import (
     db, DailySchedule, ScheduleEntry, TaskCompletion, Vehicle,
     Replacement, Note, Setting,
 )
-from app.services import settings, vehicles
+from app.services import prep_timer, settings, vehicles
 
 
 def today():
@@ -88,10 +88,56 @@ def ensure_entry(sched, vehicle, order_index=0, prep_time=None,
     return entry
 
 
-def _entry_checklist(entry):
+def _entry_categorized_checklist(entry):
     vehicle = entry.vehicle
     vtype = vehicle.vehicle_type if vehicle else None
-    return settings.get_type_checklist(vtype)
+    return settings.get_type_categorized_checklist(vtype)
+
+
+def _entry_checklist(entry):
+    categorized = _entry_categorized_checklist(entry)
+    return categorized["inside"] + categorized["outside"]
+
+
+def entry_task_groups(entry):
+    """The entry's task rows split into its vehicle type's 'inside' and
+    'outside' groups, in the order that type's checklist lists them.
+
+    The board, the end-of-day summary and the printed report all render a
+    vehicle's tasks from here, so each one shows exactly the Inside and Outside
+    tasks its own type says, in the order they are typed. Task rows the current
+    checklist no longer mentions (work already recorded against a list that has
+    since been edited) are kept and shown at the end of their own group rather
+    than dropped from the record.
+    """
+    categorized = _entry_categorized_checklist(entry)
+    by_name = {}
+    for task in entry.tasks:
+        by_name.setdefault(task.task_name, []).append(task)
+
+    groups = {"inside": [], "outside": []}
+    for scope in prep_timer.SCOPES:
+        for name in categorized[scope]:
+            waiting = by_name.get(name)
+            if waiting:
+                groups[scope].append(waiting.pop(0))
+    for name, waiting in by_name.items():
+        groups[settings.task_category(name, categorized)].extend(waiting)
+    return groups
+
+
+def entry_incomplete_labels(entry):
+    """The tasks an entry was closed with unticked, in its vehicle type's own
+    order, each labelled with the side of the vehicle it belongs to.
+
+    This is the wording of the board's "Not completed" note, so a note written by
+    the browser after a press says exactly what a page reload would have said.
+    """
+    groups = entry_task_groups(entry)
+    return [f"{task.task_name} ({scope})"
+            for scope in prep_timer.SCOPES
+            for task in groups[scope]
+            if not task.completed]
 
 
 def _outside_tasks_complete(entry):

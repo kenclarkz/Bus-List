@@ -225,12 +225,18 @@ Database and secret are configured via environment variables (see
 | `PORT` | `5000` |
 | `AUTO_END_DAY_TIME` | `23:50` (local time the auto end-of-day job runs) |
 
-Thresholds (Recently Washed / Due Soon), the task list — split into
-**Inside** and **Outside** categories — the color theme, and the site layout
+Thresholds (Recently Washed / Due Soon), the color theme, and the site layout
 (**Classic** top-bar design or the newer **Side Panel** sidebar design) are all
 configurable in the **Settings** page at runtime. Themes and layouts are saved
-per account, so each user keeps their own appearance. Per-vehicle-type
-checklists can override the global default.
+per account, so each user keeps their own appearance.
+
+The task list belongs to the vehicle type, not to the site: each type carries its
+own checklist, split into **Inside** (interior cleaning) and **Outside**
+(exterior/service) categories, and a vehicle shows exactly the tasks its own type
+lists, in the order they are typed. A type that has never been given a list of
+its own starts from the standard one (Sweep, Mop, Windows, Seats, Bathroom /
+Dump, Bay Checked, Final Inspection), and clearing both fields returns it to that
+list. There is no global default checklist to override.
 
 A theme is just an id from `THEME_CHOICES` in `app/services/settings.py`; the
 look itself is a `html[data-theme="<id>"]` block in
@@ -284,7 +290,7 @@ app/
     pdf_parser.py        # PDF text/table/OCR extraction + unit normalization
     schedule.py          # daily board, checklist, replacements, preview/apply
     prep_timer.py        # inside/outside clocks per employee per vehicle + history
-    settings.py          # configurable thresholds/checklist
+    settings.py          # configurable thresholds + per-vehicle-type checklists
     timeutils.py         # Eastern Time storage, parsing and display helpers
     vehicles.py          # entity helpers, import/journal records
 scripts/
