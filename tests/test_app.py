@@ -6168,6 +6168,48 @@ def task_group(row, scope):
     return row[start:row.index("</div>", row.index('checklist-group-items', start))]
 
 
+def vrow_tag(row, entry_id):
+    """A card's own opening tag -- the row a clock block climbs out to.
+
+    This is what the browser's ``closest('.vrow')`` lands on from the clock
+    block, so it is also what holds the card's finished mark.
+    """
+    start = row.rindex('<details class="vrow', 0, row.index(f'id="prep-{entry_id}"'))
+    return row[start:row.index(">", start) + 1]
+
+
+def prep_tag_of(row, entry_id):
+    """A card's clock block opening tag -- what a press hands back to repaint."""
+    start = row.index(f'id="prep-{entry_id}"')
+    return row[row.rindex("<div", 0, start):row.index(">", start) + 1]
+
+
+def opening_tags_at(html, pos):
+    """The tags still open at ``pos`` in a fragment, outermost first.
+
+    Enough of a parser to answer "what is this element inside", which is the
+    question a browser answers for itself every time a press repaints a card in
+    place instead of reloading the page.
+    """
+    import re
+
+    void = {"area", "base", "br", "col", "embed", "hr", "img", "input",
+            "link", "meta", "param", "source", "track", "wbr"}
+    stack = []
+    for m in re.finditer(r"<(/?)([a-zA-Z][\w-]*)([^>]*?)(/?)>", html):
+        if m.start() >= pos:
+            break
+        name = m.group(2).lower()
+        if name in void or m.group(4):
+            continue
+        if m.group(1):
+            if stack and stack[-1][1] == name:
+                stack.pop()
+        else:
+            stack.append((m.start(), name, m.group(0)))
+    return [tag for _, _, tag in stack]
+
+
 def test_task_boxes_wait_for_start_on_that_side(client, app):
     """The boxes inside a vehicle and the boxes outside it are only worth
     showing once somebody is working that side, so a vehicle nobody has started
@@ -6221,6 +6263,42 @@ def test_task_boxes_stay_shown_for_work_already_recorded(client, app):
     row = board_row(client.get("/").data.decode(), entry_id)
     assert "hidden" not in task_group(row, "inside")
     assert "hidden" not in task_group(row, "outside")
+
+
+def test_task_groups_sit_beside_the_clocks_a_start_repaints(client, app):
+    """The boxes a Start press opens live beside the clocks, not inside them.
+
+    A press repaints the clock block and hands that same block back to the code
+    that opens the groups, so the groups have to be reachable from it -- or a
+    Start press opens nothing and the boxes it just made worth ticking only turn
+    up on the next page load. They are not reachable from it: the checklist is a
+    sibling of the clocks and the finished mark sits on the row itself, so the
+    board has to climb out of the clock block to the vehicle's row to find
+    either one.
+    """
+    with app.app_context():
+        entry_id, _ = prep_entry(app, "963")
+
+    row = board_row(client.get("/").data.decode(), entry_id)
+    row_tag = vrow_tag(row, entry_id)
+    prep_tag = prep_tag_of(row, entry_id)
+
+    for scope in ("inside", "outside"):
+        open_tags = opening_tags_at(row, row.index(f'data-task-group="{scope}"'))
+        # The climb off the clock block lands on the row, and the row is what
+        # holds the group: this is what puts the boxes on show in place.
+        assert row_tag in open_tags
+        # And the clock block is genuinely not an ancestor of them, so a press
+        # that only repaints the clocks has to make that climb to open the
+        # group it has just started work on.
+        assert prep_tag not in open_tags
+
+    # The finished mark has to be found by that same climb, or a vehicle worked
+    # to the end would have both its lists folded away again by the next press.
+    client.post(f"/entry/{entry_id}/complete")
+    row = board_row(client.get("/").data.decode(), entry_id)
+    assert "row-complete" in vrow_tag(row, entry_id)
+    assert "row-complete" not in prep_tag_of(row, entry_id)
 
 
 def test_done_with_vehicle_completes_it_with_tasks_left(client, app):
