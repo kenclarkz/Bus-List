@@ -9,7 +9,7 @@ from sqlalchemy.exc import OperationalError
 
 from app import create_app
 from app.models import db, Vehicle, Employee, ScheduleEntry, TaskCompletion, \
-    Replacement, DailySchedule
+    Replacement, DailySchedule, UserAccount
 from app.services.vehicles import find_or_create_vehicle
 from app.services import timeutils
 from app.services.pdf_parser import normalize_unit
@@ -6378,3 +6378,481 @@ def test_task_toggle_reports_the_status_the_row_follows(client, app):
     r = client.post(f"/task/{entry_id}/{quote(names[-1], safe='')}",
                     data={"checked": "false"})
     assert r.get_json()["entry_status"] == "in_progress"
+
+
+# ---------------------------------------------------------------------------
+# Individual Employee / Driver accounts
+# ---------------------------------------------------------------------------
+
+def make_account(app, username, name, role, password, employee_id=None):
+    """Add an account straight to the database, for tests that only need one
+    to sign in with."""
+    with app.app_context():
+        account = UserAccount(username=username, name=name, role=role,
+                              employee_id=employee_id)
+        account.set_password(password)
+        db.session.add(account)
+        db.session.commit()
+        return account.id
+
+
+def test_default_accounts_exist_on_a_new_database(app):
+    """There is always a way in: a brand-new database signs a Manager in."""
+    with app.app_context():
+        usernames = {a.username for a in UserAccount.query.all()}
+    assert {"manager", "employee", "driver"} <= usernames
+
+
+def test_passwords_are_never_stored_in_the_clear(app):
+    with app.app_context():
+        account = UserAccount.query.filter_by(username="manager").first()
+        assert account.password_hash != "manager"
+        assert "manager" not in account.password_hash
+        assert account.check_password("manager")
+
+
+def test_manager_adds_an_employee_account_they_can_sign_in_with(manager_client,
+                                                               app):
+    r = manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        account = UserAccount.query.filter_by(username="jane").first()
+        assert account is not None
+        assert account.name == "Jane Doe"
+        assert account.role == "employee"
+        assert account.check_password("sunflower")
+
+    c = app.test_client()
+    r = c.post("/login", data={"username": "jane", "password": "sunflower"})
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/splash")
+
+
+def test_manager_adds_a_driver_account(manager_client, app):
+    manager_client.post("/accounts", data={
+        "name": "Dan Driver", "username": "dan", "password": "roadwork",
+        "role": "driver",
+    })
+    with app.app_context():
+        account = UserAccount.query.filter_by(username="dan").first()
+        assert account.role == "driver"
+        # A driver has no board work, so there is no staff record to tie it to.
+        assert account.employee_id is None
+
+    d = app.test_client()
+    assert d.post("/login", data={"username": "dan",
+                                  "password": "roadwork"}).status_code == 302
+    # A driver still only sees the finished screen.
+    assert d.get("/driver").status_code == 200
+    assert d.get("/").status_code == 302
+
+
+def test_a_person_on_their_own_account_goes_straight_to_the_board(manager_client,
+                                                                 app):
+    """No name picker: an individual account already knows who it is."""
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee",
+    })
+    c = app.test_client()
+    c.post("/login", data={"username": "jane", "password": "sunflower"})
+    r = c.get("/")
+    assert r.status_code == 200
+    board = r.data.decode()
+    assert "Working as:" in board
+    # ...and they cannot take the board over from whoever is next.
+    assert "Not you? Switch name" not in board
+    assert c.get("/select").headers["Location"].endswith("/")
+
+
+def test_two_individual_employee_accounts_do_not_share_a_name(manager_client,
+                                                              app):
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee",
+    })
+    manager_client.post("/accounts", data={
+        "name": "Ann Poe", "username": "ann", "password": "roadwork",
+        "role": "employee",
+    })
+    jane = app.test_client()
+    jane.post("/login", data={"username": "jane", "password": "sunflower"})
+    assert b"Jane Doe" in jane.get("/").data
+
+    ann = app.test_client()
+    ann.post("/login", data={"username": "ann", "password": "roadwork"})
+    board = ann.get("/").data.decode()
+    assert "Ann Poe" in board
+    # Ann cannot record her work as Jane.
+    assert "Jane Doe" not in board
+
+
+def test_an_employee_account_ties_its_work_to_that_person(manager_client, app):
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee",
+    })
+    with app.app_context():
+        account = UserAccount.query.filter_by(username="jane").first()
+        assert account.employee is not None
+        assert account.employee.name == "Jane Doe"
+        jane_id = account.employee_id
+
+    c = app.test_client()
+    c.post("/login", data={"username": "jane", "password": "sunflower"})
+    entry_id, _ = prep_entry(app, "970")
+    # The press carries no employee id: the signed-in account is the person.
+    c.post(f"/task/{entry_id}/Sweep", data={"checked": "true"})
+    with app.app_context():
+        done = TaskCompletion.query.filter_by(entry_id=entry_id).first()
+        assert done is not None
+        assert done.employee_id == jane_id
+        assert Employee.query.get(jane_id).current_vehicle_id is not None
+
+
+def test_adding_an_account_reuses_the_staff_record_of_that_name(manager_client,
+                                                                app):
+    """Re-adding somebody must not put a second copy of them on the staff list."""
+    with app.app_context():
+        emp = Employee(name="Jane Doe")
+        db.session.add(emp)
+        db.session.commit()
+        before = Employee.query.count()
+        emp_id = emp.id
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee",
+    })
+    with app.app_context():
+        assert Employee.query.count() == before
+        account = UserAccount.query.filter_by(username="jane").first()
+        assert account.employee_id == emp_id
+
+
+def test_username_is_built_from_the_name_and_stays_unique(manager_client, app):
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "password": "sunflower", "role": "employee",
+    })
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "password": "roadwork", "role": "driver",
+    })
+    with app.app_context():
+        assert UserAccount.query.filter_by(username="janedoe").count() == 1
+        assert UserAccount.query.filter_by(username="janedoe2").count() == 1
+
+
+def test_a_duplicate_username_is_refused(manager_client, app):
+    r = manager_client.post("/accounts", data={
+        "name": "Someone Else", "username": "manager", "password": "roadwork",
+        "role": "employee",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        assert UserAccount.query.filter_by(username="manager").count() == 1
+    assert "already taken" in manager_client.get("/employees").data.decode()
+
+
+def test_an_account_needs_a_name_a_role_and_a_real_password(manager_client,
+                                                            app):
+    with app.app_context():
+        before = UserAccount.query.count()
+    manager_client.post("/accounts", data={"name": "", "password": "roadwork",
+                                           "role": "employee"})
+    manager_client.post("/accounts", data={"name": "No Password",
+                                           "password": "", "role": "employee"})
+    manager_client.post("/accounts", data={"name": "Short", "password": "ab",
+                                           "role": "employee"})
+    manager_client.post("/accounts", data={"name": "Wrong Role",
+                                           "password": "roadwork",
+                                           "role": "supervisor"})
+    with app.app_context():
+        assert UserAccount.query.count() == before
+
+
+def test_manager_removes_an_account_and_they_cannot_sign_in(manager_client, app):
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee",
+    })
+    with app.app_context():
+        account_id = UserAccount.query.filter_by(username="jane").first().id
+
+    assert manager_client.post(
+        f"/accounts/{account_id}/toggle-active").status_code == 302
+    with app.app_context():
+        assert UserAccount.query.get(account_id).active is False
+
+    c = app.test_client()
+    r = c.post("/login", data={"username": "jane", "password": "sunflower"})
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/login")
+    assert b"Invalid username or password" in c.get("/login").data
+
+
+def test_removing_an_account_signs_that_person_out_at_once(manager_client, app):
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee",
+    })
+    c = app.test_client()
+    c.post("/login", data={"username": "jane", "password": "sunflower"})
+    assert c.get("/").status_code == 200
+
+    with app.app_context():
+        account_id = UserAccount.query.filter_by(username="jane").first().id
+    manager_client.post(f"/accounts/{account_id}/toggle-active")
+
+    r = c.get("/")
+    assert r.status_code == 302
+    assert "/login" in r.headers["Location"]
+
+
+def test_manager_reactivates_a_removed_account(manager_client, app):
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee",
+    })
+    with app.app_context():
+        account_id = UserAccount.query.filter_by(username="jane").first().id
+    manager_client.post(f"/accounts/{account_id}/toggle-active")
+    manager_client.post(f"/accounts/{account_id}/toggle-active")
+    with app.app_context():
+        assert UserAccount.query.get(account_id).active is True
+    c = app.test_client()
+    assert c.post("/login", data={"username": "jane",
+                                  "password": "sunflower"}).status_code == 302
+
+
+def test_removing_an_employee_from_staff_also_closes_their_account(
+        manager_client, app):
+    with app.app_context():
+        emp = Employee(name="Jane Doe", active=True)
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee", "employee_id": str(emp_id),
+    })
+    manager_client.post(f"/employees/{emp_id}/toggle-active")
+    with app.app_context():
+        assert UserAccount.query.filter_by(username="jane").first().active is False
+    c = app.test_client()
+    r = c.post("/login", data={"username": "jane", "password": "sunflower"})
+    assert r.headers["Location"].endswith("/login")
+
+
+def test_the_last_manager_account_cannot_be_removed(manager_client, app):
+    """Otherwise removing it locks everyone out of the Staff page for good."""
+    with app.app_context():
+        manager_id = UserAccount.query.filter_by(username="manager").first().id
+    r = manager_client.post(f"/accounts/{manager_id}/toggle-active")
+    assert r.status_code == 302
+    with app.app_context():
+        assert UserAccount.query.get(manager_id).active is True
+    assert "only active Manager" in manager_client.get("/employees").data.decode()
+
+
+def test_the_last_manager_account_can_go_once_another_one_exists(
+        manager_client, app):
+    manager_client.post("/accounts", data={
+        "name": "Second Boss", "username": "boss2", "password": "roadwork",
+        "role": "manager",
+    })
+    with app.app_context():
+        manager_id = UserAccount.query.filter_by(username="manager").first().id
+    manager_client.post(f"/accounts/{manager_id}/toggle-active")
+    with app.app_context():
+        assert UserAccount.query.get(manager_id).active is False
+
+
+def test_manager_resets_a_password_somebody_forgot(manager_client, app):
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee",
+    })
+    with app.app_context():
+        account_id = UserAccount.query.filter_by(username="jane").first().id
+    assert manager_client.post(f"/accounts/{account_id}/reset-password",
+                               data={"password": "brandnew"}
+                               ).status_code == 302
+    c = app.test_client()
+    assert c.post("/login", data={"username": "jane",
+                                  "password": "brandnew"}).status_code == 302
+    # The old one stops working.
+    c2 = app.test_client()
+    r = c2.post("/login", data={"username": "jane", "password": "sunflower"})
+    assert r.headers["Location"].endswith("/login")
+
+
+def test_employees_and_drivers_cannot_manage_accounts(client, app):
+    make_account(app, "ann", "Ann Poe", "employee", "roadwork")
+    ann = app.test_client()
+    ann.post("/login", data={"username": "ann", "password": "roadwork"})
+    assert ann.post("/accounts", data={"name": "Sneaky", "username": "sneaky",
+                                       "password": "roadwork",
+                                       "role": "manager"}).status_code == 302
+    with app.app_context():
+        assert UserAccount.query.filter_by(username="sneaky").first() is None
+        manager_id = UserAccount.query.filter_by(username="manager").first().id
+    assert ann.post(f"/accounts/{manager_id}/toggle-active").status_code == 302
+    with app.app_context():
+        assert UserAccount.query.get(manager_id).active is True
+
+
+# ---------------------------------------------------------------------------
+# Changing your own password
+# ---------------------------------------------------------------------------
+
+def test_an_employee_changes_their_own_password(manager_client, app):
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee",
+    })
+    c = app.test_client()
+    c.post("/login", data={"username": "jane", "password": "sunflower"})
+    assert c.get("/account/password").status_code == 200
+
+    r = c.post("/account/password", data={
+        "current_password": "sunflower", "new_password": "roadwork",
+        "confirm_password": "roadwork",
+    })
+    # Back to the dashboard when it is done.
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/")
+
+    c2 = app.test_client()
+    assert c2.post("/login", data={"username": "jane",
+                                   "password": "roadwork"}).status_code == 302
+    c3 = app.test_client()
+    old = c3.post("/login", data={"username": "jane", "password": "sunflower"})
+    assert old.headers["Location"].endswith("/login")
+
+
+def test_a_driver_changes_their_own_password_and_lands_on_their_dashboard(
+        manager_client, app):
+    manager_client.post("/accounts", data={
+        "name": "Dan Driver", "username": "dan", "password": "roadwork",
+        "role": "driver",
+    })
+    d = app.test_client()
+    d.post("/login", data={"username": "dan", "password": "roadwork"})
+    r = d.post("/account/password", data={
+        "current_password": "roadwork", "new_password": "turnpikeminutes",
+        "confirm_password": "turnpikeminutes",
+    })
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/driver")
+    d2 = app.test_client()
+    assert d2.post("/login", data={"username": "dan",
+                                   "password": "turnpikeminutes"}).status_code == 302
+
+
+def test_the_manager_can_change_their_own_password(manager_client, app):
+    r = manager_client.post("/account/password", data={
+        "current_password": "manager", "new_password": "headoffice",
+        "confirm_password": "headoffice",
+    })
+    assert r.status_code == 302
+    m = app.test_client()
+    assert m.post("/login", data={"username": "manager",
+                                  "password": "headoffice"}).status_code == 302
+
+
+def test_changing_a_password_needs_the_current_one(manager_client, app):
+    r = manager_client.post("/account/password", data={
+        "current_password": "not-it", "new_password": "headoffice",
+        "confirm_password": "headoffice",
+    })
+    assert r.status_code == 200
+    assert b"current password is not correct" in r.data
+    m = app.test_client()
+    assert m.post("/login", data={"username": "manager",
+                                  "password": "manager"}).status_code == 302
+
+
+def test_changing_a_password_needs_the_new_one_to_match(manager_client, app):
+    r = manager_client.post("/account/password", data={
+        "current_password": "manager", "new_password": "headoffice",
+        "confirm_password": "somethingelse",
+    })
+    assert b"do not match" in r.data
+
+
+def test_changing_a_password_refuses_a_too_short_one(manager_client, app):
+    r = manager_client.post("/account/password", data={
+        "current_password": "manager", "new_password": "ab",
+        "confirm_password": "ab",
+    })
+    assert b"at least 4 characters" in r.data
+    m = app.test_client()
+    assert m.post("/login", data={"username": "manager",
+                                  "password": "manager"}).status_code == 302
+
+
+def test_the_password_page_needs_a_signed_in_account(app):
+    c = app.test_client()
+    r = c.get("/account/password")
+    assert r.status_code == 302
+    assert "/login" in r.headers["Location"]
+
+
+def test_drivers_may_change_their_password(manager_client, app):
+    """The Password page is on the one allow-list a Driver is given."""
+    manager_client.post("/accounts", data={
+        "name": "Dan Driver", "username": "dan", "password": "roadwork",
+        "role": "driver",
+    })
+    d = app.test_client()
+    d.post("/login", data={"username": "dan", "password": "roadwork"})
+    assert d.get("/account/password").status_code == 200
+
+
+def test_the_staff_page_lists_every_account(manager_client, app):
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee",
+    })
+    body = manager_client.get("/employees").get_data(as_text=True)
+    for username in ("manager", "employee", "driver", "jane"):
+        assert username in body
+
+
+def test_a_reactivated_account_whose_staff_record_is_gone_asks_for_a_name(
+        manager_client, app):
+    """Taking somebody off the staff list must not leave a stale name behind
+    in their session: the board asks again instead of working a removed person.
+    """
+    with app.app_context():
+        emp = Employee(name="Jane Doe", active=True)
+        db.session.add(emp)
+        db.session.commit()
+        emp_id = emp.id
+    manager_client.post("/accounts", data={
+        "name": "Jane Doe", "username": "jane", "password": "sunflower",
+        "role": "employee", "employee_id": str(emp_id),
+    })
+    c = app.test_client()
+    c.post("/login", data={"username": "jane", "password": "sunflower"})
+    assert "Jane Doe" in c.get("/").data.decode()
+
+    # The staff record goes; the account is put back afterwards.
+    with app.app_context():
+        Employee.query.get(emp_id).active = False
+        db.session.commit()
+        account_id = UserAccount.query.filter_by(username="jane").first().id
+    manager_client.post(f"/accounts/{account_id}/toggle-active")
+    manager_client.post(f"/accounts/{account_id}/toggle-active")
+
+    c2 = app.test_client()
+    c2.post("/login", data={"username": "jane", "password": "sunflower"})
+    # No longer the removed person, so the picker is asked for again and does
+    # not offer them.
+    r = c2.get("/")
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/select")
+    assert "<option value=" in c2.get("/select").data.decode()
+    assert '>Jane Doe</option>' not in c2.get("/select").data.decode()

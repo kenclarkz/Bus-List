@@ -20,7 +20,8 @@
 <body class="login-body">
   <div class="login-card">
     <h1 style="margin-top:0">Detailing Operations Dashboard</h1>
-    <p class="muted" style="margin-top:0">Sign in with your assigned account. Only three accounts exist; no new accounts can be created.</p>
+    <p class="muted" style="margin-top:0">Sign in with your own account. Ask your
+      Manager for a username and password if you do not have them yet.</p>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
@@ -32,7 +33,7 @@
 
     <form method="post" action="{{ url_for('login') }}">
       <label for="username">Username</label>
-      <input type="text" id="username" name="username" placeholder="e.g. employee"
+      <input type="text" id="username" name="username" placeholder="your username"
              required autocomplete="username" autofocus>
       <label for="password">Password</label>
       <input type="password" id="password" name="password" placeholder="••••••••"
@@ -41,7 +42,8 @@
     </form>
 
     <p class="muted small" style="margin-top:16px;margin-bottom:0">
-      Accounts: <strong>Employee</strong> · <strong>Driver</strong> · <strong>Manager</strong>
+      Forgot your password? Ask your Manager to reset it, then change it to
+      your own from the Password tab after you sign in.
     </p>
   </div>
 </body>
