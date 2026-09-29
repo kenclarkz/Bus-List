@@ -165,11 +165,12 @@ independent of the color themes (Light / Dark / System / Futuristic /
      username and password instead of sharing one login for the whole crew. A
      Manager creates and removes accounts from **Staff**, sets the first
      password, and can reset one somebody has forgotten; each person then
-     changes it to their own from the **Password** tab. An Employee account is
-     tied to that person, so their tasks and timers are recorded against them
-     and they go straight to the board with no name picker. Removing an account
-     takes effect at once — the person is signed out and cannot sign back in —
-     while their completed work and history are kept.
+     changes it to their own from the **Password** tab. Signing in is what says
+     who is working, so an Employee account is tied to that person: their tasks
+     and timers are recorded against them and the board opens on their name with
+     no name picker. Removing an account takes effect at once — the person is
+     signed out and cannot sign back in — while their completed work and history
+     are kept.
 
 ---
 
@@ -249,13 +250,19 @@ plain text in the source. **Sign-in is now a database table.**
 - **An Employee account is tied to that person.** Creating one for a name that
   is not on the staff list adds the staff record; a name that is already there
   reuses the existing record rather than duplicating it. The person is signed in
-  as themselves, so the name picker is skipped, the "Not you? Switch name"
-  button is hidden, and a tick on the board is attributed to them even if the
-  request carries no employee id.
-- **The shared `employee` login still works.** It has no linked employee, so it
-  keeps picking a name from the dropdown on each visit — the board is shared
-  hardware and the next person takes it over without logging out. The Manager can
-  remove it once everyone has an account of their own.
+  as themselves, so a tick on the board is attributed to them even if the request
+  carries no employee id.
+- **Signing in is what says who is working.** There is no name picker: the
+  account *is* the person's identity, so `_sign_in` resolves it to a staff record
+  and the board opens already showing `Working as: <their name>`. An account that
+  somehow has no staff record behind it is given one on the spot — the one already
+  on file under that name, or a new one — and the link is saved, so nobody is ever
+  left without somebody to record their work against. The shared `employee` login
+  is just another account and works the same way: it signs in as the staff record
+  called "Employee" and stops being a way to work the board as anybody. The
+  Manager can remove it once everyone has an account of their own.
+- **The board changes hands by signing in as the next person.** Each person signs
+  in with their own username, and everything they press is recorded against them.
 - **Removing an account takes effect immediately.** The account's `active` flag
   is re-read on every request, so the person is signed out on their next page
   load and refused at the login page; their completed work, timers and history
@@ -400,19 +407,14 @@ is eventually reported.
   *same* set on the same vehicle on the same day, so the same press cannot be
   recorded twice; the other set is always theirs to start, whether it is idle,
   already being worked by a colleague, or their own running clock. The refusal
-  names the clock that is in the way and points at **Not you? Switch name**, so
-  somebody who pressed Start on a side they had already started is told whose
-  clock is in the way and how to get one of their own.
-- **The board is shared, so it can change hands.** Every press is recorded
-  against the employee the board is currently working as, and **Not you? Switch
-  name** at the top of the board hands it to the next person without logging
-  out. That is what lets a crew share one screen to work one vehicle: each
-  person takes the board over in turn, presses Start on their side, and gets a
-  clock of their own. Without it their press would be recorded against the
-  colleague already on the vehicle — which still works, but under the wrong
-  name, so the stamps would credit the wrong person. Switching is offered on the
-  shared `employee` login only: somebody signed in on their own account is
-  already that person, so the button is not shown and the picker is skipped.
+  names the clock that is in the way, and because the press is always recorded
+  against the person who made it, that clock is always the employee's own: it
+  says it is already counting, or that the set of work is done.
+- **Every press belongs to the person who signed in.** Each employee works the
+  board from their own account, so a press is recorded against them and needs no
+  name to be picked on the way in. A crew can still share one screen to work one
+  vehicle: each person signs in in turn, presses Start on their side, and gets a
+  clock of their own.
 - **Existing databases are upgraded in place.** Sessions from the one-clock-per-
   vehicle schema are backfilled as `scope = 'both'`, so they count towards both
   the inside and the outside totals while still being reported only once, and
@@ -447,10 +449,7 @@ is eventually reported.
   was never started are all rejected with an explanation and leave the record
   untouched. A rejection is answered with the vehicle's real state as well as
   the reason, so the board repaints the row rather than leaving the refused
-  button on screen. Because the board is shared, a press is recorded against
-  whoever is signed in, so a refusal that says "for you" also says what to do
-  when the board is *not* signed in as you ("Not you? Switch name"). Managers
-  get a read-only board.
+  button on screen. Managers get a read-only board.
 - **A crew working at the same time never blocks itself.** Several employees are
   on the board from their own devices at once, so a press regularly overlaps
   somebody else's page load or timer re-sync. The SQLite database is therefore
@@ -468,8 +467,8 @@ is eventually reported.
   anything, then reports what is really recorded: that your clock is running
   (so the press did land and there is nothing to press again), that a named
   colleague is already working that clock set (press **+ Add Me** to run a clock
-  of your own), that the board had lost your name (so the press was never
-  recorded), or — only when the re-read failed too — that the clock on screen
+  of your own), that your session had ended (so the press was never recorded), or
+  — only when the re-read failed too — that the clock on screen
   may be out of date and the page should be reloaded. It never claims a re-check
   that did not happen.
 - **Nothing runs forever.** Finishing a timer is not the only way a clock stops:

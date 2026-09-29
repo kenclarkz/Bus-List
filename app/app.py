@@ -1171,10 +1171,31 @@ def register_routes(app):
             return None
         return UserAccount.query.get(account_id)
 
+    def _employee_for_account(name, employee_id=None):
+        """The staff record an Employee account's work is recorded against.
+
+        Uses the one the Manager picked; otherwise matches one already on file
+        under that name, so re-adding somebody does not duplicate them; and
+        otherwise adds them, because an account with nobody to work as could
+        never check off a task.
+        """
+        if employee_id:
+            emp = Employee.query.get(employee_id)
+            if emp and emp.active:
+                return emp
+        existing = Employee.query.filter(
+            db.func.lower(Employee.name) == (name or "").strip().lower()).first()
+        if existing is not None:
+            return existing
+        emp = Employee(name=name, location_id=vehicles.default_location().id)
+        db.session.add(emp)
+        db.session.flush()
+        return emp
+
     def _bound_employee(account):
         """The staff record an individual account is tied to, when it is still
-        an active employee. None for Managers, Drivers, and for the shared
-        employee login that picks its own name each visit."""
+        an active employee. None for Managers and Drivers, who have no board
+        work of their own to record."""
         if account is None or account.role != UserAccount.ROLE_EMPLOYEE:
             return None
         if not account.employee_id:
@@ -1182,22 +1203,41 @@ def register_routes(app):
         emp = Employee.query.get(account.employee_id)
         return emp if emp and emp.active else None
 
+    def _ensure_bound_employee(account):
+        """The staff record this Employee account is recorded against, tying
+        the account to one if it is not already.
+
+        The account is the person's identity: signing in *is* saying who they
+        are, so an account that somehow has no staff record behind it is given
+        one -- the one already on file under their name, or a new record -- and
+        the link is saved. From then on their tasks and timers are recorded
+        against them without anything having to be picked on the way in.
+        """
+        if account is None or account.role != UserAccount.ROLE_EMPLOYEE:
+            return None
+        emp = _bound_employee(account)
+        if emp is not None:
+            return emp
+        emp = _employee_for_account(account.name, account.employee_id)
+        account.employee = emp
+        return emp
+
     def _sign_in(account):
         """Start a session for ``account``.
 
         The role is stored alongside the account id so the rest of the request
         handling can still ask "is this an employee?" the way it always has,
-        while the account id is what actually identifies the person.
+        while the account id is what actually identifies the person. Signing in
+        also settles who they are: an Employee account is tied to its own staff
+        record here, so the board opens with their name on it and every task
+        they check and every clock they run is recorded against them.
         """
         session.clear()
         session["user_id"] = account.id
         session["user"] = account.role
         session["username"] = account.name
-        emp = _bound_employee(account)
+        emp = _ensure_bound_employee(account)
         if emp is not None:
-            # An individual account is already that person: their tasks and
-            # timers are recorded against them, so the board opens straight
-            # away instead of asking who they are.
             session["employee_id"] = emp.id
             session["employee_name"] = emp.name
         account.last_login_at = datetime.utcnow()
@@ -1207,14 +1247,10 @@ def register_routes(app):
     def inject_globals():
         account = _signed_in_account()
         user = account.role if account else None
+        # The signed-in person's own staff record, which is what their board
+        # work is recorded against. A record taken off the staff list since they
+        # signed in does not come back with the session.
         emp = _bound_employee(account)
-        if emp is None and user == UserAccount.ROLE_EMPLOYEE and \
-                session.get("employee_id"):
-            # The shared employee login: whoever was picked on the board. A
-            # staff record taken off the list since they picked it does not
-            # come back with the session.
-            picked = Employee.query.get(session["employee_id"])
-            emp = picked if picked and picked.active else None
         emp_id = emp.id if emp is not None else None
         # Resolve the signed-in user's own stored theme ("on"|"off"|"system"|
         # "futuristic"|"halloween"|"bloomberg"|"retro"|"holographic"|
@@ -1232,6 +1268,11 @@ def register_routes(app):
             "current_user": account.name if account else None,
             "current_account": account,
             "current_employee": emp,
+            # An Employee account whose staff record has since been taken off
+            # the list: they can see the board but there is nobody for their
+            # work to be recorded against, so the board says so.
+            "employee_record_removed": bool(
+                user == UserAccount.ROLE_EMPLOYEE and emp is None),
             "dark_mode": resolved_dark_mode,
             "layout": settings.get_user_layout(user, emp_id),
             "nav_links": _nav_links(role),
@@ -1270,13 +1311,6 @@ def register_routes(app):
         # Vehicles, Staff and operational Settings are manager-only.
         if user != "manager" and request.endpoint in MANAGER_ONLY_ENDPOINTS:
             return redirect(url_for("dashboard"))
-        # Employees must pick their name from the dropdown before using the
-        # board. An account tied to one person skips this: they already are
-        # that person. Login, the splash animation and the picker itself are
-        # exempt.
-        if user == "employee" and not session.get("employee_id") and \
-                request.endpoint not in ("splash", "select_employee"):
-            return redirect(url_for("select_employee"))
         return None
 
     @app.route("/login", methods=["GET", "POST"])
@@ -1301,41 +1335,6 @@ def register_routes(app):
     def splash():
         """Fullscreen intro animation played after login before the dashboard."""
         return render_template("splash.html")
-
-    @app.route("/select", methods=["GET", "POST"])
-    def select_employee():
-        """After the splash, employees pick their name before the board unlocks.
-
-        It is also how a shared board changes hands: picking a name here is how
-        the next person takes over, so their tasks and timers are recorded
-        against them instead of against whoever is signed in at the time.
-        Someone on their own account has no name to pick -- they are already
-        that person -- so they go straight to the board.
-        """
-        account = _signed_in_account()
-        if account is None:
-            return redirect(url_for("login"))
-        if account.role == UserAccount.ROLE_DRIVER:
-            return redirect(url_for("driver_dashboard"))
-        if account.role != UserAccount.ROLE_EMPLOYEE:
-            return redirect(url_for("dashboard"))
-        if _bound_employee(account) is not None:
-            return redirect(url_for("dashboard"))
-        if request.method == "POST":
-            try:
-                emp = Employee.query.get(int(request.form.get("employee_id")))
-            except (TypeError, ValueError):
-                emp = None
-            if emp and emp.active:
-                session["employee_id"] = emp.id
-                session["employee_name"] = emp.name
-                # Also the way a shared board changes hands mid-shift, so the
-                # wording covers signing in and switching alike.
-                flash(f"Working as {emp.name}", "success")
-                return redirect(url_for("dashboard"))
-            flash("Please choose your name to continue", "error")
-            return redirect(url_for("select_employee"))
-        return render_template("select.html", employees=employees_list())
 
     @app.route("/logout", methods=["POST"])
     def logout():
@@ -2162,27 +2161,6 @@ def register_routes(app):
             candidate = f"{base}{suffix}"
             suffix += 1
         return candidate
-
-    def _employee_for_account(name, employee_id=None):
-        """The staff record an Employee account's work is recorded against.
-
-        Uses the one the Manager picked; otherwise matches one already on file
-        under that name, so re-adding somebody does not duplicate them; and
-        otherwise adds them, because an account with nobody to work as could
-        never check off a task.
-        """
-        if employee_id:
-            emp = Employee.query.get(employee_id)
-            if emp and emp.active:
-                return emp
-        existing = Employee.query.filter(
-            db.func.lower(Employee.name) == (name or "").strip().lower()).first()
-        if existing is not None:
-            return existing
-        emp = Employee(name=name, location_id=vehicles.default_location().id)
-        db.session.add(emp)
-        db.session.flush()
-        return emp
 
     @app.route("/employees", methods=["GET", "POST"])
     def employees_page():

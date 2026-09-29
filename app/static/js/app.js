@@ -668,9 +668,9 @@ function bindPrepButtons(root) {
 // caller can re-read the vehicle's real state instead of guessing.
 //
 // "unreadable" is not one thing, and the employee can act on each differently,
-// so what happened is carried along: a redirect to the name picker or the login
-// page means the session had already ended and the press was never recorded,
-// while no answer at all means the device lost the server.
+// so what happened is carried along: a redirect to the login page means the
+// session had already ended and the press was never recorded, while no answer
+// at all means the device lost the server.
 function postBoardAction(url, body) {
   return fetch(url, { method: 'POST', body: body }).then(function (r) {
     return r.text().then(function (text) {
@@ -681,7 +681,7 @@ function postBoardAction(url, body) {
         ok: false,
         unreadable: true,
         status: r.status,
-        signed_out: !!r.redirected && /(\/select|\/login)/.test(r.url || '')
+        signed_out: !!r.redirected && /\/login/.test(r.url || '')
       };
     });
   }, function () {
@@ -699,8 +699,10 @@ function runPrepAction(btn) {
   var scope = btn.getAttribute('data-prep-scope') || 'inside';
   if (!PREP_ACTIONS[action] || !entryId) return;
   if (!CURRENT_EMPLOYEE) {
-    alert('Please pick your name first.');
-    window.location.href = '/select';
+    // The board did not render a signed-in person's staff record, so there is
+    // nothing to record the press against. Re-signing in picks it back up.
+    alert('Your account is not showing who you are working as.');
+    window.location.href = '/login';
     return;
   }
   btn.disabled = true;
@@ -955,8 +957,8 @@ function resyncPrepTimers() {
 function explainUnreadableAction(entryId, scope, action, data) {
   resyncPrepTimers().then(function (fresh) {
     if (data && data.signed_out) {
-      alert('The board had lost your name, so that press was not recorded. ' +
-        'Pick your name again, then ' + prepActionVerb(action) + ' this vehicle.');
+      alert('Your session had ended, so that press was not recorded. ' +
+        'Sign in again, then ' + prepActionVerb(action) + ' this vehicle.');
       return;
     }
     var board = fresh && (fresh.sessions || {})[entryId];
