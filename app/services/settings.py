@@ -9,13 +9,19 @@ DEFAULTS = {
     "checklist": "Sweep,Mop,Windows,Seats,Bathroom,Dump,Bay Checked,Final Inspection",
     "checklist_inside": "Sweep,Mop,Windows,Seats,Bathroom",
     "checklist_outside": "Dump,Bay Checked,Final Inspection",
-    "dark_mode": "off",       # global fallback theme: off | on | system | futuristic | halloween | bloomberg | retro | holographic
+    "dark_mode": "off",       # global fallback theme: off | on | system | futuristic | halloween | bloomberg | retro | holographic | synthwave | cosmos | cyberpunk | aurora | ocean | crystal | matrix | dunes
     "layout": "classic",      # global fallback layout: classic | sidepanel
 }
 
 # Valid theme choices. Each user may store their own under a per-user key.
+# "off" is the plain light palette, "on" is the plain dark palette and
+# "system" follows the OS; everything else is a themed look defined in
+# app/static/css/style.css. The 3D themes (synthwave, cosmos, cyberpunk,
+# aurora, ocean, crystal, matrix, dunes) all have continuous background
+# animation, so they honour prefers-reduced-motion.
 THEME_CHOICES = ("off", "on", "system", "futuristic", "halloween", "bloomberg",
-                 "retro", "holographic")
+                 "retro", "holographic", "synthwave", "cosmos", "cyberpunk",
+                 "aurora", "ocean", "crystal", "matrix", "dunes")
 
 # Valid layout choices. Layout is how the site chrome is arranged (top bar vs
 # sidebar); it is independent of the color theme. Each user may store their

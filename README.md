@@ -128,9 +128,14 @@ report. It is not a static mockup.
     search, clear daily workflow. Two site layouts are available and can be
     switched per user in **Settings**: **Classic** (top navigation bar, the
     default design) and **Side Panel** (a new design with a fixed sidebar
-    navigation, sticky toolbar and wider content column). Layouts are
+     navigation, sticky toolbar and wider content column). Layouts are
 independent of the color themes (Light / Dark / System / Futuristic /
-     Halloween / Bloomberg Terminal / Retro 90s / Holographic).
+     Halloween / Bloomberg Terminal / Retro 90s / Holographic), and a further
+     group of **3D & motion** themes (Synthwave, Cosmos, Cyberpunk, Aurora,
+     Ocean, Crystal, Matrix, Dunes) adds a three-dimensional scene with a
+     continuously animated background. Those themes follow the operating
+     system's reduced-motion setting, and where the browser supports it their
+     parallax is tied to scroll position.
 12. **Incident Reports** — a dedicated tab where anyone can report an issue
     for any vehicle: type (Mechanical / Interior / Exterior / Damage /
     Safety / Other), severity, location, description, date/time, and employee,
@@ -213,6 +218,14 @@ Thresholds (Recently Washed / Due Soon), the task list — split into
 configurable in the **Settings** page at runtime. Themes and layouts are saved
 per account, so each user keeps their own appearance. Per-vehicle-type
 checklists can override the global default.
+
+A theme is just an id from `THEME_CHOICES` in `app/services/settings.py`; the
+look itself is a `html[data-theme="<id>"]` block in
+`app/static/css/style.css`. Adding one means four edits: register the id in
+`THEME_CHOICES`, add the CSS block (plus a `@media print` block that forces
+light tokens so reports don't ink out), add an `<option>` to the `dark_mode`
+select in `templates/settings.html`, and add a test pair in
+`tests/test_app.py`.
 
 ---
 

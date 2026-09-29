@@ -1602,6 +1602,61 @@ def test_holographic_theme_survives_saving_other_settings(manager_client, app):
     assert b'data-theme="holographic"' in manager_client.get("/settings").data
 
 
+# The 3D & motion themes. Each one is a real choice in the Settings dropdown,
+# persists per user, and survives saving a different settings form.
+THEMES_3D = ["synthwave", "cosmos", "cyberpunk", "aurora", "ocean",
+             "crystal", "matrix", "dunes"]
+
+
+@pytest.mark.parametrize("theme", THEMES_3D)
+def test_3d_theme_can_be_turned_on(manager_client, app, theme):
+    r = manager_client.post("/settings", data={
+        "dark_mode": theme,
+        "recent_days": "2",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_theme("manager") == theme
+    assert f'data-theme="{theme}"'.encode() in manager_client.get("/").data
+    assert f'data-theme="{theme}"'.encode() in manager_client.get("/settings").data
+
+
+@pytest.mark.parametrize("theme", THEMES_3D)
+def test_3d_theme_survives_saving_other_settings(manager_client, app, theme):
+    manager_client.post("/settings", data={"dark_mode": theme})
+    r = manager_client.post("/settings", data={
+        "recent_days": "3",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+        "checklist_inside": "Sweep,Mop",
+        "checklist_outside": "Dump",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_theme("manager") == theme
+    assert f'data-theme="{theme}"'.encode() in manager_client.get("/").data
+
+
+@pytest.mark.parametrize("theme", THEMES_3D)
+def test_3d_theme_is_offered_in_settings(manager_client, theme):
+    body = manager_client.get("/settings").data.decode()
+    assert f'<option value="{theme}"' in body
+
+
+def test_every_theme_choice_is_offered_in_settings(manager_client):
+    """A theme is only usable if it is both a valid choice and in the dropdown."""
+    from app.services import settings as s
+    body = manager_client.get("/settings").data.decode()
+    for theme in s.THEME_CHOICES:
+        assert f'<option value="{theme}"' in body, f"{theme} missing from dropdown"
+
+
 def test_theme_is_per_user(client, manager_client, app):
     """Manager, employee and driver each keep their own theme, and a change by
     one never affects the others."""
