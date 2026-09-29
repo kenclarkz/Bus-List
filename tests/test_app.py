@@ -1371,16 +1371,18 @@ def test_settings_lifecycle(manager_client, app):
         "recent_days": "3",
         "due_soon_days": "10",
         "location": "Main Depot",
-        "checklist_inside": "Sweep,Mop,Windows",
-        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
         from app.services import settings as s
         assert s.get_setting("recent_days") == "3"
-        assert s.get_checklist_inside() == ["Sweep", "Mop", "Windows"]
-        assert s.get_checklist_outside() == ["Dump"]
-        assert s.get_checklist() == ["Sweep", "Mop", "Windows", "Dump"]
+        assert s.get_setting("due_soon_days") == "10"
+        # The checklist is no longer a site-wide setting: it belongs to each
+        # vehicle type, and saving the operational settings leaves it alone.
+        assert s.get_setting("checklist_inside") is None
+        assert s.get_setting("checklist_outside") is None
+        vt = s.get_type_categorized_checklist(None)
+        assert vt == s.standard_categorized_checklist()
 
 
 def test_dark_mode_defaults_off_and_renders_theme(manager_client):
@@ -1396,8 +1398,6 @@ def test_dark_mode_can_be_turned_on(manager_client, app):
         "recent_days": "2",
         "due_soon_days": "7",
         "location": "Main Depot",
-        "checklist_inside": "Sweep,Mop",
-        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
@@ -1413,8 +1413,6 @@ def test_dark_mode_survives_saving_other_settings(manager_client, app):
         "recent_days": "3",
         "due_soon_days": "7",
         "location": "Main Depot",
-        "checklist_inside": "Sweep,Mop",
-        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
@@ -1436,8 +1434,6 @@ def test_futuristic_theme_can_be_turned_on(manager_client, app):
         "recent_days": "2",
         "due_soon_days": "7",
         "location": "Main Depot",
-        "checklist_inside": "Sweep,Mop",
-        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
@@ -1453,8 +1449,6 @@ def test_futuristic_theme_survives_saving_other_settings(manager_client, app):
         "recent_days": "3",
         "due_soon_days": "7",
         "location": "Main Depot",
-        "checklist_inside": "Sweep,Mop",
-        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
@@ -1470,8 +1464,6 @@ def test_halloween_theme_can_be_turned_on(manager_client, app):
         "recent_days": "2",
         "due_soon_days": "7",
         "location": "Main Depot",
-        "checklist_inside": "Sweep,Mop",
-        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
@@ -1487,8 +1479,6 @@ def test_halloween_theme_survives_saving_other_settings(manager_client, app):
         "recent_days": "3",
         "due_soon_days": "7",
         "location": "Main Depot",
-        "checklist_inside": "Sweep,Mop",
-        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
@@ -1504,8 +1494,6 @@ def test_bloomberg_theme_can_be_turned_on(manager_client, app):
         "recent_days": "2",
         "due_soon_days": "7",
         "location": "Main Depot",
-        "checklist_inside": "Sweep,Mop",
-        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
@@ -1522,8 +1510,6 @@ def test_bloomberg_theme_survives_saving_other_settings(manager_client, app):
         "recent_days": "3",
         "due_soon_days": "7",
         "location": "Main Depot",
-        "checklist_inside": "Sweep,Mop",
-        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
@@ -1539,8 +1525,6 @@ def test_retro_theme_can_be_turned_on(manager_client, app):
         "recent_days": "2",
         "due_soon_days": "7",
         "location": "Main Depot",
-        "checklist_inside": "Sweep,Mop",
-        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
@@ -1557,8 +1541,6 @@ def test_retro_theme_survives_saving_other_settings(manager_client, app):
         "recent_days": "3",
         "due_soon_days": "7",
         "location": "Main Depot",
-        "checklist_inside": "Sweep,Mop",
-        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
@@ -1574,8 +1556,6 @@ def test_holographic_theme_can_be_turned_on(manager_client, app):
         "recent_days": "2",
         "due_soon_days": "7",
         "location": "Main Depot",
-        "checklist_inside": "Sweep,Mop",
-        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
@@ -1592,8 +1572,6 @@ def test_holographic_theme_survives_saving_other_settings(manager_client, app):
         "recent_days": "3",
         "due_soon_days": "7",
         "location": "Main Depot",
-        "checklist_inside": "Sweep,Mop",
-        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
@@ -1616,8 +1594,6 @@ def test_3d_theme_can_be_turned_on(manager_client, app, theme):
         "recent_days": "2",
         "due_soon_days": "7",
         "location": "Main Depot",
-        "checklist_inside": "Sweep,Mop",
-        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
@@ -1634,8 +1610,6 @@ def test_3d_theme_survives_saving_other_settings(manager_client, app, theme):
         "recent_days": "3",
         "due_soon_days": "7",
         "location": "Main Depot",
-        "checklist_inside": "Sweep,Mop",
-        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
@@ -1753,8 +1727,6 @@ def test_layout_survives_saving_theme_and_other_settings(manager_client, app):
         "recent_days": "3",
         "due_soon_days": "7",
         "location": "Main Depot",
-        "checklist_inside": "Sweep,Mop",
-        "checklist_outside": "Dump",
     })
     assert r.status_code == 302
     with app.app_context():
@@ -1812,25 +1784,35 @@ def test_layout_chooser_is_in_settings_not_topbar(client, app):
     assert "Side Panel (new)" in html
 
 
-def test_categorized_checklist_setting_and_defaults(app):
-    """Verify the default Inside/Outside split and that custom values stick."""
+def test_standard_checklist_and_per_type_lists(app):
+    """There is one standard Inside/Outside split, it belongs to a vehicle type
+    rather than to the site, and a type's own list is what is read back."""
     from app.services import settings as s
+    from app.services.vehicles import get_or_create_vehicle_type
     with app.app_context():
-        assert s.get_checklist_inside() == [
-            "Sweep", "Mop", "Windows", "Seats", "Bathroom"]
-        assert s.get_checklist_outside() == [
-            "Dump", "Bay Checked", "Final Inspection"]
-        # Combined flat list preserves order inside then outside
-        assert s.get_checklist() == [
-            "Sweep", "Mop", "Windows", "Seats", "Bathroom",
-            "Dump", "Bay Checked", "Final Inspection"]
+        standard = s.standard_categorized_checklist()
+        assert standard == {
+            "inside": ["Sweep", "Mop", "Windows", "Seats", "Bathroom"],
+            "outside": ["Dump", "Bay Checked", "Final Inspection"],
+        }
+        # A type created without a list of its own starts from the standard
+        # one, stored on the type itself.
+        vt = get_or_create_vehicle_type("STANDARDBUS")
+        assert vt.checklist == s.standard_type_checklist()
+        assert s.get_type_categorized_checklist(vt) == standard
+        # A flat list preserves order, inside first.
+        assert s.get_type_checklist(vt) == standard["inside"] + standard["outside"]
 
-        # Custom categorized values
-        s.set_setting("checklist_inside", "Vacuum,Wipe Seats")
-        s.set_setting("checklist_outside", "Wash Body,Windows")
-        assert s.get_checklist_inside() == ["Vacuum", "Wipe Seats"]
-        assert s.get_checklist_outside() == ["Wash Body", "Windows"]
-        assert s.get_checklist() == ["Vacuum", "Wipe Seats", "Wash Body", "Windows"]
+        # One type's own list is its own alone: it never reaches another type.
+        other = get_or_create_vehicle_type("OTHERBUS")
+        other.checklist = s.format_type_checklist_for_storage(
+            ["Vacuum", "Wipe Seats"], ["Wash Body", "Windows"])
+        db.session.commit()
+        assert s.get_type_categorized_checklist(other) == {
+            "inside": ["Vacuum", "Wipe Seats"],
+            "outside": ["Wash Body", "Windows"],
+        }
+        assert s.get_type_categorized_checklist(vt) == standard
 
 
 def test_categorized_type_checklist_parsing(app):
@@ -1864,23 +1846,29 @@ def test_settings_page_renders_inside_outside(manager_client, app):
 
 def test_task_category_matches_the_two_clock_sets(app):
     """A task and the clock set that opens it are the same one, so the board
-    never offers the outside boxes on a vehicle nobody has started outside."""
+    never offers the outside boxes on a vehicle nobody has started outside.
+    Which side a task falls on is a fact about the vehicle's own type."""
     from app.services import settings as s
+    from app.services.vehicles import get_or_create_vehicle_type
     with app.app_context():
-        assert s.task_category("Sweep") == "inside"
-        assert s.task_category("Dump") == "outside"
+        standard = s.standard_categorized_checklist()
+        assert s.task_category("Sweep", standard) == "inside"
+        assert s.task_category("Dump", standard) == "outside"
         # A name left behind by an edited checklist is treated as inside, so it
         # is never stranded in a group nothing can open.
-        assert s.task_category("Retired Task") == "inside"
-        s.set_setting("checklist_inside", "Vacuum,Wipe Seats")
-        s.set_setting("checklist_outside", "Wash Body")
-        assert s.task_category("Vacuum") == "inside"
-        assert s.task_category("Wash Body") == "outside"
-        # A checklist already read is reusable, so categorising a whole
-        # vehicle's tasks does not re-read the same two settings per task.
-        checklist = s.get_categorized_checklist()
+        assert s.task_category("Retired Task", standard) == "inside"
+
+        vt = get_or_create_vehicle_type("CATEGORYBUS")
+        vt.checklist = "Inside: Vacuum, Wipe Seats | Outside: Wash Body"
+        db.session.commit()
+        checklist = s.get_type_categorized_checklist(vt)
         assert [s.task_category(n, checklist)
                 for n in ("Vacuum", "Wash Body")] == ["inside", "outside"]
+        # The same name is read against the list it belongs to: "Windows" is
+        # outside work on this type and inside work on the standard one.
+        assert s.task_category("Windows", checklist) == "inside"
+        assert s.task_category("Windows", standard) == "inside"
+        assert s.task_category("Wash Body", standard) == "inside"
 
 
 # ---------------------------------------------------------------------------
@@ -2267,8 +2255,8 @@ def test_completing_the_last_task_returns_the_status_that_ticks_the_row(client, 
 
 
 def test_per_vehicle_type_checklist(app):
-    """A vehicle type with its own checklist gets those tasks; a type without
-    one falls back to the global default checklist."""
+    """A vehicle type with its own checklist gets those tasks; a type whose list
+    has been cleared is worked from the standard list instead."""
     from app.models import VehicleType
     from app.services import schedule as ss
     from app.services.vehicles import find_or_create_vehicle, \
@@ -2279,7 +2267,9 @@ def test_per_vehicle_type_checklist(app):
         custom.checklist = "Inside: Sweep, Windows | Outside: Bay Checked"
         db.session.commit()
 
-        plain = get_or_create_vehicle_type("VAN")  # no checklist
+        plain = get_or_create_vehicle_type("VAN")
+        plain.checklist = None  # a type whose list has been cleared
+        db.session.commit()
 
         loc = default_location()
         sched = ss.get_or_create_schedule(location=loc)
@@ -2297,6 +2287,70 @@ def test_per_vehicle_type_checklist(app):
         assert t1 == ["Bay Checked", "Sweep", "Windows"]
         assert t2 == ["Bathroom", "Bay Checked", "Dump", "Final Inspection",
                       "Mop", "Seats", "Sweep", "Windows"]
+
+
+def test_entry_task_groups_follow_the_type_order(app):
+    """The two task groups of an entry are its vehicle type's own lists, in the
+    order that type types them, whatever order the rows are stored in."""
+    from app.services import schedule as ss
+    from app.services.vehicles import find_or_create_vehicle, \
+        get_or_create_vehicle_type, default_location
+
+    with app.app_context():
+        vt = get_or_create_vehicle_type("ORDERBUS")
+        vt.checklist = "Inside: Mop, Sweep | Outside: Bay Checked, Dump"
+        db.session.commit()
+        loc = default_location()
+        sched = ss.get_or_create_schedule(location=loc)
+        v, _ = find_or_create_vehicle("744", vehicle_type="ORDERBUS",
+                                      location_id=loc.id)
+        entry = ss.ensure_entry(sched, v, order_index=0)
+        groups = ss.entry_task_groups(entry)
+        assert [t.task_name for t in groups["inside"]] == ["Mop", "Sweep"]
+        assert [t.task_name for t in groups["outside"]] == ["Bay Checked", "Dump"]
+
+        # A task the type's current list no longer mentions is still shown, at
+        # the end of its own group, rather than dropped from the record.
+        entry.tasks.append(TaskCompletion(task_name="Windows", completed=False))
+        db.session.commit()
+        groups = ss.entry_task_groups(entry)
+        assert [t.task_name for t in groups["inside"]] == ["Mop", "Sweep", "Windows"]
+        assert [t.task_name for t in groups["outside"]] == ["Bay Checked", "Dump"]
+
+
+def test_board_shows_each_types_own_tasks_in_order(client, app):
+    """Two vehicle types on the same board each show exactly their own Inside
+    and Outside tasks, in the order their type lists them."""
+    import re
+    from app.services import schedule as ss
+    from app.services.vehicles import find_or_create_vehicle, \
+        get_or_create_vehicle_type, default_location
+
+    with app.app_context():
+        loc = default_location()
+        first = get_or_create_vehicle_type("ORDERONE")
+        first.checklist = "Inside: Mop, Sweep | Outside: Bay Checked, Dump"
+        second = get_or_create_vehicle_type("ORDERTWO")
+        second.checklist = "Inside: Seats | Outside: Vacuum"
+        db.session.commit()
+        sched = ss.get_or_create_schedule(location=loc)
+        v1, _ = find_or_create_vehicle("745", vehicle_type="ORDERONE",
+                                       location_id=loc.id)
+        v2, _ = find_or_create_vehicle("746", vehicle_type="ORDERTWO",
+                                       location_id=loc.id)
+        first_entry = ss.ensure_entry(sched, v1, order_index=0).id
+        second_entry = ss.ensure_entry(sched, v2, order_index=1).id
+
+    html = client.get("/").data.decode()
+
+    def tasks_in(entry_id, scope):
+        group = task_group(board_row(html, entry_id), scope)
+        return re.findall(r'data-task="([^"]+)"', group)
+
+    assert tasks_in(first_entry, "inside") == ["Mop", "Sweep"]
+    assert tasks_in(first_entry, "outside") == ["Bay Checked", "Dump"]
+    assert tasks_in(second_entry, "inside") == ["Seats"]
+    assert tasks_in(second_entry, "outside") == ["Vacuum"]
 
 
 def test_stale_current_vehicle_cleared_on_dashboard_load(client, app):
@@ -6325,11 +6379,15 @@ def test_done_with_vehicle_completes_it_with_tasks_left(client, app):
     assert body["entry_status"] == "completed"
     assert body["entry_completed"] is True
     assert body["unit"] == "962"
-    # The tasks left undone are named, so the record says which ones.
-    incomplete = sorted(t.task_name for t in sched_svc_entry_tasks(app, entry_id)
-                        if not t.completed)
+    # The tasks left undone are named, in the vehicle type's own order and with
+    # the side of the vehicle each belongs to, so the record says which ones.
+    incomplete = {t.task_name for t in sched_svc_entry_tasks(app, entry_id)
+                  if not t.completed}
     assert incomplete
-    assert sorted(body["incomplete"]) == incomplete
+    assert {label.split(" (")[0] for label in body["incomplete"]} == incomplete
+    assert body["incomplete"] == [
+        "Mop (inside)", "Windows (inside)", "Seats (inside)", "Bathroom (inside)",
+        "Dump (outside)", "Bay Checked (outside)", "Final Inspection (outside)"]
     # It counts the vehicle as completed, which moves the day's totals.
     assert body["counters"]["completed"] == 1
     assert body["counters"]["remaining"] == 0

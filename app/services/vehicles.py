@@ -69,7 +69,8 @@ def get_or_create_vehicle_type(name):
     vt = VehicleType.query.filter_by(name=name).first()
     if not vt:
         vt = VehicleType(name=name, cleaning_frequency_days=settings.get_setting(
-            "default_frequency", 7))
+            "default_frequency", 7),
+            checklist=settings.standard_type_checklist())
         db.session.add(vt)
         db.session.commit()
     return vt

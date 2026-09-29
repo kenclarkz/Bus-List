@@ -304,7 +304,7 @@
          {% if not r.tasks_open.inside %}hidden{% endif %}>
       <span class="checklist-group-label">Inside</span>
       <div class="checklist-group-items">
-      {% for t in entry.tasks if t.task_name|task_category == 'inside' %}
+      {% for t in r.task_groups.inside %}
       <label class="ck {{ 'done' if t.completed }}">
         <input type="checkbox" data-entry="{{ entry.id }}" data-task="{{ t.task_name }}"
                {{ 'checked' if t.completed }}
@@ -320,7 +320,7 @@
          {% if not r.tasks_open.outside %}hidden{% endif %}>
       <span class="checklist-group-label">Outside</span>
       <div class="checklist-group-items">
-      {% for t in entry.tasks if t.task_name|task_category == 'outside' %}
+      {% for t in r.task_groups.outside %}
       <label class="ck {{ 'done' if t.completed }}">
         <input type="checkbox" data-entry="{{ entry.id }}" data-task="{{ t.task_name }}"
                {{ 'checked' if t.completed }}
@@ -380,11 +380,18 @@
      finished it early sees what they left, and a manager opening the row later
      sees the same thing. app.js builds this same note on the press. #}
   {% if entry.status == 'completed' or (current_role == 'manager' and entry.status == 'in_progress') %}
-  {% set incomplete_tasks = entry.tasks|selectattr('completed', 'false')|list %}
-  {% if incomplete_tasks %}
+  {# Read in the row's own typed order: every Inside task it lists, then every
+     Outside one, each named with the side it belongs to on this vehicle's type. #}
+  {% set ns = namespace(incomplete=[]) %}
+  {% for scope in ['inside', 'outside'] %}
+    {% for t in r.task_groups[scope]|selectattr('completed', 'false')|list %}
+      {% set _ = ns.incomplete.append((t.task_name, scope)) %}
+    {% endfor %}
+  {% endfor %}
+  {% if ns.incomplete %}
   <div class="flash flash-warn incomplete-tasks" style="margin-top:8px;padding:8px 12px;font-size:.8rem">
     <strong>Not completed:</strong>
-    {% for t in incomplete_tasks %}{{ t.task_name }} ({{ t.task_name|task_category }}){% if not loop.last %}, {% endif %}{% endfor %}
+    {% for name, scope in ns.incomplete %}{{ name }} ({{ scope }}){% if not loop.last %}, {% endif %}{% endfor %}
   </div>
   {% endif %}
   {% endif %}

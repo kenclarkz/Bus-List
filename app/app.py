@@ -261,6 +261,15 @@ def _migrate():
         if "checklist" not in tcols:
             con.execute("ALTER TABLE vehicle_types ADD COLUMN checklist TEXT")
             con.commit()
+        # A vehicle type's checklist is its own now -- there is no shared default
+        # left for one to fall back on -- so give every type that has never been
+        # given a list of its own the standard Inside/Outside list to start from.
+        # Types that already have one are left exactly as their manager typed it.
+        con.execute(
+            "UPDATE vehicle_types SET checklist = ? "
+            "WHERE checklist IS NULL OR TRIM(checklist) = ''",
+            (settings.standard_type_checklist(),))
+        con.commit()
         ecols = {r[1] for r in con.execute("PRAGMA table_info(employees)")}
         if "current_vehicle_id" not in ecols:
             con.execute("ALTER TABLE employees ADD COLUMN current_vehicle_id INTEGER")
@@ -820,6 +829,7 @@ def build_schedule_view(sched):
             and (entry.status == "completed" or replacer is not None)
         )
         prep = prep_timer.state(entry)
+        task_groups = sched_svc.entry_task_groups(entry)
         rows.append({
             "entry": entry,
             "vehicle": entry.vehicle,
@@ -851,29 +861,32 @@ def build_schedule_view(sched):
             # yet. A group that already has work ticked in it, or a vehicle
             # that is finished, is always shown: those are a record of what
             # happened, not an invitation.
-            "tasks_open": _tasks_open(entry, prep),
+            "tasks_open": _tasks_open(entry, prep, task_groups),
             # The work each of those two clock sets covers, so a row can say
             # what "Inside" and "Outside" mean for this vehicle's type.
             "prep_tasks": settings.get_type_categorized_checklist(
                 entry.vehicle.vehicle_type),
+            # The tick boxes themselves, split by this vehicle type's own
+            # checklist and in the order it is typed, so every surface that
+            # renders this row shows the same tasks in the same order.
+            "task_groups": task_groups,
         })
     return rows
 
 
-def _tasks_open(entry, prep):
+def _tasks_open(entry, prep, task_groups):
     """Whether each side of a vehicle's task list is on show.
 
+    Which side a ticked task belongs to comes from the vehicle type's own
+    checklist, so the two groups here are the ones the row actually shows.
     Mirrored in the browser (applyTaskGroups in app.js) so a Start press opens
     its group of boxes without waiting for a reload.
     """
     finished = entry.status == "completed"
-    categorized = settings.get_categorized_checklist()
     return {
         scope: (finished
                 or prep["scopes"][scope]["status"] != "none"
-                or any(t.completed
-                       and settings.task_category(t.task_name, categorized) == scope
-                       for t in entry.tasks))
+                or any(t.completed for t in task_groups[scope]))
         for scope in prep_timer.SCOPES
     }
 
@@ -1082,11 +1095,6 @@ def register_routes(app):
         except (ValueError, TypeError):
             return {}
 
-    @app.template_filter("task_category")
-    def task_category_filter(task_name):
-        """Return 'inside' or 'outside' based on the configured categories."""
-        return settings.task_category(task_name)
-
     @app.template_filter("incident_severity_class")
     def incident_severity_class_filter(value):
         return SEVERITY_CLASSES.get(value, "muted")
@@ -1145,9 +1153,6 @@ def register_routes(app):
         resolved_dark_mode = "dark" if raw_dark_mode == "on" else raw_dark_mode
         return {
             "today": date.today,
-            "checklist": settings.get_checklist(),
-            "checklist_inside": settings.get_checklist_inside(),
-            "checklist_outside": settings.get_checklist_outside(),
             "app_name": "Detailing Operations Dashboard",
             "current_role": user if user in ROLE_ACCOUNTS else "employee",
             "current_user": ROLE_ACCOUNTS.get(user, {}).get(
@@ -1363,8 +1368,7 @@ def register_routes(app):
             sched = db.session.get(DailySchedule, entry.schedule_id)
             done, total, pct = sched_svc.entry_progress(entry)
             payload["progress"] = {"done": done, "total": total, "pct": pct}
-            payload["incomplete"] = [t.task_name for t in entry.tasks
-                                     if not t.completed]
+            payload["incomplete"] = sched_svc.entry_incomplete_labels(entry)
             # Finishing a vehicle changes the day totals, so hand the client
             # freshly calculated counters for the stat tiles.
             counters = schedule_counters(build_schedule_view(sched))
@@ -1780,7 +1784,7 @@ def register_routes(app):
         prep_timer.stop_active(entry, employee_id=_acting_employee_id())
         sched_svc.complete_entry(entry)
         done, total, pct = sched_svc.entry_progress(entry)
-        incomplete = [t.task_name for t in entry.tasks if not t.completed]
+        incomplete = sched_svc.entry_incomplete_labels(entry)
         # Finishing a vehicle off early (with the boxes not all ticked) still
         # moves the day totals, so hand the client freshly calculated counters
         # for the stat tiles, and name the tasks it left undone so the row can
@@ -2066,15 +2070,9 @@ def register_routes(app):
                     val = request.form.get(key)
                     if val is not None:
                         settings.set_setting(key, val)
-                # Categorized checklist: Inside and Outside task lists.
-                inside = request.form.get("checklist_inside")
-                if inside is not None:
-                    settings.set_setting("checklist_inside", inside)
-                outside = request.form.get("checklist_outside")
-                if outside is not None:
-                    settings.set_setting("checklist_outside", outside)
-                # Per-vehicle-type checklists (Inside + Outside). A type uses
-                # the global default unless its own fields are submitted.
+                # Per-vehicle-type checklists (Inside + Outside). A type has no
+                # shared list to fall back on: these two fields are its list, and
+                # they are what that type's vehicles show on the board.
                 for vt in VehicleType.query.all():
                     in_val = request.form.get(f"type_checklist_inside_{vt.id}")
                     out_val = request.form.get(f"type_checklist_outside_{vt.id}")
@@ -2103,8 +2101,6 @@ def register_routes(app):
             "recent_days": settings.get_setting("recent_days", 2),
             "due_soon_days": settings.get_setting("due_soon_days", 7),
             "location": settings.get_setting("location") or "Main Depot",
-            "checklist_inside": ", ".join(settings.get_checklist_inside()),
-            "checklist_outside": ", ".join(settings.get_checklist_outside()),
             "dark_mode": settings.get_user_theme(user, emp_id),
             "layout": settings.get_user_layout(user, emp_id),
         }, vehicle_types=vtypes)

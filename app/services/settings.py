@@ -6,12 +6,27 @@ DEFAULTS = {
     "recent_days": "2",       # recently washed if last_washed within this many days
     "due_soon_days": "7",     # due soon if last_washed older than recent but under this
     "location": None,         # default location name for schedules/vehicles
-    "checklist": "Sweep,Mop,Windows,Seats,Bathroom,Dump,Bay Checked,Final Inspection",
-    "checklist_inside": "Sweep,Mop,Windows,Seats,Bathroom",
-    "checklist_outside": "Dump,Bay Checked,Final Inspection",
     "dark_mode": "off",       # global fallback theme: off | on | system | futuristic | halloween | bloomberg | retro | holographic | synthwave | cosmos | cyberpunk | aurora | ocean | crystal | matrix | dunes
     "layout": "classic",      # global fallback layout: classic | sidepanel
 }
+
+# The task list a vehicle type starts with, split into the work inside the
+# vehicle and the work outside it. There is no checklist outside a vehicle
+# type: this is what a newly created type (or one that has never been given a
+# list of its own) is worked from, and a manager edits each type's own copy in
+# Settings. The board shows a vehicle type's list exactly as it is typed here,
+# in this order, for that type alone.
+STANDARD_INSIDE_TASKS = ("Sweep", "Mop", "Windows", "Seats", "Bathroom")
+STANDARD_OUTSIDE_TASKS = ("Dump", "Bay Checked", "Final Inspection")
+
+
+def standard_categorized_checklist():
+    """The Inside/Outside split a vehicle type starts from."""
+    return {
+        "inside": list(STANDARD_INSIDE_TASKS),
+        "outside": list(STANDARD_OUTSIDE_TASKS),
+    }
+
 
 # Valid theme choices. Each user may store their own under a per-user key.
 # "off" is the plain light palette, "on" is the plain dark palette and
@@ -96,53 +111,19 @@ def set_setting(key, value):
     db.session.commit()
 
 
-def get_checklist():
-    """Return the combined flat list of all tasks (inside + outside)."""
-    inside = get_checklist_inside()
-    outside = get_checklist_outside()
-    return inside + outside
-
-
-def get_checklist_inside():
-    """Return the list of Inside tasks."""
-    raw = get_setting("checklist_inside")
-    if not raw:
-        return ["Sweep", "Mop", "Windows", "Seats", "Bathroom"]
-    return [x.strip() for x in raw.split(",") if x.strip()]
-
-
-def get_checklist_outside():
-    """Return the list of Outside tasks."""
-    raw = get_setting("checklist_outside")
-    if not raw:
-        return ["Dump", "Bay Checked", "Final Inspection"]
-    return [x.strip() for x in raw.split(",") if x.strip()]
-
-
-def get_categorized_checklist():
-    """Return a dict with 'inside' and 'outside' task lists."""
-    return {
-        "inside": get_checklist_inside(),
-        "outside": get_checklist_outside(),
-    }
-
-
-def task_category(task_name, categorized=None):
+def task_category(task_name, categorized):
     """Which of a vehicle's two clock sets a task belongs to.
 
     A task and the clock set that opens it are always the same one, so the
     board asks this rather than working it out again wherever it needs to know.
     A task that is not on either list (a name left behind by an edited
-    checklist, a task from a vehicle type's own list) is treated as inside.
+    checklist) is treated as inside.
 
-    ``categorized`` is a checklist already read from settings, for a caller
-    categorising a whole vehicle's tasks that would otherwise read the same two
-    settings once per task.
+    ``categorized`` is the checklist of the vehicle's own type, as returned by
+    :func:`get_type_categorized_checklist`: which side a task belongs to is a
+    fact about that type's list, never a global one, so it is always passed in
+    rather than guessed at.
     """
-    if categorized is None:
-        categorized = get_categorized_checklist()
-    if task_name in categorized["inside"]:
-        return "inside"
     if task_name in categorized["outside"]:
         return "outside"
     return "inside"
@@ -173,20 +154,35 @@ def _parse_categorized_checklist(raw):
 
 
 def get_type_checklist(vehicle_type):
-    """Return the flat comma-split checklist for a vehicle type, or the global
-    default checklist when the type has none set."""
-    if vehicle_type is not None and vehicle_type.checklist:
-        categorized = _parse_categorized_checklist(vehicle_type.checklist)
-        return categorized["inside"] + categorized["outside"]
-    return get_checklist()
+    """Return the flat checklist for a vehicle type, inside tasks first.
+
+    A type that has never been given a list of its own is worked from
+    :data:`STANDARD_INSIDE_TASKS` / :data:`STANDARD_OUTSIDE_TASKS`, so every
+    vehicle on the board always has tasks to tick.
+    """
+    categorized = get_type_categorized_checklist(vehicle_type)
+    return categorized["inside"] + categorized["outside"]
 
 
 def get_type_categorized_checklist(vehicle_type):
-    """Return a dict with 'inside' and 'outside' task lists for a vehicle type,
-    falling back to the global categorized default when the type has none set."""
+    """Return a vehicle type's own 'inside' and 'outside' task lists, in the
+    order they are typed.
+
+    This is the single source of the checklist: the board, the end-of-day
+    summary and the printed report all read a vehicle's list from here, so a
+    type shows exactly what its own Inside and Outside lists say, in that
+    order, and no other type's tasks ever appear on it.
+    """
     if vehicle_type is not None and vehicle_type.checklist:
         return _parse_categorized_checklist(vehicle_type.checklist)
-    return get_categorized_checklist()
+    return standard_categorized_checklist()
+
+
+def standard_type_checklist():
+    """The stored form of the standard Inside/Outside split, for a vehicle type
+    created without one of its own."""
+    return format_type_checklist_for_storage(
+        STANDARD_INSIDE_TASKS, STANDARD_OUTSIDE_TASKS)
 
 
 def format_type_checklist_for_storage(inside_tasks, outside_tasks):
