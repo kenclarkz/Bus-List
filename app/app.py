@@ -819,6 +819,7 @@ def build_schedule_view(sched):
             and not skipped
             and (entry.status == "completed" or replacer is not None)
         )
+        prep = prep_timer.state(entry)
         rows.append({
             "entry": entry,
             "vehicle": entry.vehicle,
@@ -841,13 +842,40 @@ def build_schedule_view(sched):
             "replaced_by": replacer.vehicle if replacer else None,
             # Prep timer: Start / Pause / Resume / Done state for this vehicle,
             # one clock set for the inside work and one for the outside work.
-            "prep": prep_timer.state(entry),
+            "prep": prep,
+            # Which side of the vehicle the task list has been opened up for.
+            # The boxes inside a vehicle and the boxes outside it are only
+            # worth showing once somebody is actually working that side, so a
+            # vehicle nobody has started reads as a clock and a Start button
+            # rather than as a wall of boxes that cannot honestly be ticked
+            # yet. A group that already has work ticked in it, or a vehicle
+            # that is finished, is always shown: those are a record of what
+            # happened, not an invitation.
+            "tasks_open": _tasks_open(entry, prep),
             # The work each of those two clock sets covers, so a row can say
             # what "Inside" and "Outside" mean for this vehicle's type.
             "prep_tasks": settings.get_type_categorized_checklist(
                 entry.vehicle.vehicle_type),
         })
     return rows
+
+
+def _tasks_open(entry, prep):
+    """Whether each side of a vehicle's task list is on show.
+
+    Mirrored in the browser (applyTaskGroups in app.js) so a Start press opens
+    its group of boxes without waiting for a reload.
+    """
+    finished = entry.status == "completed"
+    categorized = settings.get_categorized_checklist()
+    return {
+        scope: (finished
+                or prep["scopes"][scope]["status"] != "none"
+                or any(t.completed
+                       and settings.task_category(t.task_name, categorized) == scope
+                       for t in entry.tasks))
+        for scope in prep_timer.SCOPES
+    }
 
 
 def schedule_counters(rows):
@@ -1057,12 +1085,7 @@ def register_routes(app):
     @app.template_filter("task_category")
     def task_category_filter(task_name):
         """Return 'inside' or 'outside' based on the configured categories."""
-        if task_name in settings.get_checklist_inside():
-            return "inside"
-        if task_name in settings.get_checklist_outside():
-            return "outside"
-        # Unknown tasks default to inside.
-        return "inside"
+        return settings.task_category(task_name)
 
     @app.template_filter("incident_severity_class")
     def incident_severity_class_filter(value):
@@ -1705,7 +1728,8 @@ def register_routes(app):
             # tick the card from what was recorded, in either direction, instead
             # of waiting for a reload to find out.
             status = task.entry.status
-        return jsonify(ok=True, done=done, total=total, pct=pct, status=status)
+        return jsonify(ok=True, done=done, total=total, pct=pct, status=status,
+                       entry_status=status)
 
     @app.route("/entry/<int:entry_id>/skip", methods=["POST"])
     def entry_skip(entry_id):
@@ -1756,8 +1780,17 @@ def register_routes(app):
         sched_svc.complete_entry(entry)
         done, total, pct = sched_svc.entry_progress(entry)
         incomplete = [t.task_name for t in entry.tasks if not t.completed]
+        # Finishing a vehicle off early (with the boxes not all ticked) still
+        # moves the day totals, so hand the client freshly calculated counters
+        # for the stat tiles, and name the tasks it left undone so the row can
+        # say so rather than looking like a vehicle that was ticked off in full.
+        sched = db.session.get(DailySchedule, entry.schedule_id)
         return jsonify(ok=True, done=done, total=total, pct=pct,
+                       unit=entry.vehicle.unit_number,
+                       entry_status=entry.status,
+                       entry_completed=entry.status == "completed",
                        incomplete=incomplete,
+                       counters=schedule_counters(build_schedule_view(sched)),
                        state=prep_timer.state(entry))
 
     @app.route("/schedule/<int:entry_id>/replace", methods=["POST"])

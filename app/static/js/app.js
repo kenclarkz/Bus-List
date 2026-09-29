@@ -80,6 +80,20 @@ function removeNowWorker(empId) {
   }
 }
 
+// Drop an employee from the "Now Working" cards only when the card on screen is
+// the one for this vehicle. A press that finishes a vehicle closes every clock
+// on it, but a shared board is live: if the employee has already moved on to
+// another vehicle, that card is the one showing their time and has to stay.
+function removeNowWorkerForVehicle(empId, unit) {
+  var grid = document.getElementById('now-working-grid');
+  if (!grid || !empId) return;
+  var card = grid.querySelector('.now-worker[data-employee="' + empId + '"]');
+  if (!card) return;
+  var label = card.querySelector('.now-worker-unit');
+  if (unit && label && label.textContent.indexOf(String(unit)) === -1) return;
+  removeNowWorker(empId);
+}
+
 // ---------------------------------------------------------------------------
 // Prep timers: Start -> Pause -> Resume -> Done
 // ---------------------------------------------------------------------------
@@ -270,11 +284,44 @@ function applyPrepState(row, state, entryCompleted) {
   applyPrepBadge(row, state);
   var meta = row.querySelector('.prep-meta');
   if (meta) meta.innerHTML = prepMetaHtml(state);
+  applyTaskGroups(row, state, entryCompleted);
   prepScopes(row).forEach(function (setEl) {
     var scope = setEl.getAttribute('data-prep-scope');
     var setState = (state.scopes || {})[scope];
     if (!setState) return;
     applyPrepSetState(setEl, state, setState, entryCompleted);
+  });
+}
+
+// Open up the task list of each side of the vehicle the crew has started.
+//
+// A vehicle nobody has picked up yet shows its two clocks and their Start
+// buttons, and nothing else: the boxes inside it and the boxes outside it stay
+// folded away until that side is actually being worked, so a board of forty
+// vehicles is not forty walls of boxes that cannot honestly be ticked yet.
+// Both clock sets come back with every press, so starting the outside of a
+// vehicle somebody is already inside opens exactly that one group.
+//
+// This is the same rule the server renders with (build_schedule_view's
+// _tasks_open): a group with work already ticked in it, or a vehicle that is
+// finished, is a record of what happened and is never folded away.
+function applyTaskGroups(row, state, entryCompleted) {
+  if (!row) return;
+  var scopes = state.scopes || {};
+  // The row's own tick is the server's word for "this vehicle is finished", so
+  // a re-sync that carries no status of its own cannot fold away the list of a
+  // vehicle that is done.
+  var finished = !!entryCompleted || row.classList.contains('row-complete');
+  ['inside', 'outside'].forEach(function (scope) {
+    var group = row.querySelector('[data-task-group="' + scope + '"]');
+    if (!group) return;
+    var setState = scopes[scope] || {};
+    var started = (setState.status && setState.status !== 'none') ||
+      !!setState.worker_count;
+    // A box that is already ticked means the side was worked, whatever its
+    // clock says, so it stays on show.
+    var ticked = !!group.querySelector('.ck.done');
+    group.hidden = !(started || ticked || finished);
   });
 }
 
@@ -693,24 +740,11 @@ function runPrepAction(btn) {
       // only locks down once both of its clock sets are done, so only then can
       // anything below be true.
       if (data.entry_completed && data.progress) {
-        var vrow = btn.closest('.vrow');
-        if (vrow) {
-          var bar = vrow.querySelector('.progress-fill');
-          var label = vrow.querySelector('.pct');
-          if (bar) bar.style.width = (data.progress.pct || 100) + '%';
-          if (label) {
-            label.textContent = data.progress.done + '/' + data.progress.total +
-              ' — ' + data.progress.pct + '%';
-          }
-          // Both clock sets are done, so the vehicle is finished: tick its card
-          // so the board shows it as done without the row being reopened.
-          setRowStatus(vrow, 'completed');
-          vrow.querySelectorAll('.ck input').forEach(function (chk) { chk.disabled = true; });
-          var replaceBtn = vrow.querySelector('[data-modal-target^="modal-replace-"]');
-          if (replaceBtn) replaceBtn.remove();
-          var skipBtn = vrow.querySelector('[data-modal-target^="modal-skip-"]');
-          if (skipBtn) skipBtn.remove();
-        }
+        markVehicleComplete(btn.closest('.vrow'), {
+          done: data.progress.done,
+          total: data.progress.total,
+          pct: data.progress.pct
+        }, data.incomplete || []);
       } else if (!data.still_working && (data.scopes_outstanding || []).length) {
         // Every clock is closed but the vehicle is not finished, because the
         // other side has not been done. Say which side, so a press that looks
@@ -744,6 +778,109 @@ function prepHasMyActiveClock(state, employeeId) {
   if (!state || !employeeId) return false;
   return (state.workers || []).some(function (w) {
     return w.active && String(w.employee_id) === String(employeeId);
+  });
+}
+
+// Repaint a row that has just been recorded as a finished vehicle: the board's
+// tick on the folded line, the badge in the open card, the progress bar and the
+// actions that no longer apply to it. Used by every path that completes a
+// vehicle (both clock sets done, the full checklist, Done With Vehicle), so a
+// row can never be left showing one of them as finished and the others as not.
+//
+// Tasks left undone are named on the row: a vehicle finished without every box
+// ticked reads differently from one worked through in full, and the board is
+// also where anybody later finds out which boxes were skipped.
+function markVehicleComplete(row, progress, incomplete) {
+  if (!row) return;
+  if (progress) {
+    var bar = row.querySelector('.progress-fill');
+    var label = row.querySelector('.pct');
+    if (bar) bar.style.width = (progress.pct || 100) + '%';
+    if (label) {
+      label.textContent = progress.done + '/' + progress.total +
+        ' — ' + progress.pct + '%';
+    }
+  }
+  setRowStatus(row, 'completed');
+  row.querySelectorAll('.ck input').forEach(function (chk) { chk.disabled = true; });
+  // A finished vehicle is neither replaced nor skipped any more.
+  ['[data-modal-target^="modal-replace-"]', '[data-modal-target^="modal-skip-"]',
+   '[data-vehicle-done]'].forEach(function (sel) {
+    row.querySelectorAll(sel).forEach(function (el) { el.remove(); });
+  });
+  showIncompleteTasks(row, incomplete || []);
+}
+
+function showIncompleteTasks(row, names) {
+  if (!row) return;
+  var note = row.querySelector('.incomplete-tasks');
+  if (!names || !names.length) {
+    if (note) note.remove();
+    return;
+  }
+  if (!note) {
+    note = document.createElement('div');
+    note.className = 'flash flash-warn incomplete-tasks';
+    note.style.cssText = 'margin-top:8px;padding:8px 12px;font-size:.8rem';
+    // Where the server puts it, so a reload does not move it.
+    var actions = row.querySelector('.row-actions');
+    if (actions && actions.parentNode) actions.parentNode.insertBefore(note, actions.nextSibling);
+    else row.appendChild(note);
+  }
+  var lead = document.createElement('strong');
+  lead.textContent = 'Not completed: ';
+  note.textContent = '';
+  note.appendChild(lead);
+  note.appendChild(document.createTextNode(names.join(', ')));
+}
+
+// The crew's own way out of a vehicle: done with it, whatever the boxes say.
+// It counts the vehicle as completed on the board, stops any clock still
+// running on it and records the tasks left undone, so finishing early is an
+// honest way to end a row rather than a way of making a row lie.
+function bindVehicleDone(root) {
+  root.querySelectorAll('[data-vehicle-done]').forEach(function (btn) {
+    if (btn.getAttribute('data-vehicle-done-bound')) return;
+    btn.setAttribute('data-vehicle-done-bound', '1');
+    btn.addEventListener('click', function () { finishVehicle(btn); });
+  });
+}
+
+function finishVehicle(btn) {
+  var entryId = btn.getAttribute('data-vehicle-done');
+  var row = btn.closest('.vrow');
+  if (!entryId) return;
+  btn.disabled = true;
+  var body = new FormData();
+  if (CURRENT_EMPLOYEE) body.append('employee_id', CURRENT_EMPLOYEE);
+  postBoardAction('/entry/' + entryId + '/complete', body).then(function (data) {
+    if (!data || !data.ok) {
+      btn.disabled = false;
+      if (data && data.error) alert(data.error);
+      else explainUnreadableAction(entryId, null, 'done', data);
+      return;
+    }
+    // Past this point the vehicle is recorded as finished, so a failure to
+    // repaint the row is not a failed press: re-read the vehicle's real state
+    // rather than leaving a row that disagrees with the server.
+    try {
+      markVehicleComplete(row, {
+        done: data.done,
+        total: data.total,
+        pct: data.pct
+      }, data.incomplete);
+      if (data.state) applyPrepState(row, data.state, data.entry_completed);
+      updateStats(data.counters);
+      // Whatever this employee was timing on this vehicle is finished with it,
+      // so they come off the floor -- unless they have already moved on to
+      // another vehicle, whose card is the one that stays.
+      if (!prepHasMyActiveClock(data.state, CURRENT_EMPLOYEE)) {
+        removeNowWorkerForVehicle(CURRENT_EMPLOYEE, data.unit);
+      }
+      tickPrepTimers();
+    } catch (e) {
+      window.location.reload();
+    }
   });
 }
 
@@ -946,6 +1083,9 @@ function markSkipped(row, entryId, reason, unskipUrl) {
     prepScopes(prepBlock).forEach(markPrepSkipped);
   }
   row.querySelectorAll('.done-btn').forEach(function (btn) { btn.remove(); });
+  // A skipped vehicle is not being finished early either, so its way out of the
+  // row goes with the task list it sat under.
+  row.querySelectorAll('.vehicle-done').forEach(function (el) { el.remove(); });
 
   var note = row.querySelector('.skip-note');
   if (!note) {
@@ -1083,6 +1223,9 @@ document.addEventListener('DOMContentLoaded', function () {
   // Prep timer workflow: Start -> Pause -> Resume -> Done, per employee, so a
   // crew can work the same vehicle at the same time.
   bindPrepButtons(document);
+
+  // The crew's own way out of a vehicle: done with it, boxes ticked or not.
+  bindVehicleDone(document);
 
   // Live clocks. The server supplies the banked seconds and the moment each
   // segment began, so these keep counting across refreshes and hidden tabs.
