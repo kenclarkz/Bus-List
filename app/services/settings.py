@@ -45,8 +45,8 @@ LAYOUT_CHOICES = ("classic", "sidepanel")
 
 
 def theme_key(user, employee_id=None):
-    """DB key storing one user's own theme choice (per-account, and per
-    employee when the shared employee account has picked a name)."""
+    """DB key storing one user's own theme choice: per-account, and per
+    employee for an Employee account, whose staff record is who they are."""
     if user == "employee" and employee_id:
         return f"theme:employee:{employee_id}"
     return f"theme:{user or 'employee'}"
@@ -70,8 +70,8 @@ def set_user_theme(user, employee_id=None, value="off"):
 
 
 def layout_key(user, employee_id=None):
-    """DB key storing one user's own layout choice (per-account, and per
-    employee when the shared employee account has picked a name)."""
+    """DB key storing one user's own layout choice: per-account, and per
+    employee for an Employee account, whose staff record is who they are."""
     if user == "employee" and employee_id:
         return f"layout:employee:{employee_id}"
     return f"layout:{user or 'employee'}"

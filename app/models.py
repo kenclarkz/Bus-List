@@ -145,9 +145,9 @@ class UserAccount(db.Model):
 
     An account is linked to an :class:`Employee` when the person works the
     board, which is what their checked tasks and running timers are recorded
-    against. Drivers have no board work, so their account is simply unlinked.
-    An unlinked Employee account is the shared board login: it still picks a
-    name from the picker on each visit.
+    against: signing in is how they say who they are, so an Employee account
+    is tied to a staff record before the board opens. Drivers have no board
+    work, so their account is simply unlinked.
     """
     __tablename__ = "user_accounts"
 

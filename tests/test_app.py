@@ -1,6 +1,7 @@
 """Tests for the Detailing Operations Dashboard."""
 import io
 import json
+import re
 from datetime import date, datetime, timedelta
 from urllib.parse import quote
 
@@ -34,13 +35,17 @@ def app(tmp_path):
 @pytest.fixture()
 def client(app):
     # Default: signed in as the Employee account so existing route tests run
-    # against the interactive board. Employees pick their name after login.
-    c = app.test_client()
-    c.post("/login", data={"username": "employee", "password": "employee"})
+    # against the interactive board. Signing in is all it takes to say who they
+    # are, so the account is tied to a staff record and nothing is picked after
+    # the splash.
     with app.app_context():
         emp = Employee.query.filter_by(active=True).first()
-        emp_id = str(emp.id) if emp else ""
-    c.post("/select", data={"employee_id": emp_id})
+        account = UserAccount.query.filter_by(username="employee").first()
+        account.name = emp.name
+        account.employee_id = emp.id
+        db.session.commit()
+    c = app.test_client()
+    c.post("/login", data={"username": "employee", "password": "employee"})
     return c
 
 
@@ -48,6 +53,27 @@ def client(app):
 def manager_client(app):
     c = app.test_client()
     c.post("/login", data={"username": "manager", "password": "manager"})
+    return c
+
+
+def employee_client(app, name, username=None):
+    """A board session for one named person, on a login account of their own.
+
+    The account is created with no staff record behind it, so signing in has to
+    tie it to the person of that name -- which is what the board records their
+    work against.
+    """
+    username = username or (re.sub(r"[^a-z0-9]+", "", name.lower()) or "staff")
+    with app.app_context():
+        account = UserAccount.query.filter_by(username=username).first()
+        if account is None:
+            account = UserAccount(username=username, name=name,
+                                  role=UserAccount.ROLE_EMPLOYEE)
+            account.set_password(username)
+            db.session.add(account)
+        db.session.commit()
+    c = app.test_client()
+    c.post("/login", data={"username": username, "password": username})
     return c
 
 
@@ -1660,15 +1686,12 @@ def test_theme_is_per_user(client, manager_client, app):
     assert b'data-theme="futuristic"' in client.get("/").data
     assert b'data-theme="dark"' in manager_client.get("/").data
 
-    # A different employee (not yet chosen) still falls back to the global.
-    d = app.test_client()
-    d.post("/login", data={"username": "employee", "password": "employee"})
+    # A second employee, on their own account, still falls back to the global.
     with app.app_context():
         other_emp = Employee(name="Other Person", active=True)
         db.session.add(other_emp)
         db.session.commit()
-        other_id = str(other_emp.id)
-    d.post("/select", data={"employee_id": other_id})
+    d = employee_client(app, "Other Person")
     assert b'data-theme="off"' in d.get("/").data
 
 
@@ -3230,13 +3253,9 @@ def test_login_accepts_case_insensitive_username_routes_by_role(app):
     r = e.post("/login", data={"username": "Employee", "password": "employee"})
     assert r.status_code == 302
     assert r.headers["Location"].endswith("/splash")
-    # The splash animation loads first, then the name picker.
+    # The splash animation loads first, then the board.
     assert e.get("/splash").status_code == 200
-    # The board stays locked until the employee picks their name.
-    assert e.get("/").status_code == 302
-    with app.app_context():
-        emp = Employee.query.filter_by(active=True).first()
-    assert e.post("/select", data={"employee_id": str(emp.id)}).status_code == 302
+    # The board is already signed in as them: there is no name to pick.
     assert e.get("/").status_code == 200
 
     m = app.test_client()
@@ -3266,11 +3285,6 @@ def test_login_rejects_unknown_user_and_wrong_password(app):
 def test_logout_clears_session(app):
     c = app.test_client()
     c.post("/login", data={"username": "employee", "password": "employee"})
-    # Board is locked until the employee picks their name, then it unlocks.
-    assert c.get("/").status_code == 302
-    with app.app_context():
-        emp = Employee.query.filter_by(active=True).first()
-    c.post("/select", data={"employee_id": str(emp.id)})
     assert c.get("/").status_code == 200
     r = c.post("/logout")
     assert r.status_code == 302
@@ -3566,9 +3580,7 @@ def test_import_apply_tracks_who_imported(app, client):
         emp = Employee.query.filter_by(active=True).first()
         emp_id = emp.id
         emp_name = emp.name
-    e = app.test_client()
-    e.post("/login", data={"username": "employee", "password": "employee"})
-    e.post("/select", data={"employee_id": str(emp_id)})
+    e = employee_client(app, emp_name)
     r = e.post("/import", data={
         "pdf": (io.BytesIO(data), "prep2.pdf"),
         "sched_date": date.today().isoformat(),
@@ -4146,9 +4158,7 @@ def test_two_employees_time_different_sides_of_one_vehicle(client, app):
         start = html.index(f'id="prep-{entry_id}-{scope}"')
         return html[start:html.index("</section>", start)]
 
-    c = app.test_client()
-    c.post("/login", data={"username": "employee", "password": "employee"})
-    c.post("/select", data={"employee_id": str(ann)})
+    c = employee_client(app, "Ann Alpha")
     assert "Ann Alpha" in set_html("inside", c)
     assert "Bob Beta" not in set_html("inside", c)
     assert "Your inside clock for this vehicle is in the list above" \
@@ -4158,9 +4168,7 @@ def test_two_employees_time_different_sides_of_one_vehicle(client, app):
     assert "+ Add Me" in set_html("outside", c)
     assert 'data-prep-scope="outside"' in set_html("outside", c)
 
-    c = app.test_client()
-    c.post("/login", data={"username": "employee", "password": "employee"})
-    c.post("/select", data={"employee_id": str(bob)})
+    c = employee_client(app, "Bob Beta")
     assert "Bob Beta" in set_html("outside", c)
     assert "Ann Alpha" not in set_html("outside", c)
     assert "Your outside clock for this vehicle is in the list above" \
@@ -4250,7 +4258,7 @@ def test_prep_timer_keeps_counting_after_a_reload(client, app):
     assert row["base_seconds"] == 0
 
 
-def test_prep_board_shows_buttons_for_the_current_state(client, app):
+def test_prep_board_shows_buttons_for_the_current_state(app):
     """Start before work, Pause while running, Resume while paused, Done to
     finish, and a final total afterwards.
 
@@ -4258,8 +4266,8 @@ def test_prep_board_shows_buttons_for_the_current_state(client, app):
     with its own Start and the actions of one set never appear on the other."""
     with app.app_context():
         entry_id, _ = prep_entry(app, "909")
-        emp_id = add_employee(app)
-    client.post("/select", data={"employee_id": str(emp_id)})
+        emp_id = add_employee(app, "Ivy Delta")
+    client = employee_client(app, "Ivy Delta")
 
     def row_html():
         html = client.get("/").data.decode()
@@ -4488,8 +4496,7 @@ def test_two_employees_work_the_same_vehicle_at_once(client, app):
         assert Employee.query.get(bob).current_vehicle_id == entry.vehicle_id
 
 
-def test_one_employee_working_outside_does_not_block_another_starting_inside(
-        client, app):
+def test_one_employee_working_outside_does_not_block_another_starting_inside(app):
     """The reported case, over HTTP and from two separate sessions: one employee
     is working the outside of a bus and a second one starts the inside. Both
     presses succeed, each with their own clock."""
@@ -4501,10 +4508,8 @@ def test_one_employee_working_outside_does_not_block_another_starting_inside(
         ann = add_employee(app, "Ann Alpha")
         bob = add_employee(app, "Bob Beta")
 
-    # Ann starts the outside of the vehicle.
-    ann_client = app.test_client()
-    ann_client.post("/login", data={"username": "employee", "password": "employee"})
-    ann_client.post("/select", data={"employee_id": str(ann)})
+    # Ann starts the outside of the vehicle, from her own account.
+    ann_client = employee_client(app, "Ann Alpha")
     r = ann_client.post(f"/entry/{entry_id}/prep/start",
                         data={"employee_id": str(ann), "scope": "outside"})
     assert r.status_code == 200, r.get_data(as_text=True)
@@ -4512,8 +4517,9 @@ def test_one_employee_working_outside_does_not_block_another_starting_inside(
 
     # Bob, on his own device and his own session, starts the inside of the same
     # vehicle. Ann's running outside clock must not refuse it.
-    r = client.post(f"/entry/{entry_id}/prep/start",
-                    data={"employee_id": str(bob), "scope": "inside"})
+    bob_client = employee_client(app, "Bob Beta")
+    r = bob_client.post(f"/entry/{entry_id}/prep/start",
+                        data={"employee_id": str(bob), "scope": "inside"})
     assert r.status_code == 200, r.get_data(as_text=True)
     body = r.get_json()
     assert body["ok"] is True
@@ -5299,9 +5305,7 @@ def test_join_button_is_hidden_for_the_employee_already_timing(client, app):
 
     # Signed in as Ann: her own row of buttons, no "+ Add Me", in the set she
     # is timing — while the untouched set still offers her a clock of her own.
-    c = app.test_client()
-    c.post("/login", data={"username": "employee", "password": "employee"})
-    c.post("/select", data={"employee_id": str(ann)})
+    c = employee_client(app, "Ann Alpha")
     assert "Ann Alpha" in set_html(entry_id, "inside")
     assert 'data-prep-join' not in set_html(entry_id, "inside")
     assert "Your inside clock for this vehicle is in the list above" \
@@ -5312,13 +5316,11 @@ def test_join_button_is_hidden_for_the_employee_already_timing(client, app):
     assert "Ann Alpha" not in set_html(entry_id, "outside")
 
     # Signed in as Bob, the same vehicle offers him a clock of his own.
-    c = app.test_client()
-    c.post("/login", data={"username": "employee", "password": "employee"})
-    c.post("/select", data={"employee_id": str(bob)})
+    c = employee_client(app, "Bob Beta")
     assert 'data-prep-join="%d"' % entry_id in set_html(entry_id, "inside")
 
 
-def test_the_board_offers_the_other_side_to_someone_already_timing_one(client, app):
+def test_the_board_offers_the_other_side_to_someone_already_timing_one(app):
     """A person working one side of a vehicle is still offered a clock on the
     other side of the *same* vehicle, whether nobody has started it yet or a
     colleague is already on it — running a clock on both sides at once is the
@@ -5337,12 +5339,13 @@ def test_the_board_offers_the_other_side_to_someone_already_timing_one(client, a
         prep_timer.start(entry, bob, at=t0, scope=prep_timer.OUTSIDE)
         db.session.commit()
 
+    # Ann's own account, so the board is signed in as the person on the inside.
+    client = employee_client(app, "Ann Alpha")
+
     def set_html(scope):
         html = client.get("/").data.decode()
         start = html.index(f'id="prep-{entry_id}-{scope}"')
         return html[start:html.index("</section>", start)]
-
-    client.post("/select", data={"employee_id": str(ann)})
 
     # The set she is already timing: her own buttons, not a refused Start.
     assert 'data-prep-join="%d"' % entry_id not in set_html("inside")
@@ -5395,36 +5398,69 @@ def test_now_working_card_follows_the_employee_not_the_vehicle(client, app):
 
 
 # ---------------------------------------------------------------------------
-# A shared board: the second person can take it over
+# Signing in is what says who is working: no name to pick
 # ---------------------------------------------------------------------------
 
-def test_board_offers_a_way_to_switch_the_working_employee(client, app):
-    """The board is shared, so the person up next must be able to take it over
-    without logging out, and the name picker has to know who is on it now."""
+def test_signing_in_says_who_is_working(app):
+    """The account is the person's identity, so the board opens signed in as
+    them: there is no name picker to go through, and nothing on the board that
+    hands it to somebody else."""
     with app.app_context():
         ann = add_employee(app, "Ann Alpha")
         bob = add_employee(app, "Bob Beta")
-    client.post("/select", data={"employee_id": str(ann)})
 
-    board = client.get("/").data.decode()
+    ann_board = employee_client(app, "Ann Alpha")
+    board = ann_board.get("/").data.decode()
     assert "Working as" in board
-    assert 'href="/select"' in board
-    assert "Not you? Switch name" in board
+    assert 'data-employee-id="%d"' % ann in board
+    assert "Ann Alpha" in board
+    # There is nothing left to switch: signing in under somebody else's
+    # username is how the board changes hands.
+    assert "Switch name" not in board
+    assert ann_board.get("/select").status_code == 404
 
-    picker = client.get("/select").data.decode()
-    # Already signed in, so the picker offers the change instead of the first
-    # sign-in, and Ann is preselected for anyone who just walks up to it.
-    assert "Not you? Switch name" in picker
-    assert '<option value="%d" selected>Ann Alpha</option>' % ann in picker
-    assert '<option value="%d">Bob Beta</option>' % bob in picker
-
-    client.post("/select", data={"employee_id": str(bob)})
-    board = client.get("/").data.decode()
+    bob_board = employee_client(app, "Bob Beta")
+    board = bob_board.get("/").data.decode()
     assert 'data-employee-id="%d"' % bob in board
     assert "Bob Beta" in board
 
 
-def test_a_vehicle_can_be_worked_by_a_crew_from_both_sides_at_once(client, app):
+def test_signing_in_ties_the_account_to_a_staff_record(app):
+    """An Employee account with no staff record behind it is given one on the
+    spot -- the one already on file under that name, so a re-added person is not
+    duplicated -- and the link is kept for next time."""
+    with app.app_context():
+        ann_id = add_employee(app, "Ann Alpha")
+
+    board = employee_client(app, "Ann Alpha")
+    with app.app_context():
+        account = UserAccount.query.filter_by(username="annalpha").first()
+        assert account.employee_id == ann_id
+        # Signing in again does not add a second record for the same person.
+        board.post("/logout")
+        board.post("/login", data={"username": "annalpha",
+                                   "password": "annalpha"})
+        assert Employee.query.filter(
+            db.func.lower(Employee.name) == "ann alpha").count() == 1
+
+
+def test_signing_in_under_a_new_name_adds_the_staff_record(app):
+    """Nobody to work as is not a state an Employee account can be in: an account
+    for a name that is not on the staff list yet gets that person added."""
+    with app.app_context():
+        assert not Employee.query.filter(
+            db.func.lower(Employee.name) == "zoe adams").first()
+
+    employee_client(app, "Zoe Adams")
+    with app.app_context():
+        zoe = Employee.query.filter(
+            db.func.lower(Employee.name) == "zoe adams").first()
+        assert zoe is not None and zoe.active
+        assert UserAccount.query.filter_by(username="zoeadams").first() \
+            .employee_id == zoe.id
+
+
+def test_a_vehicle_can_be_worked_by_a_crew_from_both_sides_at_once(app):
     """The reported failure: one person is working the outside of a vehicle and a
     colleague presses Start on the inside.
 
@@ -5447,7 +5483,7 @@ def test_a_vehicle_can_be_worked_by_a_crew_from_both_sides_at_once(client, app):
 
     # A clock set nobody has started is rendered without a clock list at all, so
     # the browser builds the list when the first Start lands on that side.
-    client.post("/select", data={"employee_id": str(ann)})
+    client = employee_client(app, "Ann Alpha")
     board = client.get("/").data.decode()
     start = board.index(f'id="prep-{entry_id}-inside"')
     inside_block = board[start:board.index("</section>", start)]
@@ -5464,8 +5500,9 @@ def test_a_vehicle_can_be_worked_by_a_crew_from_both_sides_at_once(client, app):
     assert body["state"]["scopes"]["inside"]["workers"][0]["employee"] == "Ann Alpha"
     assert body["state"]["scopes"]["outside"]["workers"][0]["employee"] == "Ann Alpha"
 
-    # Bob takes the board over and presses Start on the outside, joining Ann.
-    client.post("/select", data={"employee_id": str(bob)})
+    # Bob signs in on his own account and presses Start on the outside, joining
+    # Ann.
+    client = employee_client(app, "Bob Beta")
     r = client.post(f"/entry/{entry_id}/prep/start",
                     data={"employee_id": str(bob), "scope": "outside"})
     assert r.status_code == 200
@@ -5474,7 +5511,7 @@ def test_a_vehicle_can_be_worked_by_a_crew_from_both_sides_at_once(client, app):
     # Two on the outside and one on the inside: a third person joins the
     # outside, and can time the inside as well without stopping their own
     # outside clock first.
-    client.post("/select", data={"employee_id": str(cid)})
+    client = employee_client(app, "Cal Gamma")
     r = client.post(f"/entry/{entry_id}/prep/start",
                     data={"employee_id": str(cid), "scope": "outside"})
     assert r.status_code == 200
@@ -5548,17 +5585,15 @@ def test_refused_press_answers_with_the_state_the_board_needs_to_repaint(client,
     assert state["scopes"]["outside"]["worker_count"] == 0
 
 
-def test_a_refusal_on_a_shared_board_says_how_to_get_a_clock_of_your_own(client,
-                                                                       app):
-    """The reported failure, from the other side: a vehicle is already started and
-    a second employee presses Start on the shared board.
+def test_a_refusal_says_the_clock_in_the_way_is_the_employees_own(app):
+    """A vehicle with a clock already running in a set cannot be started again in
+    it, and the person pressing has to be told the truth about which clock is in
+    the way.
 
-    The press is recorded against whoever is signed in, so the employee is told
-    about a clock of "theirs" they know nothing about. Both refusals that can
-    come out of this -- the clock is already counting, and the clock set is
-    already finished -- therefore have to say what to do when the board is not
-    signed in as them, the same way the refusal for a second running clock
-    already does.
+    Both refusals that can come out of this -- the clock is already counting, and
+    the clock set is already finished -- name the employee's own work, because
+    everybody signs in with an account of their own and the press is recorded
+    against the person who made it.
     """
     from app.services import prep_timer
 
@@ -5568,7 +5603,7 @@ def test_a_refusal_on_a_shared_board_says_how_to_get_a_clock_of_your_own(client,
         t0 = timeutils.now_eastern().replace(microsecond=0)
         entry = ScheduleEntry.query.get(entry_id)
         # The outside set is washed and finished, the inside one is still going:
-        # both refusals a shared board can produce are on the table at once.
+        # both refusals a press can produce are on the table at once.
         prep_timer.start(entry, ann, at=t0, scope=prep_timer.OUTSIDE)
         prep_timer.finish(entry, ann, at=t0 + timedelta(minutes=30),
                           scope=prep_timer.OUTSIDE)
@@ -5576,15 +5611,17 @@ def test_a_refusal_on_a_shared_board_says_how_to_get_a_clock_of_your_own(client,
                          scope=prep_timer.INSIDE)
         db.session.commit()
 
+    client = employee_client(app, "Ann Alpha")
+
     # The inside clock is still running: a press is refused, and the employee is
-    # told the clock is counting and how to run one of their own.
+    # told that their own clock is the one already counting.
     r = client.post(f"/entry/{entry_id}/prep/start",
                     data={"employee_id": str(ann), "scope": "inside"})
     assert r.status_code == 409
     error = r.get_json()["error"]
     assert "already started for you (timer running)" in error
     assert "already counting" in error
-    assert "Not you? Switch name" in error
+    assert "there is nothing to press" in error
 
     # The outside clock set is finished, so that one is refused the same way.
     r = client.post(f"/entry/{entry_id}/prep/start",
@@ -5592,7 +5629,7 @@ def test_a_refusal_on_a_shared_board_says_how_to_get_a_clock_of_your_own(client,
     assert r.status_code == 409
     error = r.get_json()["error"]
     assert "already been finished for you" in error
-    assert "Not you? Switch name" in error
+    assert "this set of work is done" in error
     # A finished clock set is not re-opened by the refusal itself.
     with app.app_context():
         entry = ScheduleEntry.query.get(entry_id)
@@ -5741,12 +5778,9 @@ def _prep_sessions_indexes(db_path):
         con.close()
 
 
-def _client_for(upgraded, employee_id):
-    """A board session on the app that was just booted, working as ``employee_id``."""
-    board = upgraded.test_client()
-    board.post("/login", data={"username": "employee", "password": "employee"})
-    board.post("/select", data={"employee_id": str(employee_id)})
-    return board
+def _client_for(upgraded, name):
+    """A board session on the app that was just booted, signed in as ``name``."""
+    return employee_client(upgraded, name)
 
 
 def test_a_clock_keyed_by_a_unique_index_is_upgraded_to_a_key_per_employee(
@@ -5856,15 +5890,15 @@ def test_the_board_lets_two_employees_clock_the_same_side_after_the_upgrade(
     upgraded = _booted_against(db_path, tmp_path)
 
     # Employee A clocks Outside on 9417.
-    board = _client_for(upgraded, ann)
+    board = _client_for(upgraded, "Ann Alpha")
     r = board.post(f"/entry/{entry_id}/prep/start",
                    data={"employee_id": str(ann), "scope": "outside"})
     assert r.status_code == 200, r.get_json()
     assert r.get_json()["state"]["scopes"]["outside"]["worker_count"] == 1
 
-    # Employee B takes the board over and clocks Outside on it too. This press is
-    # the one the old key refused outright.
-    board = _client_for(upgraded, bob)
+    # Employee B signs in on their own account and clocks Outside on it too.
+    # This press is the one the old key refused outright.
+    board = _client_for(upgraded, "Bob Beta")
     r = board.post(f"/entry/{entry_id}/prep/start",
                    data={"employee_id": str(bob), "scope": "outside"})
     assert r.status_code == 200, r.get_json()
@@ -6521,9 +6555,9 @@ def test_a_person_on_their_own_account_goes_straight_to_the_board(manager_client
     assert r.status_code == 200
     board = r.data.decode()
     assert "Working as:" in board
-    # ...and they cannot take the board over from whoever is next.
-    assert "Not you? Switch name" not in board
-    assert c.get("/select").headers["Location"].endswith("/")
+    # ...and there is no page for taking the board over from whoever is next.
+    assert "Switch name" not in board
+    assert c.get("/select").status_code == 404
 
 
 def test_two_individual_employee_accounts_do_not_share_a_name(manager_client,
@@ -6879,10 +6913,11 @@ def test_the_staff_page_lists_every_account(manager_client, app):
         assert username in body
 
 
-def test_a_reactivated_account_whose_staff_record_is_gone_asks_for_a_name(
-        manager_client, app):
-    """Taking somebody off the staff list must not leave a stale name behind
-    in their session: the board asks again instead of working a removed person.
+def test_a_reactivated_account_whose_staff_record_is_gone_says_so(manager_client,
+                                                                 app):
+    """Taking somebody off the staff list must not leave a stale name behind:
+    their work would be recorded against a person who is no longer there, and the
+    board says so rather than quietly working them.
     """
     with app.app_context():
         emp = Employee(name="Jane Doe", active=True)
@@ -6895,22 +6930,26 @@ def test_a_reactivated_account_whose_staff_record_is_gone_asks_for_a_name(
     })
     c = app.test_client()
     c.post("/login", data={"username": "jane", "password": "sunflower"})
-    assert "Jane Doe" in c.get("/").data.decode()
+    board = c.get("/").data.decode()
+    assert "Jane Doe" in board
+    assert "not on the staff list" not in board
 
-    # The staff record goes; the account is put back afterwards.
-    with app.app_context():
-        Employee.query.get(emp_id).active = False
-        db.session.commit()
-        account_id = UserAccount.query.filter_by(username="jane").first().id
-    manager_client.post(f"/accounts/{account_id}/toggle-active")
-    manager_client.post(f"/accounts/{account_id}/toggle-active")
-
+    # The staff record goes, which closes the account with it...
+    manager_client.post(f"/employees/{emp_id}/toggle-active")
     c2 = app.test_client()
     c2.post("/login", data={"username": "jane", "password": "sunflower"})
-    # No longer the removed person, so the picker is asked for again and does
-    # not offer them.
-    r = c2.get("/")
-    assert r.status_code == 302
-    assert r.headers["Location"].endswith("/select")
-    assert "<option value=" in c2.get("/select").data.decode()
-    assert '>Jane Doe</option>' not in c2.get("/select").data.decode()
+    assert "Your account has been removed" in c2.get("/").data.decode() \
+        or c2.get("/").status_code == 302
+
+    # ...and putting the account back on its own leaves nobody to work as, which
+    # the board says out loud instead of picking a name.
+    with app.app_context():
+        account_id = UserAccount.query.filter_by(username="jane").first().id
+    manager_client.post(f"/accounts/{account_id}/toggle-active")
+
+    c3 = app.test_client()
+    c3.post("/login", data={"username": "jane", "password": "sunflower"})
+    r = c3.get("/")
+    assert r.status_code == 200
+    assert "not on the staff list any more" in r.data.decode()
+    assert "Working as:" not in r.data.decode()

@@ -575,26 +575,20 @@ def _no_session_error(entry, how, action, scope=None):
 def _your_clock_error(unit, set_name, status):
     """Refuse a second clock in a set this employee already holds.
 
-    The board is shared and a press is recorded against whoever is signed in,
-    so "for you" can be the wrong person: a colleague who walked up to a
-    vehicle somebody had already started is told about a clock of their own
-    they know nothing about. So the refusal says what to do either way -- let
-    it run, or take the board over and press again -- instead of leaving them
-    to work out that the board is not signed in as them.
+    Everybody signs in with their own account, so the employee a clock is
+    recorded against is the person pressing: "for you" cannot be the wrong
+    person. A clock already in this set is always their own, and the only thing
+    left to say is that it is already counting, or that the work is done.
     """
     if status in ("running", "paused"):
         verb = "running" if status == "running" else "paused"
         return PrepTimerError(
             f"Vehicle {unit} {set_name} prep is already started "
-            f"for you (timer {verb}) — if that is you it is already "
-            f"counting and there is nothing to press; if it is not, press "
-            f"\"Not you? Switch name\" at the top of the board and press "
-            f"{set_name} again to run a clock of your own")
+            f"for you (timer {verb}) — it is already counting, so there is "
+            f"nothing to press")
     return PrepTimerError(
         f"Vehicle {unit} {set_name} prep has already been finished "
-        f"for you — if that is you, this set of work is done; if it is "
-        f"not, press \"Not you? Switch name\" at the top of the board and "
-        f"press {set_name} again to run a clock of your own")
+        f"for you — this set of work is done")
 
 
 def _refused_by_clock_rule(entry, employee_id, scope, unit, set_name):

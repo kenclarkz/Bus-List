@@ -6,7 +6,7 @@ import pytest
 
 from app import create_app
 from app.models import db, Vehicle, Employee, IncidentReport, IncidentNote, \
-    IncidentPhoto
+    IncidentPhoto, UserAccount
 from app.services.incidents import ISSUE_TYPES, SEVERITIES, STATUSES
 from app.services.vehicles import find_or_create_vehicle, default_location
 
@@ -26,12 +26,16 @@ def app(tmp_path):
 
 @pytest.fixture()
 def client(app):
-    c = app.test_client()
-    c.post("/login", data={"username": "employee", "password": "employee"})
+    # Signed in as the Employee account, tied to a staff record: signing in is
+    # what says who they are, so there is no name to pick afterwards.
     with app.app_context():
         emp = Employee.query.filter_by(active=True).first()
-        emp_id = str(emp.id) if emp else ""
-    c.post("/select", data={"employee_id": emp_id})
+        account = UserAccount.query.filter_by(username="employee").first()
+        account.name = emp.name
+        account.employee_id = emp.id
+        db.session.commit()
+    c = app.test_client()
+    c.post("/login", data={"username": "employee", "password": "employee"})
     return c
 
 
@@ -324,9 +328,6 @@ def test_incident_photos_uploaded_and_served(manager_client, app):
     # Photo viewing is allowed for staff (not just managers).
     c = app.test_client()
     c.post("/login", data={"username": "employee", "password": "employee"})
-    with app.app_context():
-        emp = Employee.query.filter_by(active=True).first()
-    c.post("/select", data={"employee_id": str(emp.id)})
     r = c.get(f"/incidents/photo/{pid}")
     assert r.status_code == 200
     assert r.data == b"fakeimagebytes"
