@@ -13,9 +13,14 @@
   </a>
   {% endfor %}
   <span class="spacer"></span>
+  {# A finalized day is a saved report: nothing may be added to it. The server
+     refuses the post regardless, but the button is not offered either. #}
+  {% if not day_locked %}
   <button type="button" class="btn small" data-modal-target="modal-add-vehicle">+ Add Vehicle</button>
+  {% endif %}
 </div>
 
+{% if not day_locked %}
 <div class="modal-bg" id="modal-add-vehicle">
   <div class="modal">
     <h3>Add Vehicle to {{ view_date.strftime('%b %d') }}'s Board</h3>
@@ -40,6 +45,21 @@
     </form>
   </div>
 </div>
+{% endif %}
+
+{% if day_locked %}
+<div class="flash flash-info">
+  <strong>This day is finalized and locked.</strong>
+  {{ view_date.strftime('%B %d') }} was finalized automatically at
+  {{ auto_finalize_at }} Eastern ({{ eastern_tz }}) and its report is saved, so
+  check-offs, prep timers, skips and replacements are closed for it.
+  <a href="{{ url_for('print_report', date=view_date.isoformat()) }}" target="_blank">View the report</a>
+  {%- if current_role == 'manager' %} &middot;
+  <a href="{{ url_for('history_days') }}">Reopen it from History</a> if it needs a correction.
+  {%- else %} &middot; Ask a Manager to reopen it if something needs correcting.
+  {%- endif %}
+</div>
+{% endif %}
 
 {% if current_role == 'manager' %}
 <div class="flash flash-info">
@@ -159,7 +179,9 @@
     <p class="muted">Import a prep report to build the work list, add a vehicle manually, or no vehicles match the current filters.</p>
     <div class="flex">
       <a class="btn" href="{{ url_for('import_report') }}">Import Prep Report</a>
+      {% if not day_locked %}
       <button type="button" class="btn secondary" data-modal-target="modal-add-vehicle">+ Add Vehicle</button>
+      {% endif %}
     </div>
   </div>
 {% endif %}

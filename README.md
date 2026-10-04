@@ -7,7 +7,7 @@ end-of-day printable summary.
 
 Built as a real working application with a persistent database, PDF parsing &
 OCR, an import preview/approval flow, a daily checklist board, replacement
-logic, history views, a searchable dashboard, and a printable **End My Day**
+logic, history views, a searchable dashboard, and a printable day-end
 report. It is not a static mockup.
 
 ---
@@ -88,8 +88,8 @@ report. It is not a static mockup.
    invents time. Every
    Start/Pause/Resume/Done is kept as permanent event history for the vehicle
    (shown on the board, the vehicle's history page, and the report), and
-   completing a vehicle any other way (full checklist, End My Day) stops its
-   clock too. All times are recorded and displayed in **Eastern Time**
+   completing a vehicle any other way (full checklist, the nightly close) stops
+   its clock too. All times are recorded and displayed in **Eastern Time**
    (America/New_York), including the report's 24-hour prep/pickup times, which
    are displayed as 12-hour AM/PM without altering the stored values.
 5. **Vehicle Replacements** — "Replace Vehicle" moves remaining applicable
@@ -114,16 +114,25 @@ report. It is not a static mockup.
    **Transit buses** (TRANSITB) are pulled out of the main work list into a
    **Transit Buses** dropdown at the bottom of the board, so they stay visible
    without crowding the list; un-skip one to work it here.
-8. **End My Day** — prominent button. Requires confirmation. Finalizes the
-   day, stops any timer still running, calculates completed/incomplete, shows
-   unfinished checklist items, replacements, and notes, computes completion %,
-   and generates a clean printable daily summary (Print / Save as PDF) and
-   saves the day to history. The printable report includes a **Prep Time Log**
-   with each vehicle's Start/Pause/Resume/Done history, a **Prep Event
-   Detail** section, and the day's **total active prep time**.
-   If no employee ends the day by **11:50 PM** local time, an automatic
-   end-of-day job finalizes it with the exact same summary (no work is ever
-   lost; the cutoff is configurable via `AUTO_END_DAY_TIME`).
+8. **Day Report (automatic end of day)** — there is no manual "end my day"
+   button. Every day is finalized **automatically at 10:30 PM Eastern**
+   (`America/New_York`) by the in-process scheduler; this cutoff is
+   configurable via `AUTO_END_DAY_TIME` (HH:MM, Eastern). At the close the
+   day's schedule is finalized: any timer still running is stopped, the
+   completed/incomplete totals are calculated and saved as the day's
+   **summary**, unfinished checklist items, replacements and notes are kept,
+   the completion % is computed, and the day is saved to history and locked.
+   The **Day Report** page (`/end`) is a read-only view of that record, and
+   generates a clean printable daily summary (Print / Save as PDF). The
+   printable report includes a **Prep Time Log** with each vehicle's
+   Start/Pause/Resume/Done history, a **Prep Event Detail** section, and the
+   day's **total active prep time**.
+   A **finalized day is immutable**: check-offs, prep timers, skips,
+   un-skips, replacements, adding vehicles, notes and imports are all refused
+   by the server, and a finalized day cannot be deleted. If a correction is
+   genuinely needed, a **Manager** can **reopen** the day from History;
+   reopening clears the lock and the stored summary, and the next automatic
+   run finalizes it again with the corrected totals. No work is ever lost.
 9. **History** — previous days, vehicle cleaning history, prep report imports,
    replacements, and (per-vehicle) completed checklists. Every vehicle's page
    also keeps its permanent **Prep Time History**: one row per run with the
@@ -305,7 +314,7 @@ Database and secret are configured via environment variables (see
 | `SECRET_KEY` | `dev-secret-change-me` |
 | `DATABASE_URL` | `sqlite:///data/detail.db` |
 | `PORT` | `5000` |
-| `AUTO_END_DAY_TIME` | `23:50` (local time the auto end-of-day job runs) |
+| `AUTO_END_DAY_TIME` | `22:30` (Eastern wall-clock time the automatic end-of-day job runs, `HH:MM`; defaults to 10:30 PM) |
 
 Thresholds (Recently Washed / Due Soon), the color theme, and the site layout
 (**Classic** top-bar design or the newer **Side Panel** sidebar design) are all

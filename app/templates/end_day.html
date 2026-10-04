@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}End My Day{% endblock %}
+{% block title %}Day Report{% endblock %}
 {% block content %}
-<h1>End My Day <span class="muted small">{{ d.strftime('%A, %B %d %Y') }}</span></h1>
+<h1>Day Report <span class="muted small">{{ d.strftime('%A, %B %d %Y') }}</span></h1>
 
 <div class="flex" style="gap:4px;margin-bottom:12px;flex-wrap:wrap">
   {% for nd in nav_dates %}
@@ -10,16 +10,44 @@
     {{ nd.label }} <span class="small">({{ nd.date.strftime('%b %d') }})</span>
   </a>
   {% endfor %}
+  <span class="spacer"></span>
+  <a class="btn small secondary" target="_blank"
+     href="{{ url_for('print_report', date=d.isoformat()) }}">View / Print Report</a>
+  <a class="btn small secondary" href="{{ url_for('history_days') }}">History</a>
 </div>
 
 {% if finalized %}
 <div class="card" style="border-color: var(--success)">
-  <h2 style="color:var(--success)">✓ Day finalized</h2>
-  <p class="muted">This day has been finalized and saved to history.</p>
+  <h2 style="color:var(--success)">✓ Day finalized &amp; locked</h2>
+  <p class="muted">
+    This day was finalized automatically at {{ auto_finalize_at }} Eastern
+    {%- if finalized_at %} ({{ finalized_at }}){% endif %} and its report is
+    saved. Nothing about it can change now — check-offs, prep timers, skips and
+    replacements are all closed for this day.
+  </p>
   <div class="flex">
     <a class="btn" target="_blank" href="{{ url_for('print_report', date=d.isoformat()) }}">View / Print Report</a>
     <a class="btn secondary" href="{{ url_for('history_days') }}">History</a>
+    {% if current_role == 'manager' %}
+    <form method="post" action="{{ url_for('schedule_reopen', schedule_id=sched.id) }}"
+          style="display:inline"
+          onsubmit="return confirm('Reopen {{ d.strftime('%b %d %Y') }}? It becomes editable again and will be re-finalized automatically at {{ auto_finalize_at }} Eastern.')">
+      <button type="submit" class="btn warn">Reopen for correction</button>
+    </form>
+    {% else %}
+    <span class="muted small">Ask a Manager to reopen this day if something needs correcting.</span>
+    {% endif %}
   </div>
+</div>
+{% else %}
+<div class="card">
+  <h2>Day still open</h2>
+  <p class="muted">
+    This day is still being worked. It is finalized automatically at
+    {{ auto_finalize_at }} Eastern ({{ eastern_tz }}) — there is nothing to
+    press. The figures below are live and will be saved into the day's report
+    when it closes.
+  </p>
 </div>
 {% endif %}
 
@@ -171,35 +199,15 @@
     {% endfor %}
   </ul>
   {% else %}<p class="muted">No notes added.</p>{% endif %}
+  {# A note is part of the day's saved report, so a finalized day cannot take
+     one more; the server refuses the post either way. #}
+  {% if not finalized %}
   <form method="post" action="{{ url_for('add_note', date=d.isoformat()) }}" class="flex" style="margin-top:12px">
     <input type="text" name="text" placeholder="Add a note for end-of-day…" style="flex:1">
     <button type="submit" class="btn secondary small">Add</button>
   </form>
-</div>
-
-<div class="card no-print" style="border-color: var(--danger)">
-  <h2>Finalize Day</h2>
-  <p class="muted">Finalizing locks in today's work, calculates the completion
-    totals shown above, and saves the completed day to history. This cannot be
-    reversed without admin access.</p>
-  <button class="btn danger big" data-modal-target="modal-finalize">END MY DAY</button>
-</div>
-
-<div class="modal-bg" id="modal-finalize">
-  <div class="modal">
-    <h3>Confirm Finalize</h3>
-    <p>Are you sure you want to finalize today?<br>
-      <strong>{{ total }}</strong> vehicles · <strong>{{ completed }}</strong> completed ·
-      <strong>{{ incomplete }}</strong> incomplete · <strong>{{ overall }}%</strong>.
-    </p>
-    <form method="post" action="{{ url_for('end_day') }}">
-      <input type="hidden" name="date" value="{{ d.isoformat() }}">
-      <input type="hidden" name="confirm" value="yes">
-      <div class="flex">
-        <button type="submit" class="btn danger">Yes, Finalize Day</button>
-        <button type="button" class="btn secondary" data-modal-close="modal-finalize">Cancel</button>
-      </div>
-    </form>
-  </div>
+  {% else %}
+  <p class="muted small" style="margin-top:12px">This day is finalized, so no further notes can be added to its report.</p>
+  {% endif %}
 </div>
 {% endblock %}

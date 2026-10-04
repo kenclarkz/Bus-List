@@ -23,13 +23,21 @@
       <div><strong>Total:</strong> {{ total }}</div>
       <div><strong>Completed:</strong> {{ completed }}</div>
       <div><strong>Skipped:</strong> {{ skipped }}</div>
-      <div><strong>Incomplete:</strong> {{ total - completed }}</div>
+      <div><strong>Incomplete:</strong> {{ incomplete }}</div>
       <div><strong>Completion:</strong> {{ overall }}%</div>
       <div><strong>Replacements:</strong> {{ replacements }}</div>
       <div><strong>Active Prep Time:</strong> {{ prep_total_label }}</div>
     </div>
     <p style="font-size:11px;margin:-8px 0 16px">
       All times shown are Eastern Time ({{ eastern_tz }}).
+      {% if finalized %}
+      This day was finalized automatically at {{ auto_finalize_at }} Eastern
+      {%- if finalized_at %} ({{ finalized_at }}){% endif %} and is locked: the
+      figures above are the ones saved when it closed.
+      {% else %}
+      This day is still open; the figures above are current and will be saved
+      into the report when it closes at {{ auto_finalize_at }} Eastern.
+      {% endif %}
     </p>
 
     <h2>Daily Work List</h2>

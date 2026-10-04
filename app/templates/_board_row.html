@@ -80,19 +80,19 @@
         <button type="button" class="btn warn pause-btn" data-prep-action="pause"
                 data-entry="{{ entry.id }}" data-session="{{ w.session_id }}"
                 data-prep-scope="{{ w.scope }}"
-                {{ 'disabled' if current_role == 'manager' }}>Pause</button>
+                {{ 'disabled' if current_role == 'manager' or r.locked }}>Pause</button>
         {% endif %}
         {% if w.status == 'paused' %}
         <button type="button" class="btn resume-btn" data-prep-action="resume"
                 data-entry="{{ entry.id }}" data-session="{{ w.session_id }}"
                 data-prep-scope="{{ w.scope }}"
-                {{ 'disabled' if current_role == 'manager' }}>Resume</button>
+                {{ 'disabled' if current_role == 'manager' or r.locked }}>Resume</button>
         {% endif %}
         {% if w.status in ('running', 'paused') %}
         <button type="button" class="btn success done-btn" data-prep-action="done"
                 data-entry="{{ entry.id }}" data-session="{{ w.session_id }}"
                 data-prep-scope="{{ w.scope }}"
-                {{ 'disabled' if current_role == 'manager' }}>Done</button>
+                {{ 'disabled' if current_role == 'manager' or r.locked }}>Done</button>
         {% endif %}
       </span>
     </li>
@@ -106,13 +106,13 @@
     <button type="button" class="btn success start-btn" data-prep-action="start"
             data-entry="{{ entry.id }}" data-vehicle="{{ v.unit_number }}"
             data-prep-scope="{{ clock_set.scope }}"
-            {{ 'disabled' if current_role == 'manager' }}>Start {{ clock_set.scope_label }}</button>
+            {{ 'disabled' if current_role == 'manager' or r.locked }}>Start {{ clock_set.scope_label }}</button>
     {% elif clock_set.status != 'none' and entry.status != 'completed' and not my_sessions %}
     {# Somebody is already on this side: anyone else can run their own clock. #}
     <button type="button" class="btn success join-btn" data-prep-join="{{ entry.id }}"
             data-entry="{{ entry.id }}" data-vehicle="{{ v.unit_number }}"
             data-prep-scope="{{ clock_set.scope }}"
-            {{ 'disabled' if current_role == 'manager' }}>+ Add Me</button>
+            {{ 'disabled' if current_role == 'manager' or r.locked }}>+ Add Me</button>
     {% endif %}
     <span class="muted small prep-hint">
       {# A finished set is reported as finished whether or not the employee
@@ -308,7 +308,7 @@
       <label class="ck {{ 'done' if t.completed }}">
         <input type="checkbox" data-entry="{{ entry.id }}" data-task="{{ t.task_name }}"
                {{ 'checked' if t.completed }}
-               {{ 'disabled' if current_role == 'manager' }}>
+               {{ 'disabled' if current_role == 'manager' or r.locked }}>
         {{ t.task_name }}
         {% if t.completed_at %}<span class="small muted">· {{ t.completed_at|et_time }}</span>{% endif %}
         {% if t.completed and t.employee %}<span class="badge info" style="font-size:.6rem;padding:1px 5px;margin-left:4px">{{ t.employee.initials }}</span>{% endif %}
@@ -324,7 +324,7 @@
       <label class="ck {{ 'done' if t.completed }}">
         <input type="checkbox" data-entry="{{ entry.id }}" data-task="{{ t.task_name }}"
                {{ 'checked' if t.completed }}
-               {{ 'disabled' if current_role == 'manager' }}>
+               {{ 'disabled' if current_role == 'manager' or r.locked }}>
         {{ t.task_name }}
         {% if t.completed_at %}<span class="small muted">· {{ t.completed_at|et_time }}</span>{% endif %}
         {% if t.completed and t.employee %}<span class="badge info" style="font-size:.6rem;padding:1px 5px;margin-left:4px">{{ t.employee.initials }}</span>{% endif %}
@@ -342,7 +342,7 @@
   <div class="vehicle-done">
     <button type="button" class="btn success vehicle-done-btn"
             data-vehicle-done="{{ entry.id }}"
-            {{ 'disabled' if current_role == 'manager' }}>Done With Vehicle</button>
+            {{ 'disabled' if current_role == 'manager' or r.locked }}>Done With Vehicle</button>
     <span class="muted small">Counts this vehicle as completed, even if every task is not checked.</span>
   </div>
   {% endif %}
@@ -360,14 +360,22 @@
   </div>
 
   <div class="row-actions">
-    {% if entry.status not in ('completed', 'skipped') and not r.replaced_by %}
+    {# A finalized day is a saved report: a substitution, a skip or an un-skip
+       would change the totals already stored, so none of them are offered.
+       The server refuses the post too -- these are the affordance, not the
+       rule. #}
+    {% if entry.status not in ('completed', 'skipped') and not r.replaced_by and not r.locked %}
     <button class="btn small secondary" data-modal-target="modal-replace-{{ entry.id }}">Replace Vehicle</button>
     {% endif %}
     {% if entry.status == 'skipped' %}
+    {% if not r.locked %}
     <form method="post" action="{{ url_for('entry_unskip', entry_id=entry.id) }}" style="display:inline">
       <button type="submit" class="btn small secondary">Un-skip</button>
     </form>
-    {% elif entry.status != 'completed' and not r.replaced_by %}
+    {% else %}
+    <span class="muted small">Finalized — skip stands</span>
+    {% endif %}
+    {% elif entry.status != 'completed' and not r.replaced_by and not r.locked %}
     <button class="btn small warn" data-modal-target="modal-skip-{{ entry.id }}"
             {{ 'disabled' if current_role == 'manager' }}>Skip</button>
     {% endif %}
@@ -398,6 +406,7 @@
   </div>
 </details>
 
+{% if not r.locked %}
 <div class="modal-bg" id="modal-skip-{{ entry.id }}">
   <div class="modal">
     <h3>Skip Vehicle {{ v.unit_number }}</h3>
@@ -443,4 +452,5 @@
     </form>
   </div>
 </div>
+{% endif %}
 {% endmacro %}
