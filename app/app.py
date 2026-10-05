@@ -1466,6 +1466,9 @@ def register_routes(app):
                 user == UserAccount.ROLE_EMPLOYEE and emp is None),
             "dark_mode": resolved_dark_mode,
             "layout": settings.get_user_layout(user, emp_id),
+            # How large this user's own text is drawn (zoomed text). Kept out
+            # of the theme: it scales the root font size and no palette.
+            "text_size": settings.get_user_text_size(user, emp_id),
             "nav_links": _nav_links(role),
             # The server's clock, so live timers in the browser can correct for
             # a skewed device clock instead of drifting.
@@ -2584,6 +2587,11 @@ def register_routes(app):
             layout = request.form.get("layout")
             if layout in settings.LAYOUT_CHOICES:
                 settings.set_user_layout(user, emp_id, layout)
+            # Text size is a per-user appearance choice as well: how large the
+            # app draws its own text, for anyone who needs it bigger.
+            text_size = request.form.get("text_size")
+            if text_size in settings.TEXT_SIZE_CHOICES:
+                settings.set_user_text_size(user, emp_id, text_size)
             # The remaining operational settings are manager-only.
             if user == "manager":
                 for key in ["recent_days", "due_soon_days", "location"]:
@@ -2623,6 +2631,7 @@ def register_routes(app):
             "location": settings.get_setting("location") or "Main Depot",
             "dark_mode": settings.get_user_theme(user, emp_id),
             "layout": settings.get_user_layout(user, emp_id),
+            "text_size": settings.get_user_text_size(user, emp_id),
         }, vehicle_types=vtypes)
 
     @app.route("/trash", methods=["GET", "POST"])

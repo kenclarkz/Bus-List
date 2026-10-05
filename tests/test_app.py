@@ -3,6 +3,7 @@ import io
 import json
 import re
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from urllib.parse import quote
 
 import pytest
@@ -1816,6 +1817,138 @@ def test_layout_chooser_is_in_settings_not_topbar(client, app):
     html = client.get("/settings").data.decode()
     assert 'name="layout"' in html
     assert "Side Panel (new)" in html
+
+
+# ---------------------------------------------------------------------------
+# Text size (zoomed text)
+# ---------------------------------------------------------------------------
+
+ZOOMED_TEXT_SIZES = ["large", "xlarge"]
+
+
+def test_text_size_defaults_to_normal(manager_client, app):
+    """Nobody has to choose a size to get the app the way it always was."""
+    r = manager_client.get("/")
+    assert b'data-text-size="normal"' in r.data
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_text_size("manager") == "normal"
+        # Nothing was written: the default is the absence of a choice.
+        assert s.get_setting(s.text_size_key("manager")) is None
+
+
+def test_text_size_can_be_zoomed(manager_client, app):
+    """A person who finds the default text hard to read picks a bigger size and
+    every page afterwards is drawn at it."""
+    r = manager_client.post("/settings", data={"text_size": "xlarge"})
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_text_size("manager") == "xlarge"
+    for path in ("/", "/settings", "/vehicles"):
+        assert b'data-text-size="xlarge"' in manager_client.get(path).data
+
+
+def test_text_size_survives_saving_theme_layout_and_other_settings(manager_client, app):
+    manager_client.post("/settings", data={"text_size": "large"})
+    r = manager_client.post("/settings", data={
+        "dark_mode": "on",
+        "layout": "sidepanel",
+        "recent_days": "3",
+        "due_soon_days": "7",
+        "location": "Main Depot",
+    })
+    assert r.status_code == 302
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_text_size("manager") == "large"
+        assert s.get_user_theme("manager") == "on"
+        assert s.get_user_layout("manager") == "sidepanel"
+    assert b'data-text-size="large"' in manager_client.get("/").data
+
+
+def test_text_size_rejects_unknown_values(manager_client, app):
+    manager_client.post("/settings", data={"text_size": "enormous"})
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_text_size("manager") == "normal"
+
+
+def test_text_size_is_per_user(client, manager_client, app):
+    """One person reading the board at the largest size never changes how
+    anybody else sees it."""
+    manager_client.post("/settings", data={"text_size": "xlarge"})
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_text_size("manager") == "xlarge"
+        emp = Employee.query.filter_by(active=True).first()
+        assert s.get_user_text_size("employee", emp.id) == "normal"
+    assert b'data-text-size="xlarge"' in manager_client.get("/").data
+    assert b'data-text-size="normal"' in client.get("/").data
+
+
+def test_driver_can_set_own_text_size(app):
+    d = app.test_client()
+    d.post("/login", data={"username": "driver", "password": "driver"})
+    r = d.post("/settings", data={"text_size": "large"})
+    assert r.status_code == 302
+    assert b'data-text-size="large"' in d.get("/driver").data
+    with app.app_context():
+        from app.services import settings as s
+        assert s.get_user_text_size("driver") == "large"
+        assert s.get_user_text_size("manager") == "normal"
+
+
+def test_every_text_size_choice_is_offered_in_settings(manager_client):
+    """A size is only usable if it is both a valid choice and in the dropdown."""
+    from app.services import settings as s
+    body = manager_client.get("/settings").data.decode()
+    for size in s.TEXT_SIZE_CHOICES:
+        assert f'<option value="{size}"' in body, f"{size} missing from dropdown"
+
+
+def test_text_size_chooser_is_in_settings_not_topbar(client, app):
+    html = client.get("/").data.decode()
+    assert 'name="text_size"' not in html
+    html = client.get("/settings").data.decode()
+    assert 'name="text_size"' in html
+    assert "Text size" in html
+
+
+def test_every_text_size_choice_is_actually_drawn_by_the_stylesheet():
+    """The setting is only worth offering if the CSS honours it: each choice
+    needs a rule that scales the root font size, which is what every font size
+    in the app is written against."""
+    css = (Path(__file__).resolve().parent.parent
+           / "app" / "static" / "css" / "style.css").read_text()
+    from app.services import settings as s
+    for size in ZOOMED_TEXT_SIZES:
+        assert size in s.TEXT_SIZE_CHOICES, f"{size} not a valid choice"
+        rule = re.search(
+            r'html\[data-text-size="%s"\]\s*\{\s*font-size:\s*([^;]+);' % size, css)
+        assert rule, f"no root font-size rule for data-text-size={size}"
+        scale = float(re.sub(r"[^0-9.]", "", rule.group(1)))
+        assert scale > 100, f"{size} does not actually make the text bigger"
+
+
+def test_printing_ignores_the_text_size_setting():
+    """Paper has a fixed size, so a page printed by someone who reads the app
+    large comes out the same size as everyone else's."""
+    css = (Path(__file__).resolve().parent.parent
+           / "app" / "static" / "css" / "style.css").read_text()
+    print_block = css.split("@media print {", 1)[1].split("\n}", 1)[0]
+    assert 'html[data-text-size] { font-size: 100%; }' in print_block
+
+
+def test_a_text_size_no_longer_offered_falls_back_to_normal(manager_client, app):
+    """A size left behind by an older build (or a hand-edited row) is not
+    rendered as an attribute the stylesheet has no rule for."""
+    manager_client.post("/settings", data={"text_size": "xlarge"})
+    with app.app_context():
+        from app.services import settings as s
+        s.set_setting(s.text_size_key("manager"), "gigantic")
+        assert s.get_user_text_size("manager") == "normal"
+    assert b'data-text-size="normal"' in manager_client.get("/").data
 
 
 def test_standard_checklist_and_per_type_lists(app):

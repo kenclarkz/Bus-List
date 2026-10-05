@@ -8,6 +8,7 @@ DEFAULTS = {
     "location": None,         # default location name for schedules/vehicles
     "dark_mode": "off",       # global fallback theme: off | on | system | futuristic | halloween | bloomberg | retro | holographic | synthwave | cosmos | cyberpunk | aurora | ocean | crystal | matrix | dunes
     "layout": "classic",      # global fallback layout: classic | sidepanel
+    "text_size": "normal",    # global fallback text size: normal | large | xlarge
 }
 
 # The task list a vehicle type starts with, split into the work inside the
@@ -42,6 +43,15 @@ THEME_CHOICES = ("off", "on", "system", "futuristic", "halloween", "bloomberg",
 # sidebar); it is independent of the color theme. Each user may store their
 # own under a per-user key. "classic" is the default layout.
 LAYOUT_CHOICES = ("classic", "sidepanel")
+
+# Valid text-size choices. Text size is how large the app draws its own text,
+# for anyone who finds the default hard to read. Every font size in
+# app/static/css/style.css is written in rem, so a choice only has to scale the
+# root font size and the whole page follows: the color theme and the layout are
+# untouched, and no element needs a rule of its own. Each user may store their
+# own under a per-user key. "normal" is the default, the size the app has
+# always been drawn at.
+TEXT_SIZE_CHOICES = ("normal", "large", "xlarge")
 
 
 def theme_key(user, employee_id=None):
@@ -91,6 +101,36 @@ def set_user_layout(user, employee_id=None, value="classic"):
     if value not in LAYOUT_CHOICES:
         return False
     set_setting(layout_key(user, employee_id), value)
+    return True
+
+
+def text_size_key(user, employee_id=None):
+    """DB key storing one user's own text size: per-account, and per employee
+    for an Employee account, whose staff record is who they are."""
+    if user == "employee" and employee_id:
+        return f"text_size:employee:{employee_id}"
+    return f"text_size:{user or 'employee'}"
+
+
+def get_user_text_size(user, employee_id=None):
+    """A user's own text size, falling back to the global default.
+
+    A stored value that is no longer a valid choice (an older value dropped
+    from :data:`TEXT_SIZE_CHOICES`, or a hand-edited row) is treated as if it
+    had never been set, so a size CSS does not know about is never rendered.
+    """
+    if user:
+        own = get_setting(text_size_key(user, employee_id))
+        if own in TEXT_SIZE_CHOICES:
+            return own
+    return get_setting("text_size", "normal") or "normal"
+
+
+def set_user_text_size(user, employee_id=None, value="normal"):
+    """Persist a user's own text size. Ignored for unknown values."""
+    if value not in TEXT_SIZE_CHOICES:
+        return False
+    set_setting(text_size_key(user, employee_id), value)
     return True
 
 

@@ -4,9 +4,10 @@
 <h1>Settings</h1>
 <div class="card">
   <h2>Appearance</h2>
-  <p class="muted">Your theme and layout choices only change how the app looks for you.
+  <p class="muted">Your theme, layout and text size choices only change how the app looks for you.
     <strong>Classic</strong> is the default design; <strong>Side Panel</strong> is the new
-    layout with a sidebar navigation. The <strong>3D &amp; motion</strong> themes animate
+    layout with a sidebar navigation. <strong>Text size</strong> makes everything bigger for
+    anyone who finds the default hard to read. The <strong>3D &amp; motion</strong> themes animate
     the background as you scroll; they respect your device's reduced-motion setting.</p>
   <form method="post" action="{{ url_for('settings_page') }}">
     <label for="dark_mode">Theme</label>
@@ -39,6 +40,14 @@
       <option value="classic" {{ 'selected' if settings.layout == 'classic' }}>Classic (top bar)</option>
       <option value="sidepanel" {{ 'selected' if settings.layout == 'sidepanel' }}>Side Panel (new)</option>
     </select>
+    <label for="text_size">Text size</label>
+    <select id="text_size" name="text_size">
+      <option value="normal" {{ 'selected' if settings.text_size == 'normal' }}>Default</option>
+      <option value="large" {{ 'selected' if settings.text_size == 'large' }}>Large (120%)</option>
+      <option value="xlarge" {{ 'selected' if settings.text_size == 'xlarge' }}>Largest (140%)</option>
+    </select>
+    <p class="muted small">Scales all the text in the app, on every page. Printed reports keep
+      their own fixed size.</p>
     <div style="margin-top:16px" class="flex">
       <button type="submit" class="btn success">Save Appearance</button>
       <a class="btn secondary" href="{{ url_for('change_password') }}">Change Password</a>

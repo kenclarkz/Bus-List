@@ -158,7 +158,10 @@ independent of the color themes (Light / Dark / System / Futuristic /
      Ocean, Crystal, Matrix, Dunes) adds a three-dimensional scene with a
      continuously animated background. Those themes follow the operating
      system's reduced-motion setting, and where the browser supports it their
-     parallax is tied to scroll position.
+     parallax is tied to scroll position. **Text size** can also be set per
+     user in **Settings** (Default / Large / Largest) for anyone who finds the
+     default hard to read; it scales every text size in the app and is
+     independent of both the theme and the layout.
 12. **Incident Reports** — a dedicated tab where anyone can report an issue
     for any vehicle: type (Mechanical / Interior / Exterior / Damage /
     Safety / Other), severity, location, description, date/time, and employee,
@@ -316,10 +319,20 @@ Database and secret are configured via environment variables (see
 | `PORT` | `5000` |
 | `AUTO_END_DAY_TIME` | `22:30` (Eastern wall-clock time the automatic end-of-day job runs, `HH:MM`; defaults to 10:30 PM) |
 
-Thresholds (Recently Washed / Due Soon), the color theme, and the site layout
-(**Classic** top-bar design or the newer **Side Panel** sidebar design) are all
-configurable in the **Settings** page at runtime. Themes and layouts are saved
-per account, so each user keeps their own appearance.
+Thresholds (Recently Washed / Due Soon), the color theme, the site layout
+(**Classic** top-bar design or the newer **Side Panel** sidebar design), and the
+**text size** are all configurable in the **Settings** page at runtime. Theme,
+layout and text size are saved per account, so each user keeps their own
+appearance.
+
+**Text size** is zoomed text for anyone who finds the default hard to read:
+**Default**, **Large** (120%) or **Largest** (140%). Every font size in
+`app/static/css/style.css` is written in `rem`, so a choice only has to scale
+the root font size and the whole app follows — it is independent of the theme
+and the layout, and no component needs a rule of its own. Printed pages keep
+their own fixed size, since paper has a fixed size; the generated report
+(`templates/print_report.html`) sets its sizes in `px` throughout and is
+unaffected either way.
 
 The task list belongs to the vehicle type, not to the site: each type carries its
 own checklist, split into **Inside** (interior cleaning) and **Outside**
@@ -336,6 +349,13 @@ look itself is a `html[data-theme="<id>"]` block in
 light tokens so reports don't ink out), add an `<option>` to the `dark_mode`
 select in `templates/settings.html`, and add a test pair in
 `tests/test_app.py`.
+
+A text size is the same shape: an id from `TEXT_SIZE_CHOICES`, stored per user
+under a `text_size:<user>` key and rendered as `data-text-size` on `<html>`.
+Its CSS is one `html[data-text-size="<id>"] { font-size: <percent>; }` rule,
+because all text is sized in `rem`. A test asserts every non-default choice
+really has such a rule and really scales up, so an offered size cannot be one
+the stylesheet ignores.
 
 ---
 
