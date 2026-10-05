@@ -107,6 +107,44 @@
   {{ content_block() }}
 </main>
 {% endif %}
+  {# A refresh re-reads the page from the server, and a reload is a blank
+     screen until the new page paints. This overlay stands in for that gap:
+     a bus drives across the road while the fresh board is fetched. app.js
+     shows it for any [data-reload-page] control (see reloadWithLoader), and
+     hides it again if the reload somehow never happens. #}
+  <div class="page-loader" id="page-loader" role="status" aria-hidden="true">
+    <p class="page-loader-label">Refreshing<span class="page-loader-dots" aria-hidden="true"><i></i><i></i><i></i></span></p>
+    <div class="page-loader-road" aria-hidden="true">
+      <div class="page-loader-run">
+        <svg class="page-loader-bus" viewBox="0 0 220 84" focusable="false">
+          <ellipse class="page-loader-shadow" cx="110" cy="79" rx="84" ry="3"/>
+          <rect class="page-loader-shell" x="8" y="14" width="204" height="46" rx="12"/>
+          <path class="page-loader-glass" d="M146 22h44l16 17h-60z"/>
+          <rect class="page-loader-glass" x="22" y="22" width="36" height="17" rx="4"/>
+          <rect class="page-loader-glass" x="66" y="22" width="36" height="17" rx="4"/>
+          <rect class="page-loader-glass" x="110" y="22" width="28" height="17" rx="4"/>
+          <rect class="page-loader-stripe" x="8" y="48" width="204" height="6"/>
+          <circle class="page-loader-lamp" cx="203" cy="43" r="4.5"/>
+          <g class="page-loader-wheel" transform="translate(58 62)">
+            <circle class="page-loader-tyre" r="13"/>
+            <g class="page-loader-spin">
+              <rect class="page-loader-hub" x="-1.75" y="-9" width="3.5" height="18" rx="1.75"/>
+              <rect class="page-loader-hub" x="-9" y="-1.75" width="18" height="3.5" rx="1.75"/>
+            </g>
+            <circle class="page-loader-axle" r="3"/>
+          </g>
+          <g class="page-loader-wheel" transform="translate(162 62)">
+            <circle class="page-loader-tyre" r="13"/>
+            <g class="page-loader-spin">
+              <rect class="page-loader-hub" x="-1.75" y="-9" width="3.5" height="18" rx="1.75"/>
+              <rect class="page-loader-hub" x="-9" y="-1.75" width="18" height="3.5" rx="1.75"/>
+            </g>
+            <circle class="page-loader-axle" r="3"/>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </div>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>

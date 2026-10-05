@@ -4571,6 +4571,172 @@ html[data-theme="dunes"] .photo-item { background: rgba(28, 10, 46, .7); border-
 }
 
 /* ---------------------------------- */
+/* Refresh loader (a bus driving by)   */
+/* ---------------------------------- */
+/* Pressing Refresh reloads the page, and a reload is a blank screen for as
+   long as the server takes to answer. The loader covers that gap with a bus
+   driving across a road: the tap reads as the board being re-read rather than
+   as the app having hung. Colors come from the theme's own variables so the
+   overlay belongs to whichever theme is in use. */
+
+.page-loader {
+  /* The 3D themes raise every direct child of <body> out of their decorative
+     background with `position: relative; z-index: 1`. The loader covers the
+     whole page, so it has to hold on to being fixed and stay on top. */
+  position: fixed !important;
+  inset: 0;
+  z-index: 300 !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  /* Each mix() has the plain theme variable declared over the top of it, so a
+     browser without color-mix gets a flat panel instead of no panel. */
+  background: var(--card);
+  background: color-mix(in srgb, var(--card) 88%, var(--text));
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .18s ease, visibility .18s ease;
+}
+.page-loader.open { opacity: 1; visibility: visible; }
+
+.page-loader-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: var(--text);
+}
+.page-loader-dots { display: inline-flex; gap: 4px; }
+.page-loader-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: loader-dot 1.2s ease-in-out infinite;
+}
+.page-loader-dots i:nth-child(2) { animation-delay: .15s; }
+.page-loader-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes loader-dot {
+  0%, 60%, 100% { opacity: .3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+
+.page-loader-road {
+  position: relative;
+  width: min(560px, 88vw);
+  height: 108px;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--muted);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--border) 60%, var(--card)) 0%,
+    color-mix(in srgb, var(--muted) 55%, var(--text)) 100%);
+  box-shadow: inset 0 0 0 1px var(--muted);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 45%, transparent);
+}
+/* the lane markings scroll under the bus, so the bus reads as the thing
+   moving even at the moment the animation restarts */
+.page-loader-road::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 16px;
+  height: 4px;
+  background: repeating-linear-gradient(90deg, var(--card) 0 28px, transparent 28px 56px);
+  background: repeating-linear-gradient(90deg,
+    color-mix(in srgb, var(--card) 85%, transparent) 0 28px,
+    transparent 28px 56px);
+  opacity: .7;
+  animation: loader-lane 0.7s linear infinite;
+}
+@keyframes loader-lane {
+  from { background-position: 0 0; }
+  to { background-position: -56px 0; }
+}
+
+/* The bus starts off the left edge of the road and drives out past the right
+   one. Animating `left` (against the road's own width) is what carries it
+   across; the bus itself rocks a little as it goes, which is what makes it
+   look like a vehicle on a road rather than a sprite sliding across a bar. */
+.page-loader-run {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  width: 220px;
+  animation: loader-drive 2.4s cubic-bezier(.45, .05, .55, .95) infinite;
+}
+@keyframes loader-drive {
+  0%   { left: -240px; }
+  100% { left: 100%; }
+}
+.page-loader-bus {
+  display: block;
+  width: 100%;
+  height: auto;
+  animation: loader-rock .3s ease-in-out infinite alternate;
+}
+@keyframes loader-rock {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-2px); }
+}
+
+.page-loader-shell { fill: var(--primary); }
+.page-loader-stripe { fill: var(--primary-dark); }
+.page-loader-stripe { fill: color-mix(in srgb, var(--primary-dark) 70%, #000); }
+.page-loader-glass { fill: var(--info); }
+.page-loader-glass { fill: color-mix(in srgb, var(--card) 80%, var(--info)); }
+.page-loader-lamp { fill: #fde047; }
+/* The tyre needs its own class: `.page-loader-wheel circle` would also catch
+   the axle dot and win on specificity, painting the hub centre the same colour
+   as the tyre it sits on. */
+.page-loader-tyre { fill: var(--text); }
+.page-loader-tyre { fill: color-mix(in srgb, var(--text) 80%, #000); }
+.page-loader-hub { fill: var(--muted); }
+.page-loader-hub { fill: color-mix(in srgb, var(--card) 70%, var(--muted)); }
+.page-loader-axle { fill: var(--card); }
+.page-loader-shadow { fill: var(--muted); }
+.page-loader-shadow { fill: color-mix(in srgb, var(--text) 45%, transparent); }
+/* `fill-box` puts the rotation centre on the hub of each wheel instead of on
+   the SVG's origin, so the spokes turn where the wheel is. */
+.page-loader-spin {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: loader-spin .55s linear infinite;
+}
+@keyframes loader-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@media (max-width: 600px) {
+  .page-loader-road { width: 92vw; }
+}
+
+@media print {
+  .page-loader { display: none !important; }
+}
+
+/* A reload is a blank screen whatever the motion, so the loader still has to
+   appear and still has to say what is happening -- only the driving stops.
+   The bus is parked mid-road with the wheels off, which still reads as a bus
+   waiting to be let through. */
+@media (prefers-reduced-motion: reduce) {
+  .page-loader { transition: none; }
+  .page-loader-dots i,
+  .page-loader-road::after,
+  .page-loader-bus,
+  .page-loader-spin { animation: none; }
+  .page-loader-run { animation: none; transform: translateX(0); left: 50%; margin-left: -110px; }
+  .page-loader-dots i { opacity: .7; }
+}
+
+/* ---------------------------------- */
 /* Side Panel layout (new design)      */
 /* ---------------------------------- */
 /* The "classic" layout (`.topbar` + centered `.container`) stays the default.

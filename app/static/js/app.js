@@ -896,7 +896,7 @@ function finishVehicle(btn) {
       }
       tickPrepTimers();
     } catch (e) {
-      window.location.reload();
+      reloadWithLoader();
     }
   });
 }
@@ -1190,7 +1190,7 @@ function skipWork(form) {
       var modal = document.getElementById('modal-skip-' + entryId);
       if (modal) modal.classList.remove('open');
     } catch (e) {
-      window.location.reload();
+      reloadWithLoader();
     }
   }).catch(function () {
     if (btn) btn.disabled = false;
@@ -1198,7 +1198,57 @@ function skipWork(form) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Refresh: a bus drives by while the page reloads
+// ---------------------------------------------------------------------------
+// Refreshing re-reads the page from the server, and a reload is a blank
+// screen until the browser gets the new document back, so the press can look
+// like the app has hung. The overlay in base.html puts a bus on the road for
+// that gap. It is held on screen for a moment before the reload starts, so
+// the bus is seen pulling away rather than flashing once, and it is dropped
+// again if the reload somehow never happens: a board stuck behind a screen
+// nobody can tap past would be worse than the blank one it replaced.
+
+var RELOAD_MIN_MS = 650;
+var RELOAD_FAILSAFE_MS = 8000;
+
+function showPageLoader() {
+  var loader = document.getElementById('page-loader');
+  if (!loader) return;
+  loader.classList.add('open');
+  loader.setAttribute('aria-hidden', 'false');
+}
+
+function hidePageLoader() {
+  var loader = document.getElementById('page-loader');
+  if (!loader) return;
+  loader.classList.remove('open');
+  loader.setAttribute('aria-hidden', 'true');
+}
+
+function reloadWithLoader() {
+  showPageLoader();
+  window.setTimeout(function () { window.location.reload(); }, RELOAD_MIN_MS);
+  window.setTimeout(hidePageLoader, RELOAD_FAILSAFE_MS);
+}
+
+// A page handed back by the back/forward cache keeps the state it was frozen
+// in, so a loader that was up when it was left must not come back up with it.
+window.addEventListener('pageshow', function (e) {
+  if (e.persisted) hidePageLoader();
+});
+
 document.addEventListener('DOMContentLoaded', function () {
+  // Any control that re-reads the page from the server refreshes behind the
+  // loading bus, so the press reads as the board being re-read rather than
+  // as the screen hanging on a stale copy of it.
+  document.querySelectorAll('[data-reload-page]').forEach(function (btn) {
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      reloadWithLoader();
+    });
+  });
+
   document.querySelectorAll('.ck input').forEach(function (chk) {
     if (chk.type !== 'checkbox') return;
     chk.addEventListener('change', function () {
