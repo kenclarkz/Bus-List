@@ -20,6 +20,17 @@
 
 html { color-scheme: light; }
 
+/* Text size: zoomed text for anyone who finds the default hard to read.
+   Every font size in this file is written in rem, so a choice only has to
+   scale the root font size and the whole app follows: no palette, layout or
+   component needs a rule of its own, and it is independent of the theme.
+   "normal" is the default size, so it needs no rule. Sizes given in px (the
+   checkbox, the progress bar) are controls rather than text and stay as they
+   are; a box drawn around a glyph, like the sidebar nav icon, is given in rem
+   so it still fits its own glyph at any size. */
+html[data-text-size="large"] { font-size: 120%; }
+html[data-text-size="xlarge"] { font-size: 140%; }
+
 * { box-sizing: border-box; }
 
 body {
@@ -702,6 +713,13 @@ code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
   /* Paper has no tap: a folded row is printed as if it had been opened. */
   details.vrow > .vrow-body { display: block !important; }
   table { font-size: 12px; }
+  /* Paper has a fixed size, so a page printed by someone who reads the app at
+     a larger text size comes out at the same size as everyone else's. This is
+     the same choice the `table { font-size: 12px }` above already makes: print
+     has its own type sizes rather than mirroring the screen. The generated
+     report (`print_report.html`) sets its own sizes in px throughout and is
+     unaffected either way. */
+  html[data-text-size] { font-size: 100%; }
 }
 
 @media (max-width: 600px) {
@@ -4668,7 +4686,7 @@ html[data-layout="sidepanel"] .sp-nav a.active {
   box-shadow: inset 0 0 0 1px rgba(96, 165, 250, .25);
 }
 
-html[data-layout="sidepanel"] .sp-nav-icon { width: 20px; text-align: center; font-size: 1.05rem; flex: none; }
+html[data-layout="sidepanel"] .sp-nav-icon { width: 1.25rem; text-align: center; font-size: 1.05rem; flex: none; }
 
 html[data-layout="sidepanel"] .sp-logout {
   padding: 12px;
