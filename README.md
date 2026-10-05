@@ -519,6 +519,16 @@ is eventually reported.
   — only when the re-read failed too — that the clock on screen
   may be out of date and the page should be reloaded. It never claims a re-check
   that did not happen.
+- **A refresh is not a blank screen.** Re-reading the page from the server is an
+  empty gap for as long as the server takes to answer, so the board's
+  **Refresh** puts a bus on the road for it, drawn in the current theme's
+  colours. Any control that re-reads the page (marked `data-reload-page`)
+  refreshes behind it, the overlay is held for a moment before the reload so the
+  bus is seen pulling away rather than flashing once, and it drops itself again
+  if the reload somehow never happens — a board stuck behind a screen nobody can
+  tap past would be worse than the blank one it replaced. With
+  `prefers-reduced-motion` set the bus parks mid-road instead of driving, and
+  the overlay still appears.
 - **Nothing runs forever.** Finishing a timer is not the only way a clock stops:
   completing a vehicle through its checklist, or ending the day, stops any
   timer still running for that vehicle.

@@ -7850,3 +7850,43 @@ def test_a_reactivated_account_whose_staff_record_is_gone_says_so(manager_client
     assert r.status_code == 200
     assert "not on the staff list any more" in r.data.decode()
     assert "Working as:" not in r.data.decode()
+
+
+def test_the_refresh_button_refreshes_behind_a_bus_on_the_road(client, manager_client):
+    """A reload is a blank screen while the server answers, so the board's
+    Refresh puts a bus on the road for that gap instead of looking hung up.
+
+    The overlay rides in the shared page shell, so every page that extends it
+    can refresh behind the bus, and it is only ever shown by the script --
+    markup alone leaves the board exactly as it was."""
+    import os
+
+    html = client.get("/").data.decode()
+
+    # The button refreshes through the loader rather than reloading itself.
+    button = html[html.index('id="refresh-btn"'):]
+    button = button[:button.index("</button>")]
+    assert "data-reload-page" in button
+    assert "location.reload" not in button
+
+    # The overlay comes with the shell, says what it is, and is hidden until
+    # a refresh asks for it.
+    assert '<div class="page-loader" id="page-loader" role="status"' in html
+    assert 'aria-hidden="true"' in html
+    assert "Refreshing" in html
+    assert "page-loader-bus" in html
+    assert "page-loader-road" in html
+
+    # It is not dashboard-only furniture: any page on the shell has one.
+    assert 'id="page-loader"' in manager_client.get("/vehicles").data.decode()
+
+    script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "app", "static", "js", "app.js")
+    with open(script, encoding="utf-8") as fh:
+        js = fh.read()
+    assert "[data-reload-page]" in js
+    assert "function reloadWithLoader()" in js
+    # ...and a reload that never happens cannot leave the board stuck behind
+    # the overlay.
+    assert "RELOAD_FAILSAFE_MS" in js
+    assert "hidePageLoader" in js
