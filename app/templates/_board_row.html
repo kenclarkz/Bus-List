@@ -339,7 +339,15 @@
      running on it, and records which tasks were left undone on the row -- so a
      vehicle finished early can never be mistaken for one worked in full. #}
   {% if entry.status not in ('completed', 'skipped') and not r.replaced_by %}
-  <div class="vehicle-done">
+  {# The way out of a vehicle is offered from the first box ticked, not before:
+     it counts the vehicle as completed whatever the boxes say, so on a row
+     nobody has begun recording work it would only be a way to finish nothing.
+     A box already ticked when the page is read shows it here; the first tick
+     after that reveals it in place (syncVehicleDone in app.js), so the two
+     never disagree. #}
+  {% set any_task_done = (r.task_groups.inside + r.task_groups.outside)
+                         | selectattr('completed') | list %}
+  <div class="vehicle-done"{% if not any_task_done %} hidden{% endif %}>
     <button type="button" class="btn success vehicle-done-btn"
             data-vehicle-done="{{ entry.id }}"
             {{ 'disabled' if current_role == 'manager' or r.locked }}>Done With Vehicle</button>

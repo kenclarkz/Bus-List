@@ -851,6 +851,20 @@ function showIncompleteTasks(row, names) {
   note.appendChild(document.createTextNode(names.join(', ')));
 }
 
+// The way out of a vehicle only shows once at least one box on the row is
+// ticked: it counts the vehicle as completed whatever the boxes say, so on a
+// row nobody has begun recording work it would only be a way to finish
+// nothing. The server renders the block with the same rule, so a reload never
+// moves it. Called on every box press, since the first tick reveals it and the
+// last un-tick takes it away again.
+function syncVehicleDone(row) {
+  if (!row) return;
+  var box = row.querySelector('.vehicle-done');
+  if (!box) return;
+  box.hidden = !Array.prototype.some.call(row.querySelectorAll('.ck input'),
+    function (chk) { return chk.checked; });
+}
+
 // The crew's own way out of a vehicle: done with it, whatever the boxes say.
 // It counts the vehicle as completed on the board, stops any clock still
 // running on it and records the tasks left undone, so finishing early is an
@@ -1280,9 +1294,13 @@ document.addEventListener('DOMContentLoaded', function () {
         // the card once the whole checklist is done.
         setRowStatus(row, data.status);
         wrap.classList.toggle('done', checked);
+        // The first box ticked is what puts the way out of the vehicle on the
+        // row, and the last one unticked is what takes it away.
+        syncVehicleDone(row);
       }).catch(function () {
         chk.checked = !checked;
         wrap.classList.toggle('done', checked);
+        syncVehicleDone(row);
       });
     });
   });

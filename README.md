@@ -166,11 +166,13 @@ record of what happened. Every checkbox saves a completion timestamp and the
 employee. Progress shows `6/8 — 75%`.
 
 Under the task list is **Done With Vehicle** — the crew's own way out of a row
-when they are finished with it **whether or not every task is checked**. It
-counts the vehicle as completed on the board exactly like ticking every box off
-does, stops any clock still running on it, moves the day's totals, and names the
-tasks it left undone on the row, so a vehicle finished early can never be
-mistaken for one worked through in full.
+when they are finished with it **whether or not every task is checked**. It is
+offered only once at least one box on the vehicle (Inside or Outside) has been
+ticked, so a row nobody has begun recording work on cannot be finished as
+empty. It counts the vehicle as completed on the board exactly like ticking
+every box off does, stops any clock still running on it, moves the day's totals,
+and names the tasks it left undone on the row, so a vehicle finished early can
+never be mistaken for one worked through in full.
 
 The board also supports **date navigation** (Today / Tomorrow / +2 Days), a
 **+ Add Vehicle** button to put a unit on a day without a PDF, search and filter

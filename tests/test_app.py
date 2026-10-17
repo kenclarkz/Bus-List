@@ -7296,9 +7296,16 @@ def test_done_with_vehicle_completes_it_with_tasks_left(client, app):
         client.post(f"/entry/{entry_id}/prep/start",
                     data={"employee_id": str(emp_id), "scope": "inside"})
 
+    # The way out of a vehicle is not offered until a box has been ticked:
+    # before that it would only be a way to finish work nobody began.
+    row = board_row(client.get("/").data.decode(), entry_id)
+    assert '<div class="vehicle-done" hidden>' in row
+    assert "data-vehicle-done" in row
+
     client.post(f"/task/{entry_id}/Sweep", data={"checked": "true"})
     row = board_row(client.get("/").data.decode(), entry_id)
     assert 'data-vehicle-done="%d"' % entry_id in row
+    assert '<div class="vehicle-done" hidden>' not in row
     # The button sits under the task list it applies to.
     assert row.index('class="checklist"') < row.index("data-vehicle-done")
     assert 'class="btn success vehicle-done-btn"' in row
