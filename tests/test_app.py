@@ -1335,24 +1335,73 @@ def test_auto_end_day_job_spares_days_employees_ended(app):
         assert sched.finalized_at == finalized_at
 
 
-def test_auto_end_day_job_ignores_past_and_future_days(app):
-    """The job only closes the day it was asked to; other days are untouched."""
+def test_auto_end_day_job_catches_up_past_days_but_not_future(app):
+    """A cutoff that was missed must not strand a day. The nightly job closes
+    any earlier day still open, while a future day is left alone."""
     from app.app import _auto_end_day_job
     from datetime import timedelta
+    yesterday = date.today() - timedelta(days=1)
+    tomorrow = date.today() + timedelta(days=1)
     with app.app_context():
         loc = vehicles_loc(app)
-        yesterday = sched_svc.get_or_create_schedule(
-            d=date.today() - timedelta(days=1), location=loc)
-        tomorrow = sched_svc.get_or_create_schedule(
-            d=date.today() + timedelta(days=1), location=loc)
-        assert yesterday.finalized is False
-        assert tomorrow.finalized is False
+        sched_svc.get_or_create_schedule(d=yesterday, location=loc)
+        sched_svc.get_or_create_schedule(d=tomorrow, location=loc)
 
-        assert _auto_end_day_job(app) == 0
+    assert _auto_end_day_job(app) == 1
+
+    with app.app_context():
+        loc = vehicles_loc(app)
         assert sched_svc.get_or_create_schedule(
-            d=date.today() - timedelta(days=1), location=loc).finalized is False
+            d=yesterday, location=loc).finalized is True
         assert sched_svc.get_or_create_schedule(
-            d=date.today() + timedelta(days=1), location=loc).finalized is False
+            d=tomorrow, location=loc).finalized is False
+
+
+def test_startup_catch_up_closes_missed_past_day(app, monkeypatch):
+    """When the app starts before the cutoff and yesterday was never finalized
+    (the computer was off at 10:30 PM), startup closes it instead of leaving it
+    "In progress" forever -- but today's still-open board is left alone."""
+    from datetime import timedelta
+    from app import app as app_module
+    from app.services import timeutils
+
+    fixed = timeutils.now_eastern().replace(hour=8, minute=0, second=0,
+                                            microsecond=0)
+    monkeypatch.setattr(timeutils, "now_eastern", lambda: fixed)
+    yesterday = fixed.date() - timedelta(days=1)
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched_svc.get_or_create_schedule(d=yesterday, location=loc)
+        sched_svc.get_or_create_schedule(location=loc)
+
+    assert app_module._catch_up_open_days(app) == 1
+
+    with app.app_context():
+        loc = vehicles_loc(app)
+        assert sched_svc.get_or_create_schedule(
+            d=yesterday, location=loc).finalized is True
+        assert sched_svc.get_or_create_schedule(location=loc).finalized is False
+
+
+def test_startup_catch_up_after_cutoff_closes_today(app, monkeypatch):
+    """Starting after 10:30 PM Eastern closes today too, so a restart around the
+    cutoff does not leave the day open until the next night."""
+    from app import app as app_module
+    from app.services import timeutils
+
+    fixed = timeutils.now_eastern().replace(hour=23, minute=0, second=0,
+                                            microsecond=0)
+    monkeypatch.setattr(timeutils, "now_eastern", lambda: fixed)
+    with app.app_context():
+        loc = vehicles_loc(app)
+        sched_svc.get_or_create_schedule(d=fixed.date(), location=loc)
+
+    assert app_module._catch_up_open_days(app) == 1
+
+    with app.app_context():
+        loc = vehicles_loc(app)
+        assert sched_svc.get_or_create_schedule(
+            d=fixed.date(), location=loc).finalized is True
 
 
 def test_auto_end_day_time_helper_defaults_and_parses(monkeypatch):

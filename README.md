@@ -250,6 +250,12 @@ completed/incomplete totals are calculated and saved as the day's **summary**,
 unfinished checklist items, replacements and notes are kept, the completion % is
 computed, and the day is saved to history and locked.
 
+The cutoff is not a one-shot: the job closes every day still open **up to** the
+cutoff, and on startup the app catches up on any day that was missed while it was
+off -- so a shop that shuts its computer down at closing, or a restart around
+10:30 PM, still gets an accurate report for that day instead of leaving it stuck
+"In progress" in History.
+
 The **Day Report** page (`/end`) is a read-only view of that record with totals,
 completed/incomplete lists, per-employee task counts, replacements, dump status
 and notes, and it generates a clean printable daily summary (Print / Save as

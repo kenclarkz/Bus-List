@@ -1025,6 +1025,34 @@ AUTO_FINALIZE_DEFAULT = "{:02d}:{:02d}".format(
     sched_svc.AUTO_FINALIZE_HOUR, sched_svc.AUTO_FINALIZE_MINUTE)
 
 
+def _finalize_open_days(app, through):
+    """Finalize every schedule left open on or before ``through``.
+
+    This is the single body behind both the nightly automatic close and the
+    startup catch-up, so a day missed because the app was off (or the host slept
+    or was busy across 10:30 PM Eastern) is closed by exactly the same code that
+    closes an on-time day. Idempotent: already-finalized days are skipped, so a
+    day is never reported twice.
+    """
+    count = 0
+    with app.app_context():
+        # ``isnot(True)`` (rather than ``= False``) also catches a legacy row
+        # whose ``finalized`` column is NULL. Such a row reads as "In progress"
+        # in History, so it must be closed like any other open day instead of
+        # being skipped forever by an equality test that NULL never satisfies.
+        unfinalized = DailySchedule.query.filter(
+            DailySchedule.work_date <= through,
+            DailySchedule.finalized.isnot(True)).all()
+        for sched in unfinalized:
+            if finalize_day(sched):
+                count += 1
+        if count:
+            app.logger.info(
+                "Auto end-of-day: finalized %s open day(s) through %s",
+                count, through)
+    return count
+
+
 def _auto_end_day_job(app, work_date=None):
     """Finalize every schedule left open for one day. This is the scheduled
     task body: every day at 10:30 PM Eastern, whatever the crew did not close
@@ -1036,19 +1064,33 @@ def _auto_end_day_job(app, work_date=None):
     and is the next day in UTC for five months of the year. The date is passed
     in explicitly so a run (or a test) can finalize a specific day without
     depending on the host's clock.
+
+    The sweep covers every open day *on or before* the target, not just the
+    target itself. The nightly job therefore also heals an earlier day that was
+    missed -- a cutoff the shop's computer was off for, a crash, a skipped
+    misfire -- so it cannot sit "In progress" in History forever.
     """
     target = work_date or timeutils.today_eastern()
-    count = 0
-    with app.app_context():
-        unfinalized = DailySchedule.query.filter_by(
-            work_date=target, finalized=False).all()
-        for sched in unfinalized:
-            if finalize_day(sched):
-                count += 1
-        if count:
-            app.logger.info(
-                "Auto end-of-day: finalized %s open day(s) for %s", count, target)
-    return count
+    return _finalize_open_days(app, target)
+
+
+def _catch_up_open_days(app):
+    """Close the days that were left open while the app was not running.
+
+    The nightly job only fires at the cutoff. A shop that shuts its computer
+    down at closing -- or any restart, crash or host sleep that spans 10:30 PM
+    Eastern -- would otherwise never finalize that day, leaving it "In progress"
+    in History forever. On startup close every earlier day, and today too once
+    today's cutoff has already passed.
+    """
+    hour, minute = _auto_end_time()
+    now = timeutils.now_eastern()
+    through = timeutils.today_eastern()
+    if now.hour * 60 + now.minute < hour * 60 + minute:
+        # Before today's cutoff: today is still being worked, so only close the
+        # days that should already have been closed.
+        through -= timedelta(days=1)
+    return _finalize_open_days(app, through)
 
 
 def _auto_end_time():
@@ -1085,6 +1127,15 @@ def _start_auto_end_day_scheduler(app):
     site keeps serving normally and the auto end-of-day job is simply disabled
     (a warning is logged) instead of the whole app failing to boot.
     """
+    # Close anything missed while the app was off before wiring the timer. This
+    # does not need APScheduler, so it runs even when the scheduler add-on is
+    # unavailable and is the only thing that heals a shop whose computer is off
+    # at 10:30 PM every night.
+    try:
+        _catch_up_open_days(app)
+    except Exception:
+        app.logger.exception("Startup catch-up of open days failed")
+
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.cron import CronTrigger
@@ -1116,6 +1167,11 @@ def _start_auto_end_day_scheduler(app):
         # Two workers firing together must not double-report a day.
         max_instances=1,
         coalesce=True,
+        # APScheduler's default grace is one second, so a host that slept or was
+        # busy across the cutoff would have the run silently skipped and the day
+        # left open. Allow a late run instead; the job is idempotent and sweeps
+        # every open day, so firing late can only help.
+        misfire_grace_time=3600,
     )
     scheduler.start()
 
