@@ -415,6 +415,9 @@ details.vrow.row-complete > .vrow-summary:hover { filter: brightness(.96); }
 /* The crew's own way out of a vehicle: done with it, whether or not every box
    got ticked. Sits directly under the task list it applies to. */
 .vehicle-done { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 4px; }
+/* The way out of a vehicle only appears once a box has been ticked, so the
+   author-level display above has to give way to [hidden]. */
+.vehicle-done[hidden] { display: none; }
 .vehicle-done-btn { min-width: 170px; }
 
 /* badges / status */
