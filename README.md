@@ -1,190 +1,346 @@
 # Detailing Operations Dashboard
 
-A production-ready, responsive web app that replaces the paper vehicle
-**prep report** for a detailing operation. It manages the daily prep report,
-tracks cleaning history, handles vehicle substitutions, and generates an
-end-of-day printable summary.
+A production-ready, responsive web app that replaces the paper vehicle **prep
+report** for a bus and vehicle detailing operation. It manages the daily prep
+report, drives the crew's work through a live checklist board, tracks cleaning
+history and prep time, handles vehicle substitutions, tracks trash pickups and
+incident reports, and generates an end-of-day printable summary automatically.
 
 Built as a real working application with a persistent database, PDF parsing &
 OCR, an import preview/approval flow, a daily checklist board, replacement
-logic, history views, a searchable dashboard, and a printable day-end
-report. It is not a static mockup.
+logic, history views, a searchable dashboard, and a printable day-end report.
+It is not a static mockup.
 
 ---
 
-## Features (mapped to the requirements)
+## What this app is for
 
-1. **Vehicle database** — unit number, type, route, status/location, last
-   washed, last detailed, cleaning frequency, notes, active/inactive. Click a
-   vehicle to see its complete service history and replacements.
-2. **PDF Prep Report Import** — upload the company's PDF prep report. Auto
-   extracts unit numbers, types, routes, and substitutions. Supports text
-   PDFs, tabular reports, and scanned PDFs via OCR (best-effort). Unit numbers
-   are normalized so `BUS 142`, `Unit 142`, and `142` all match vehicle 142.
-   Both the **ECHO prep report** (`sample_prep_report.pdf`) and the
-   **Vehicle Wash Report** (`sample_vehicle_wash_report.pdf`) templates are
-   supported — either one can be uploaded. Reports imported from the wash
-   template carry the report (prep) time, pickup time and driver code onto the
-   board. Shows an **Import Preview** (new / updated / removed / route
-   changes / replacements / uncertain) and requires clicking **Apply
-   Updates** before anything touches the database. Multiple imports per day
-   are allowed and historical data is never deleted. Vehicles whose type is
-   **TRANSITB** (transit buses) are imported and shown, but skipped
-   automatically — they are washed by another crew — and are collected in
-   their own dropdown at the bottom of the board.
-3. **Daily Detailing Board** — after import, today's work list is created
-   automatically. The board is a list of **folded** vehicles: each row shows
-   the unit number, the vehicle type, the driver it runs for, and the report
-   time it is due (a driver and a report time only when the report supplied
-   them), plus a **✓ on any finished vehicle**, so the day's work reads as a
-   to-do list down a column of forty rows without opening a single one. A tap
-   opens the row to show route, status, last washed, the prep clocks, the task
-   list and progress, so a long day fits on one screen. The tick appears the
-   moment the last task is checked, and comes off again if one is un-checked; a
-   skipped vehicle is never ticked, because skipping is not a way of finishing
-   one. The task list is broken into two categories — **Inside**
-   (Sweep, Mop, Windows, Seats, Bathroom) and **Outside** (Dump, Bay Checked,
-   Final Inspection) — both configurable in Settings, and each category's boxes
-   stay folded away until **Start** has been pressed for that side of the
-   vehicle, so a vehicle nobody has picked up yet reads as two clocks and their
-   Start buttons rather than as a wall of boxes that cannot honestly be ticked
-   yet. A category with a box already ticked, and a finished vehicle's whole
-   list, are never folded away: those are a record of what happened. Every
-   checkbox saves a completion timestamp and the employee. Progress shows
-   `6/8 — 75%`.
-   Under the task list is **Done With Vehicle** — the crew's own way out of a
-   row when they are finished with it **whether or not every task is checked**.
-   It counts the vehicle as completed on the board exactly like ticking every
-   box off does, stops any clock still running on it, moves the day's totals,
-   and names the tasks it left undone on the row, so a vehicle finished early
-   can never be mistaken for one worked through in full.
-4. **Per-vehicle prep timer (Start / Pause / Resume / Done)** — each vehicle on
-   the board gets **two independent clock sets, one for the inside work and one
-   for the outside work**, and each clock is recorded against the employee doing
-   the work. Every vehicle's Inside and Outside **Start** buttons are on the
-   board from the start, so anyone can press one without any further step, and
-   pressing one is also what opens up that side's task list.
-   **Start** begins the clock and puts the vehicle in progress;
-   **Pause** and **Resume** stop and restart it without ever losing the time
-   already worked; **Done** stops the clock, freezes that person's total active
-   prep time and finishes that clock set, and **finishes the vehicle only once
-   both of its sets are done and no clock is still running** — so finishing one
-   side never completes the whole vehicle, and the other side still has to be
-   started and finished. The two sets never borrow time from each
-   other: working the outside of a vehicle does not advance its inside clock,
-   and the vehicle's headline number is the sum of both sides. **Several
-   employees can work the same vehicle at the same time**, on the same side or
-   on opposite sides: the row shows a clock per employee per set, a combined
-   vehicle clock, and an **+ Add Me** button for anyone else to start their own
-   clock, and each person's Pause/Resume/Done only ever touches their own clock.
-   One employee can run an inside and an outside clock at the same time, and a
-   second clock in the *same* set must be paused (or finished) first. Only the
-   buttons valid for the current state are shown, and an out-of-order action
-   (starting a set that is already running for you, finishing one that was never
-   started, resuming a running timer) is refused with a clear reason instead of
-   corrupting the record. Time
-   is tracked while the page is closed — the server owns the clock, so a
-   refresh, a backgrounded tab, or a device with a wrong clock never loses or
-   invents time. Every
-   Start/Pause/Resume/Done is kept as permanent event history for the vehicle
-   (shown on the board, the vehicle's history page, and the report), and
-   completing a vehicle any other way (full checklist, the nightly close) stops
-   its clock too. All times are recorded and displayed in **Eastern Time**
-   (America/New_York), including the report's 24-hour prep/pickup times, which
-   are displayed as 12-hour AM/PM without altering the stored values.
-5. **Vehicle Replacements** — "Replace Vehicle" moves remaining applicable
-   daily prep requirements to the replacement while preserving completed work
-   and historical records. Replacements are clearly displayed on the board and
-   recorded in history.
-6. **Smart Status / Last Washed** — Last Washed auto-updates when all Outside
-   tasks for the vehicle are complete; Inside tasks do not count as a wash.
-   Last Detailed updates on the final inspection. Configurable visual
-   indicators: Recently Washed / Due Soon / Overdue.
-7. **Dashboard** — today's totals: total, completed, in progress, remaining,
-   overdue, replacements, worst overall completion %, and the day's total
-   **active prep time** (all employees' clocks added together, so two people
-   working the same vehicle count as two workers). A "Now Working" strip shows
-   every employee currently on the floor with their vehicle and a live clock —
-   including one who has picked a vehicle but not started a clock on it yet.
-   Search & filter by unit
-   number, type, route, and status. Every vehicle row on the folded board shows
-   its unit number, vehicle type, driver (when the wash report supplied one) and
-   report (prep) time, and the opened row adds the route and the pickup time
-   (displayed as 12-hour AM/PM Eastern time).
-   **Transit buses** (TRANSITB) are pulled out of the main work list into a
-   **Transit Buses** dropdown at the bottom of the board, so they stay visible
-   without crowding the list; un-skip one to work it here.
-8. **Day Report (automatic end of day)** — there is no manual "end my day"
-   button. Every day is finalized **automatically at 10:30 PM Eastern**
-   (`America/New_York`) by the in-process scheduler; this cutoff is
-   configurable via `AUTO_END_DAY_TIME` (HH:MM, Eastern). At the close the
-   day's schedule is finalized: any timer still running is stopped, the
-   completed/incomplete totals are calculated and saved as the day's
-   **summary**, unfinished checklist items, replacements and notes are kept,
-   the completion % is computed, and the day is saved to history and locked.
-   The **Day Report** page (`/end`) is a read-only view of that record, and
-   generates a clean printable daily summary (Print / Save as PDF). The
-   printable report includes a **Prep Time Log** with each vehicle's
-   Start/Pause/Resume/Done history, a **Prep Event Detail** section, and the
-   day's **total active prep time**.
-   A **finalized day is immutable**: check-offs, prep timers, skips,
-   un-skips, replacements, adding vehicles, notes and imports are all refused
-   by the server, and a finalized day cannot be deleted. If a correction is
-   genuinely needed, a **Manager** can **reopen** the day from History;
-   reopening clears the lock and the stored summary, and the next automatic
-   run finalizes it again with the corrected totals. No work is ever lost.
-9. **History** — previous days, vehicle cleaning history, prep report imports,
-   replacements, and (per-vehicle) completed checklists. Every vehicle's page
-   also keeps its permanent **Prep Time History**: one row per run with the
-   employee, status, start, finish, total active prep time, and the full
-   Start/Pause/Resume/Done event log.
-10. **Data architecture** — real persistent database (SQLite via SQLAlchemy).
-    Models: Vehicles, Employees, Daily Prep Schedules, Checklist Tasks,
-    Prep Sessions & Prep Session Events, Cleaning/Service History, Vehicle
-     Replacements, Prep Report Imports,
-     Activity/Notes, Locations, Vehicle Types, Settings, **User Accounts**, and
-     **Incident Reports** (with notes & photos). Designed to support multiple
-     employees and locations later (Location is a first-class model).
+A detailing operation washes and cleans a fleet of buses and vehicles every day.
+The company's dispatcher publishes a **prep report** each morning listing which
+units must be prepped, when they are due, and which driver each one is assigned
+to. On paper, that report becomes a clipboard the crew ticks off one vehicle at
+a time — and the tick sheet can be lost, the cleaning history can never be
+searched, nobody can prove how long a vehicle actually took, and there is no
+record of a substitution.
 
-11. **UI** — mobile/tablet/desktop responsive, large checkboxes & buttons,
-    minimal typing, clean professional interface, color-coded statuses, fast
-    search, clear daily workflow. Two site layouts are available and can be
-    switched per user in **Settings**: **Classic** (top navigation bar, the
-    default design) and **Side Panel** (a new design with a fixed sidebar
-     navigation, sticky toolbar and wider content column). Layouts are
-independent of the color themes (Light / Dark / System / Futuristic /
-     Halloween / Bloomberg Terminal / Retro 90s / Holographic), and a further
-     group of **3D & motion** themes (Synthwave, Cosmos, Cyberpunk, Aurora,
-     Ocean, Crystal, Matrix, Dunes) adds a three-dimensional scene with a
-     continuously animated background. Those themes follow the operating
-     system's reduced-motion setting, and where the browser supports it their
-     parallax is tied to scroll position. **Text size** can also be set per
-     user in **Settings** (Default / Large / Largest) for anyone who finds the
-     default hard to read; it scales every text size in the app and is
-     independent of both the theme and the layout.
-12. **Incident Reports** — a dedicated tab where anyone can report an issue
-    for any vehicle: type (Mechanical / Interior / Exterior / Damage /
-    Safety / Other), severity, location, description, date/time, and employee,
-    with one or more photo uploads. Managers can review, edit, assign, add
-    notes, attach extra photos, and resolve issues (Open → In Progress →
-    Resolved). Every incident is permanently linked to the vehicle's history
-    page, and the list supports filters by vehicle, issue type, severity,
-    employee, and status. Incident reports follow the official **ECHO East
-    Coast Accident/Incident Report** form: the app's form captures every field
-    on that template, and a **Download PDF** button renders the completed
-     report onto the blank form for managers to save, print, or email.
-13. **Individual accounts** — every Employee and Driver signs in with their own
-     username and password instead of sharing one login for the whole crew. A
-     Manager creates and removes accounts from **Staff**, sets the first
-     password, and can reset one somebody has forgotten; each person then
-     changes it to their own from the **Password** tab. Signing in is what says
-     who is working, so an Employee account is tied to that person: their tasks
-     and timers are recorded against them and the board opens on their name with
-     no name picker. Removing an account takes effect at once — the person is
-     signed out and cannot sign back in — while their completed work and history
-     are kept. A Manager can also **Delete** an account or a staff record for
-     good: the username is freed up, or the name comes off the board, while the
-     work that person did stays on file unattributed.
+This app replaces that clipboard end to end:
+
+- **What is due today** comes from uploading the company's own prep-report PDF.
+- **What has been done** is a live board the crew works from their phones.
+- **How long it took and who did it** is timed on the server, down to each
+  employee and each side of the vehicle (inside / outside).
+- **What was actually washed** is kept as permanent, searchable history.
+- **What happened on shift** — replacements, skip reasons, notes, trash pickups
+  and incidents — is recorded alongside the day and printed on the daily report.
+- **What the driver needs to know** is a read-only screen of finished vehicles.
+
+It is designed for one depot today (Location is a first-class model, so more
+depots can be added) and for a shared floor screen plus a phone in every
+employee's hand, working the same board at the same instant.
+
+---
+
+## Who uses it — roles & permissions
+
+Every person signs in with **their own account**. The account's role decides
+which screens open and which actions are accepted; the role is re-read from the
+database on every request, so a change takes effect immediately and a tampered
+session can never widen access.
+
+| Role | Lands on | Purpose |
+|------|----------|---------|
+| **Manager** | Today's Board | Runs the operation: staff, fleet, thresholds, incidents, corrections. |
+| **Employee** | Today's Board | The cleaning crew: works the board, ticks tasks, runs the clocks. |
+| **Driver** | Finished Vehicles | Consumes the result: sees what is ready to pick up and reports incidents. |
+
+### What each role can do
+
+| Capability | Manager | Employee | Driver |
+|------------|:-------:|:--------:|:------:|
+| Sign in / change own password | ✅ | ✅ | ✅ |
+| Choose own theme, layout & text size | ✅ | ✅ | ✅ |
+| View the daily board and day totals | ✅ | ✅ | — |
+| Tick checklist tasks | 🚫 read-only | ✅ | — |
+| Start / Pause / Resume / Done prep clocks, **+ Add Me** | 🚫 read-only | ✅ | — |
+| **Done With Vehicle** / **Skip** / **Un-skip** | 🚫 read-only | ✅ | — |
+| Replace a vehicle on the board | ✅ | ✅ | — |
+| Add a vehicle to a day's board manually | ✅ | ✅ | — |
+| Import a prep-report PDF (upload + apply) | ✅ | ✅ | — |
+| Add a note to the day report | ✅ | ✅ | — |
+| Day Report (`/end`) & printable report | ✅ | ✅ | — |
+| History (days, imports, replacements) | ✅ (view) | ✅ | — |
+| Delete an unfinalized past day / an import | ✅ | ✅ | — |
+| **Reopen** a finalized day | ✅ | 🚫 | — |
+| Vehicles page (add / edit / retire) | ✅ | — | — |
+| Staff page (employees & logins) | ✅ | — | — |
+| Operational Settings (thresholds, per-type checklists) | ✅ | — | — |
+| Trash pickups | ✅ | ✅ | — |
+| Incident: report, view, download PDF | ✅ | ✅ | ✅ |
+| Incident management: edit / assign / note / photos / resolve | ✅ | 🚫 | 🚫 |
+| Finished Vehicles screen | ✅ (via board) | ✅ (via board) | ✅ |
+| Report an incident from each screen | ✅ | ✅ | ✅ |
+
+Notes on the rules:
+
+- **The Manager board is read-only for the cleaning work itself.** The server
+  refuses a tick, a clock press, a skip or a Done from a Manager account with
+  *"Manager view is read-only"*, and the buttons are disabled. A Manager can
+  still add or replace a vehicle, add a note, import a report and manage all of
+  Staff, Vehicles, Incidents and Settings.
+- **Drivers only see the Finished Vehicles screen**, plus their own Settings and
+  Password pages and the incident-report flow. Any other page redirects them
+  back to Finished Vehicles.
+- **An Employee account is tied to that person's staff record**, so a tick or a
+  clock press is recorded against them with no name picker.
+
+---
+
+## The daily workflow
+
+1. **Morning — import.** A Manager or employee uploads the prep-report PDF on
+   the **Import** tab. The app extracts the units, types, routes, prep/pickup
+   times, driver codes and any substitutions, shows an **Import Preview**, and
+   waits for **Apply Updates** before anything is written. Multiple imports per
+   day are allowed.
+2. **All day — work the board.** The **Today** board shows the day's folded
+   vehicle list. The crew presses **Start** on a vehicle's Inside or Outside
+   work, ticks tasks, presses **Done**, and can **Replace**, **Skip**,
+   **Un-skip**, **+ Add Me** or **Done With Vehicle** as the day demands. Every
+   press is timed and attributed to the signed-in employee.
+3. **Anytime — handle the unexpected.** Record a **trash pickup** on the Trash
+   tab, or file an **incident** from any screen. Both are kept in history.
+4. **10:30 PM Eastern — automatic close.** An in-process scheduler finalizes the
+   day: running clocks stop, totals are saved, and the day becomes an immutable
+   report. A Manager can **reopen** a finalized day to correct it.
+5. **Next morning — review.** The **Day Report** and printable PDF show the
+   previous day's totals, prep-time log, event detail and notes; **History**
+   keeps every previous day, import and replacement.
+
+---
+
+## Every feature
+
+### 1. Vehicle database (fleet registry)
+Unit number, type, route, status/location, description, make, model, capacity,
+last washed, last detailed, **last dumped** and **cleanings since dump**,
+cleaning frequency, notes, and active/inactive. Click a vehicle to see its
+complete service history, replacements and permanent prep-time history.
+The vehicle type carries its own checklist, so a vehicle shows exactly the tasks
+its type lists.
+
+### 2. PDF prep report import
+Upload the company's PDF prep report. Auto-extracts unit numbers, types, routes,
+prep times, pickup times, driver codes, and substitutions. Supports text PDFs,
+tabular reports, and scanned PDFs via OCR (best-effort). Unit numbers are
+normalized so `BUS 142`, `Unit 142`, and `142` all match vehicle 142. Both the
+**ECHO prep report** (`sample_prep_report.pdf`) and the **Vehicle Wash Report**
+(`sample_vehicle_wash_report.pdf`) templates are supported — either one can be
+uploaded. Shows an **Import Preview** (new / updated / removed / route changes /
+replacements / uncertain) and requires clicking **Apply Updates** before
+anything touches the database. Multiple imports per day are allowed and
+historical data is never deleted. Vehicles whose type is **TRANSITB** (transit
+buses) are imported and shown but skipped automatically — they are washed by
+another crew — and are collected in their own dropdown at the bottom of the
+board. The original PDF is stored and can be re-viewed from History.
+
+### 3. Daily Detailing Board
+After import, today's work list is created automatically. The board is a list of
+**folded** vehicles: each row shows the unit number, the vehicle type, the
+driver it runs for, and the report time it is due (a driver and a report time
+only when the report supplied them), plus a **✓ on any finished vehicle**, so
+the day's work reads as a to-do list down a column of forty rows without opening
+a single one. A tap opens the row to show route, status, last washed, the prep
+clocks, the dump status, the task list and progress, so a long day fits on one
+screen. The tick appears the moment the last task is checked, and comes off
+again if one is un-checked; a skipped vehicle is never ticked, because skipping
+is not a way of finishing one.
+
+The task list is broken into two categories — **Inside** (Sweep, Mop, Windows,
+Seats, Bathroom) and **Outside** (Dump, Bay Checked, Final Inspection) — both
+configurable in Settings, and each category's boxes stay folded away until
+**Start** has been pressed for that side of the vehicle, so a vehicle nobody has
+picked up yet reads as two clocks and their Start buttons rather than as a wall
+of boxes that cannot honestly be ticked yet. A category with a box already
+ticked, and a finished vehicle's whole list, are never folded away: those are a
+record of what happened. Every checkbox saves a completion timestamp and the
+employee. Progress shows `6/8 — 75%`.
+
+Under the task list is **Done With Vehicle** — the crew's own way out of a row
+when they are finished with it **whether or not every task is checked**. It
+counts the vehicle as completed on the board exactly like ticking every box off
+does, stops any clock still running on it, moves the day's totals, and names the
+tasks it left undone on the row, so a vehicle finished early can never be
+mistaken for one worked through in full.
+
+The board also supports **date navigation** (Today / Tomorrow / +2 Days), a
+**+ Add Vehicle** button to put a unit on a day without a PDF, search and filter
+by unit / type / route / status, and a **Transit Buses** dropdown so transit
+units stay visible without crowding the work list.
+
+### 4. Per-vehicle prep timer (Start / Pause / Resume / Done)
+Each vehicle on the board gets **two independent clock sets, one for the inside
+work and one for the outside work**, and each clock is recorded against the
+employee doing the work. Every vehicle's Inside and Outside **Start** buttons
+are on the board from the start, so anyone can press one without any further
+step, and pressing one is also what opens up that side's task list.
+**Start** begins the clock and puts the vehicle in progress; **Pause** and
+**Resume** stop and restart it without ever losing the time already worked;
+**Done** stops the clock, freezes that person's total active prep time and
+finishes that clock set, and **finishes the vehicle only once both of its sets
+are done and no clock is still running** — so finishing one side never completes
+the whole vehicle, and the other side still has to be started and finished. The
+two sets never borrow time from each other: working the outside of a vehicle
+does not advance its inside clock, and the vehicle's headline number is the sum
+of both sides.
+
+**Several employees can work the same vehicle at the same time**, on the same
+side or on opposite sides: the row shows a clock per employee per set, a
+combined vehicle clock, and an **+ Add Me** button for anyone else to start
+their own clock, and each person's Pause/Resume/Done only ever touches their own
+clock. One employee can run an inside and an outside clock at the same time, and
+a second clock in the *same* set must be paused (or finished) first. Only the
+buttons valid for the current state are shown, and an out-of-order action
+(starting a set that is already running for you, finishing one that was never
+started, resuming a running timer) is refused with a clear reason instead of
+corrupting the record.
+
+Time is tracked while the page is closed — the server owns the clock, so a
+refresh, a backgrounded tab, or a device with a wrong clock never loses or
+invents time. Every Start/Pause/Resume/Done is kept as permanent event history
+for the vehicle (shown on the board, the vehicle's history page, and the
+report), and completing a vehicle any other way (full checklist, the nightly
+close) stops its clock too. All times are recorded and displayed in **Eastern
+Time** (America/New_York), including the report's 24-hour prep/pickup times,
+which are displayed as 12-hour AM/PM without altering the stored values.
+
+### 5. Vehicle replacements
+**Replace Vehicle** moves remaining applicable daily prep requirements to the
+replacement while preserving completed work and historical records.
+Replacements are clearly displayed on the board and recorded in history with
+original, replacement, timestamp, reason and employee.
+
+### 6. Smart status, last washed & dump tracking
+Last Washed auto-updates when all Outside tasks for the vehicle are complete;
+Inside tasks do not count as a wash. Last Detailed updates on the final
+inspection. For types whose checklist includes **Dump**, the app counts
+cleanings since the last dump and raises a **Needs Dump** badge (after two
+cleanings) on the board, the vehicle page, the driver screen and the printable
+report; ticking **Dump** records a dump and resets the counter. Configurable
+visual indicators mark vehicles **Recently Washed / Due Soon / Overdue**.
+
+### 7. Dashboard
+Today's totals: total, completed, in progress, remaining, overdue,
+replacements, worst overall completion %, and the day's total **active prep
+time** (all employees' clocks added together, so two people working the same
+vehicle count as two workers). A **Now Working** strip shows every employee
+currently on the floor with their vehicle and a live clock — including one who
+has picked a vehicle but not started a clock on it yet. Search and filter by
+unit number, type, route, and status. Every folded row shows its unit number,
+vehicle type, driver (when the wash report supplied one) and report (prep) time,
+and the opened row adds the route and the pickup time (displayed as 12-hour
+AM/PM Eastern time). Transit buses (TRANSITB) are pulled out of the main work
+list into a **Transit Buses** dropdown at the bottom of the board.
+
+### 8. Day Report & automatic end of day
+There is no manual "end my day" button. Every day is finalized **automatically
+at 10:30 PM Eastern** (`America/New_York`) by the in-process scheduler; this
+cutoff is configurable via `AUTO_END_DAY_TIME` (HH:MM, Eastern). At the close the
+day's schedule is finalized: any timer still running is stopped, the
+completed/incomplete totals are calculated and saved as the day's **summary**,
+unfinished checklist items, replacements and notes are kept, the completion % is
+computed, and the day is saved to history and locked.
+
+The **Day Report** page (`/end`) is a read-only view of that record with totals,
+completed/incomplete lists, per-employee task counts, replacements, dump status
+and notes, and it generates a clean printable daily summary (Print / Save as
+PDF). The printable report includes a **Prep Time Log** with each vehicle's
+Start/Pause/Resume/Done history, a **Prep Event Detail** section, and the day's
+**total active prep time**.
+
+A **finalized day is immutable**: check-offs, prep timers, skips, un-skips,
+replacements, adding vehicles, notes and imports are all refused by the server,
+and a finalized day cannot be deleted. If a correction is genuinely needed, a
+**Manager** can **reopen** the day from History; reopening clears the lock and
+the stored summary, and the next automatic run finalizes it again with the
+corrected totals. No work is ever lost.
+
+### 9. History
+Previous days, vehicle cleaning history, prep report imports, replacements, and
+(per-vehicle) completed checklists. Every finalized day can be re-opened from
+here by a Manager; an unfinalized past day (never today) can be deleted along
+with a prep-report import that is no longer wanted. Every vehicle's page also
+keeps its permanent **Prep Time History**: one row per run with the employee,
+status, start, finish, total active prep time, and the full
+Start/Pause/Resume/Done event log.
+
+### 10. Incident Reports
+A dedicated tab where anyone — Manager, Employee or Driver — can report an issue
+for any vehicle: type (Mechanical / Interior / Exterior / Damage / Safety /
+Other), severity, location, description, date/time, and employee, with one or
+more photo uploads. Managers can review, edit, assign, add notes, attach extra
+photos, and resolve issues (Open → In Progress → Resolved), and filter the list
+by vehicle, issue type, severity, employee, and status. Every incident is
+permanently linked to the vehicle's history page. Incident reports follow the
+official **ECHO East Coast Accident/Incident Report** form: the app's form
+captures every field on that template — police notification, injuries, citations,
+other driver/owner/insurance details, witnesses, roadway conditions and so on —
+and a **Download PDF** button renders the completed report onto the blank form
+for managers to save, print, or email. Available to all roles including Drivers,
+who get a **Report an Incident** button on their Finished Vehicles screen.
+
+### 11. Trash pickups
+A dedicated **Trash** tab records when the trash was picked up from each lot,
+with location, time, notes and the employee who logged it. It shows the last
+pickup and the time since for every lot, with a freshness badge, so the crew can
+see at a glance which lot is due.
+
+### 12. Individual accounts
+Every Employee and Driver signs in with their own username and password instead
+of sharing one login for the whole crew. A Manager creates and removes accounts
+from **Staff**, sets the first password, and can reset one somebody has
+forgotten; each person then changes it to their own from the **Password** tab.
+Signing in is what says who is working, so an Employee account is tied to that
+person: their tasks and timers are recorded against them and the board opens on
+their name with no name picker. Removing an account takes effect at once — the
+person is signed out and cannot sign back in — while their completed work and
+history are kept. A Manager can also **Delete** an account or a staff record for
+good: the username is freed up, or the name comes off the board, while the work
+that person did stays on file unattributed.
+
+### 13. User interface, layouts, themes & accessibility
+Mobile/tablet/desktop responsive with large checkboxes and buttons, minimal
+typing, clean professional styling, color-coded statuses, and fast search. Two
+site layouts are available and can be switched per user in **Settings**:
+**Classic** (top navigation bar, the default design) and **Side Panel** (a fixed
+sidebar navigation, sticky toolbar and wider content column). Layouts are
+independent of the color themes (Light / Dark / System / Futuristic / Halloween /
+Bloomberg Terminal / Retro 90s / Holographic), and a further group of **3D &
+motion** themes (Synthwave, Cosmos, Cyberpunk, Aurora, Ocean, Crystal, Matrix,
+Dunes) adds a three-dimensional scene with a continuously animated background.
+Those themes follow the operating system's reduced-motion setting, and where the
+browser supports it their parallax is tied to scroll position. **Text size** can
+also be set per user (Default / Large / Largest), scaling every text size in the
+app independently of theme and layout. After a Manager or Employee signs in, a
+fullscreen **splash intro animation** plays before the board (skippable; Drivers
+go straight to their Finished Vehicles screen), and the board's Refresh
+shows a themed bus pulling away instead of a blank screen.
+
+### 14. Data architecture
+Real persistent database (SQLite via SQLAlchemy). Models: Locations,
+Vehicle Types, Vehicles, Employees, User Accounts, Daily Schedules, Schedule
+Entries, Checklist Tasks (Task Completions), Prep Sessions & Prep Session
+Events, Cleaning/Service History, Vehicle Replacements, Prep Report Imports,
+Activity/Notes, Trash Pickups, Settings, and Incident Reports (with notes &
+photos). Designed to support multiple employees and locations; Location is a
+first-class model.
+
+### 15. Finished Vehicles (driver screen)
+The Driver's home screen is a read-only list of **completed** vehicles for today
+and the next two days, so a driver can see what is ready to pick up. Each row
+shows the unit, type, route, report/prep time, pickup time, driver code, who
+finished it (initials), the finish time, the completion percentage, and a
+**Needs Dump** badge when the vehicle requires it. Drivers can file an incident
+without leaving the screen.
 
 ---
 
@@ -199,26 +355,24 @@ python run.py
 
 Open http://127.0.0.1:5000
 
-A default **Main Depot** location and a **User** employee are created the
-first time the app runs, along with the three starting logins — `manager`,
-`employee` and `driver` (each password is the same as the username). Sign in
-as **manager** and use **Staff** to give each Employee and Driver their own
-account; the starting logins are ordinary accounts you can remove once you
-have.
-
+A default **Main Depot** location and a **User** employee are created the first
+time the app runs, along with the three starting logins — `manager`, `employee`
+and `driver` (each password is the same as the username). Sign in as
+**manager** and use **Staff** to give each Employee and Driver their own
+account; the starting logins are ordinary accounts you can remove once you have.
 
 ### Generate a sample prep report (to try Import)
 
 ```bash
 pip install -r requirements.txt     # needs PyMuPDF
-python scripts/make_sample_report.py sample_prep_report.pdf          # ECHO prep report
-python scripts/make_sample_report.py --wash sample_vehicle_wash_report.pdf  # Vehicle Wash Report
+python scripts/make_sample_report.py sample_prep_report.pdf                  # ECHO prep report
+python scripts/make_sample_report.py --wash sample_vehicle_wash_report.pdf   # Vehicle Wash Report
 ```
 
 The repository also ships ready-made copies of both templates
-(`sample_prep_report.pdf` and `sample_vehicle_wash_report.pdf`). Either one
-can be uploaded via **Import** → choose the PDF → review the preview →
-**Apply Updates**.
+(`sample_prep_report.pdf` and `sample_vehicle_wash_report.pdf`). Either one can be
+uploaded via **Import** → choose the PDF → review the preview → **Apply
+Updates**.
 
 ---
 
@@ -253,9 +407,9 @@ plain text in the source. **Sign-in is now a database table.**
   `name`, `role` (`manager` / `employee` / `driver`), `password_hash`, an
   optional link to an `Employee`, and `active`. Passwords are stored as a
   salted hash via `werkzeug.security.generate_password_hash` and checked with
-  `check_password_hash`; the plain text is never written down anywhere. Usernames
-  are compared case-insensitively, and the row is the single source of truth
-  for the role — the session only caches the account's id, and
+  `check_password_hash`; the plain text is never written down anywhere.
+  Usernames are compared case-insensitively, and the row is the single source of
+  truth for the role — the session only caches the account's id, and
   `require_login` re-reads it on every request.
 - **A Manager adds an account** from **Staff** (`/employees`) with a name, a
   password and an account type. The username is optional: leave it blank and it
@@ -269,14 +423,15 @@ plain text in the source. **Sign-in is now a database table.**
 - **Signing in is what says who is working.** There is no name picker: the
   account *is* the person's identity, so `_sign_in` resolves it to a staff record
   and the board opens already showing `Working as: <their name>`. An account that
-  somehow has no staff record behind it is given one on the spot — the one already
-  on file under that name, or a new one — and the link is saved, so nobody is ever
-  left without somebody to record their work against. The shared `employee` login
-  is just another account and works the same way: it signs in as the staff record
-  called "Employee" and stops being a way to work the board as anybody. The
-  Manager can remove it once everyone has an account of their own.
-- **The board changes hands by signing in as the next person.** Each person signs
-  in with their own username, and everything they press is recorded against them.
+  somehow has no staff record behind it is given one on the spot — the one
+  already on file under that name, or a new one — and the link is saved, so
+  nobody is ever left without somebody to record their work against. The shared
+  `employee` login is just another account and works the same way: it signs in as
+  the staff record called "Employee" and stops being a way to work the board as
+  anybody. The Manager can remove it once everyone has an account of their own.
+- **The board changes hands by signing in as the next person.** Each person
+  signs in with their own username, and everything they press is recorded
+  against them.
 - **Removing an account takes effect immediately.** The account's `active` flag
   is re-read on every request, so the person is signed out on their next page
   load and refused at the login page; their completed work, timers and history
@@ -307,6 +462,8 @@ plain text in the source. **Sign-in is now a database table.**
 - **A removed or wrong login says the same thing** ("Invalid username or
   password"), so the login page never confirms that a username exists.
 
+---
+
 ## Configuration
 
 Database and secret are configured via environment variables (see
@@ -323,7 +480,16 @@ Thresholds (Recently Washed / Due Soon), the color theme, the site layout
 (**Classic** top-bar design or the newer **Side Panel** sidebar design), and the
 **text size** are all configurable in the **Settings** page at runtime. Theme,
 layout and text size are saved per account, so each user keeps their own
-appearance.
+appearance; the thresholds, the active location and the per-type checklists are
+Manager-only.
+
+The task list belongs to the vehicle type, not to the site: each type carries its
+own checklist, split into **Inside** (interior cleaning) and **Outside**
+(exterior/service) categories, and a vehicle shows exactly the tasks its own type
+lists, in the order they are typed. A type that has never been given a list of
+its own starts from the standard one (Sweep, Mop, Windows, Seats, Bathroom /
+Dump, Bay Checked, Final Inspection), and clearing both fields returns it to that
+list. There is no global default checklist to override.
 
 **Text size** is zoomed text for anyone who finds the default hard to read:
 **Default**, **Large** (120%) or **Largest** (140%). Every font size in
@@ -333,14 +499,6 @@ and the layout, and no component needs a rule of its own. Printed pages keep
 their own fixed size, since paper has a fixed size; the generated report
 (`templates/print_report.html`) sets its sizes in `px` throughout and is
 unaffected either way.
-
-The task list belongs to the vehicle type, not to the site: each type carries its
-own checklist, split into **Inside** (interior cleaning) and **Outside**
-(exterior/service) categories, and a vehicle shows exactly the tasks its own type
-lists, in the order they are typed. A type that has never been given a list of
-its own starts from the standard one (Sweep, Mop, Windows, Seats, Bathroom /
-Dump, Bay Checked, Final Inspection), and clearing both fields returns it to that
-list. There is no global default checklist to override.
 
 A theme is just an id from `THEME_CHOICES` in `app/services/settings.py`; the
 look itself is a `html[data-theme="<id>"]` block in
@@ -381,11 +539,10 @@ clock not blocking the other side, finishing one side never completing the
 vehicle, one employee running both sides of one vehicle at once, two employees
 working opposite sides of one vehicle, three employees on one vehicle at once,
 and the board/end-of-day/print report splitting the day by clock set. It also
-covers the two ways a vehicle is finished: every box ticked off, and **Done
-With Vehicle** with boxes left — the vehicle counting as completed either way,
-its clocks stopping, the day totals moving and the tasks left undone being
-named — and the task list of each side staying folded away until that side is
-started.
+covers the two ways a vehicle is finished: every box ticked off, and **Done With
+Vehicle** with boxes left — the vehicle counting as completed either way, its
+clocks stopping, the day totals moving and the tasks left undone being named —
+and the task list of each side staying folded away until that side is started.
 
 ---
 
@@ -395,7 +552,7 @@ started.
 app/
   app.py                 # Flask app factory + routes
   models.py              # SQLAlchemy models (schema)
-  static/                # CSS + JS
+  static/                # CSS + JS (and the splash intro video)
   templates/             # Jinja2 templates
   services/
     pdf_parser.py        # PDF text/table/OCR extraction + unit normalization
@@ -404,6 +561,9 @@ app/
     settings.py          # configurable thresholds + per-vehicle-type checklists
     timeutils.py         # Eastern Time storage, parsing and display helpers
     vehicles.py          # entity helpers, import/journal records
+    staff.py             # employee/account lifecycle helpers
+    incidents.py         # incident photos/notes helpers
+    incident_report_pdf.py  # renders an incident onto the ECHO form PDF
 scripts/
   make_sample_report.py  # generates a sample prep report PDF
 tests/                   # pytest suite
@@ -450,7 +610,6 @@ is eventually reported.
   *and* both of its clock sets have been. The vehicle's clock and its
   report lines are the sum of everybody's time on it, so two people working the
   same vehicle for an hour correctly report two hours of prep work.
-
 - **One clock per person per clock set.** A person never runs two clocks in the
   *same* set on the same vehicle on the same day, so the same press cannot be
   recorded twice; the other set is always theirs to start, whether it is idle,
@@ -538,6 +697,8 @@ is eventually reported.
   24-hour prep and pickup times are converted for display only — what was
   imported is what is stored.
 
+---
+
 ## How replacements & history integrity work
 
 - **The PDF controls the daily schedule; the database controls permanent
@@ -558,3 +719,11 @@ is eventually reported.
 - Free-text substitutions parsed from a report (e.g. "190 Van Replace 155")
   are surfaced in the import preview for manual confirmation, because their
   direction is ambiguous — avoiding silent mistakes.
+- **Dump tracking stays consistent with the checklist.** Ticking **Sweep**
+  increments `cleanings_since_dump`; un-ticking it decrements it again; ticking
+  **Dump** records a `dump` service record and resets the counter, so the
+  **Needs Dump** badge reflects the work actually recorded.
+- **Deleting a person never deletes their work.** A removed staff record is
+  detached from the tasks, timers, notes, reports and incidents that person
+  touched; those records stay and simply stop being credited to a name, so the
+  history still adds up.
