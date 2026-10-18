@@ -141,7 +141,10 @@ anything touches the database. Multiple imports per day are allowed and
 historical data is never deleted. Vehicles whose type is **TRANSITB** (transit
 buses) are imported and shown but skipped automatically — they are washed by
 another crew — and are collected in their own dropdown at the bottom of the
-board. The original PDF is stored and can be re-viewed from History.
+board. The original PDF is stored and can be re-viewed or downloaded from the
+Import Preview, the viewer page, or directly from History. On a phone the
+viewer opens the PDF in the device's own viewer (so the back gesture always
+returns to the app) instead of embedding it.
 
 ### 3. Daily Detailing Board
 After import, today's work list is created automatically. The board is a list of

@@ -1,16 +1,25 @@
 {% extends "base.html" %}
 {% block title %}View PDF — {{ imp.filename }}{% endblock %}
 {% block content %}
-<div class="card">
-  <div class="flex" style="justify-content: space-between; align-items: center; margin-bottom: 12px;">
-    <h1 style="margin: 0;">{{ imp.filename }}</h1>
-    <div class="flex" style="gap: 8px;">
+<div class="card pdf-viewer">
+  <div class="pdf-toolbar">
+    <h1>{{ imp.filename }}</h1>
+    <div class="flex" style="gap: 8px; flex-wrap: nowrap;">
       <a href="{{ download_url }}" class="btn small">Download PDF</a>
       <a href="{{ url_for('history_days') }}" class="btn small secondary">Back</a>
     </div>
   </div>
   <div class="pdf-wrap">
     <iframe src="{{ pdf_url }}#view=FitH" title="{{ imp.filename }}"></iframe>
+  </div>
+  {# Phones hand an embedded PDF to their full-screen viewer, which hides the
+     page (and this toolbar) and offers no download control. On a small screen
+     the iframe is replaced by direct links: the browser's own viewer opens the
+     PDF with its standard back gesture, and the download saves the file. #}
+  <div class="pdf-mobile">
+    <a href="{{ pdf_url }}" class="btn big">Open PDF</a>
+    <a href="{{ download_url }}" class="btn big secondary">Download PDF</a>
+    <a href="{{ url_for('history_days') }}" class="btn big secondary">Back to History</a>
   </div>
 </div>
 {% endblock %}

@@ -8,7 +8,13 @@
     <span class="badge {{ 'success' if method != 'ocr' else 'info' }}">Method: {{ method }}</span>
     <span class="badge info">{{ preview.count }} vehicles parsed</span>
   </div>
-  <a class="btn secondary" href="{{ url_for('import_report') }}">Start Over</a>
+  <div class="flex">
+    {% if pdf_url %}
+    <a class="btn secondary" href="{{ pdf_url }}">View PDF</a>
+    <a class="btn secondary" href="{{ download_url }}">Download PDF</a>
+    {% endif %}
+    <a class="btn secondary" href="{{ url_for('import_report') }}">Start Over</a>
+  </div>
 </div>
 
 {% if warnings %}
