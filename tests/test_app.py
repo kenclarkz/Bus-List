@@ -2578,9 +2578,10 @@ def test_board_rows_fold_to_the_unit_type_driver_and_report_time(client, app):
     assert summary.index("Driver") < summary.index("Report")
 
     # The task list and the clocks are inside the card, not left out of it.
-    assert 'class="checklist"' in driven_row
+    assert 'data-task-group="inside"' in driven_row
     assert 'class="prep ' in driven_row
-    assert driven_row.index("</summary>") < driven_row.index('class="checklist"')
+    assert driven_row.index("</summary>") < \
+        driven_row.index('data-task-group="inside"')
 
     # The task list is no longer hidden behind a flag of its own, so opening
     # the row is the only thing that decides whether it shows.
@@ -7218,6 +7219,12 @@ def prep_tag_of(row, entry_id):
     return row[row.rindex("<div", 0, start):row.index(">", start) + 1]
 
 
+def prep_set_tag(row, entry_id, scope):
+    """One clock set's own opening tag -- the section the boxes sit under."""
+    start = row.index(f'id="prep-{entry_id}-{scope}"')
+    return row[row.rindex("<section", 0, start):row.index(">", start) + 1]
+
+
 def opening_tags_at(html, pos):
     """The tags still open at ``pos`` in a fragment, outermost first.
 
@@ -7299,16 +7306,20 @@ def test_task_boxes_stay_shown_for_work_already_recorded(client, app):
     assert "hidden" not in task_group(row, "outside")
 
 
-def test_task_groups_sit_beside_the_clocks_a_start_repaints(client, app):
-    """The boxes a Start press opens live beside the clocks, not inside them.
+def test_task_groups_sit_under_their_own_clock_sets_a_start_repaints(client, app):
+    """The boxes a Start press opens sit right under that side's clock set.
 
-    A press repaints the clock block and hands that same block back to the code
+    Each group is a sibling of its own clock set inside the clock block, so the
+    Inside boxes come up under the Inside clocks and the Outside boxes under the
+    Outside ones, instead of both lists waiting together below the two sets. A
+    press repaints the clock block and hands that same block back to the code
     that opens the groups, so the groups have to be reachable from it -- or a
     Start press opens nothing and the boxes it just made worth ticking only turn
-    up on the next page load. They are not reachable from it: the checklist is a
-    sibling of the clocks and the finished mark sits on the row itself, so the
-    board has to climb out of the clock block to the vehicle's row to find
-    either one.
+    up on the next page load.
+
+    The finished mark is the one thing still outside the clock block: it sits
+    on the <details> itself, so opening a vehicle worked to the end still needs
+    the climb out to the row.
     """
     with app.app_context():
         entry_id, _ = prep_entry(app, "963")
@@ -7319,13 +7330,22 @@ def test_task_groups_sit_beside_the_clocks_a_start_repaints(client, app):
 
     for scope in ("inside", "outside"):
         open_tags = opening_tags_at(row, row.index(f'data-task-group="{scope}"'))
-        # The climb off the clock block lands on the row, and the row is what
-        # holds the group: this is what puts the boxes on show in place.
+        # The card and the clock block both hold the group, so the block a
+        # press repaints is where the boxes it opens are found.
         assert row_tag in open_tags
-        # And the clock block is genuinely not an ancestor of them, so a press
-        # that only repaints the clocks has to make that climb to open the
-        # group it has just started work on.
-        assert prep_tag not in open_tags
+        assert prep_tag in open_tags
+        # And its own clock set has closed above it: the boxes sit *under* that
+        # section rather than inside it.
+        assert prep_set_tag(row, entry_id, scope) not in open_tags
+
+    # Each list is under its own set -- Inside between the two sets, Outside
+    # below the second one -- never the two lists together at the foot of the
+    # clock block.
+    inside_set = row.index(f'id="prep-{entry_id}-inside"')
+    inside_boxes = row.index('data-task-group="inside"')
+    outside_set = row.index(f'id="prep-{entry_id}-outside"')
+    outside_boxes = row.index('data-task-group="outside"')
+    assert inside_set < inside_boxes < outside_set < outside_boxes
 
     # The finished mark has to be found by that same climb, or a vehicle worked
     # to the end would have both its lists folded away again by the next press.
@@ -7356,7 +7376,7 @@ def test_done_with_vehicle_completes_it_with_tasks_left(client, app):
     assert 'data-vehicle-done="%d"' % entry_id in row
     assert '<div class="vehicle-done" hidden>' not in row
     # The button sits under the task list it applies to.
-    assert row.index('class="checklist"') < row.index("data-vehicle-done")
+    assert row.index('data-task-group') < row.index("data-vehicle-done")
     assert 'class="btn success vehicle-done-btn"' in row
 
     r = client.post(f"/entry/{entry_id}/complete")

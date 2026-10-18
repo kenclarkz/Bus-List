@@ -383,10 +383,6 @@ details.vrow.row-complete > .vrow-summary:hover { filter: brightness(.96); }
   border-radius: 4px; font-size: .85rem; color: var(--text);
 }
 .spacer { flex: 1; }
-.checklist {
-  display: flex; gap: 18px; flex-wrap: wrap; margin: 12px 0 4px;
-  flex-direction: column;
-}
 .checklist-group { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
 /* The boxes for a side of the vehicle stay folded away until that side has been
    started, so the author-level display above has to give way to [hidden]. */
@@ -564,6 +560,12 @@ details.vrow.row-complete > .vrow-summary:hover { filter: brightness(.96); }
 .prepset.prep-paused { border-left-color: var(--warn); }
 .prepset.prep-finished, .prepset.prep-none { border-left-color: var(--border); }
 .prep-tasks { flex: 1 1 100%; font-size: .7rem; }
+/* Each side's boxes sit in the same stack, right under that side's clock set,
+   so the room above them is a little larger than the room below: the boxes
+    read as the work the set above is timing rather than as a list of their own
+    between the two sets. [hidden] keeps a side nobody has started from
+    leaving a gap at all. */
+.prep-sets > .checklist-group { margin-top: 6px; }
 
 /* the crew reads the clock from across the bay: make it unmistakable */
 .prep-running .prep-total,

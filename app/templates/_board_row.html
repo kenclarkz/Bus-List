@@ -147,6 +147,44 @@
 </section>
 {% endmacro %}
 
+{# One side's task boxes: the Inside list or the Outside list. They are
+   rendered right under the clock set of that same side, inside .prep-sets, so
+   the boxes a Start press opens appear under the section whose Start was
+   answered -- the work a side is timing is read off the side itself, not off a
+   list sitting below both of them.
+
+   Opening the row is what reveals the task list, so the boxes are never hidden
+   behind a flag of their own: the row is either folded or it is not. The boxes
+   themselves are the second thing: they stay folded away until the crew has
+   hit Start on that side of the vehicle, because the boxes inside and the
+   boxes outside are only worth ticking once somebody is working that side. A
+   group with work already ticked in it, or a finished vehicle, is always shown
+   -- that is a record of what happened, not an invitation, so neither is ever
+   hidden away by a clock nobody started. The server paints that rule with
+   build_schedule_view's _tasks_open (app.py), and every press repaints the
+   same rule in place with applyTaskGroups (app.js). #}
+{% macro task_group_block(r, scope) %}
+{% set entry = r.entry %}
+{% if entry.status != 'skipped' and not r.replaced_by %}
+<div class="checklist-group" data-task-group="{{ scope }}"
+     {% if not r.tasks_open[scope] %}hidden{% endif %}>
+  <span class="checklist-group-label">{{ scope|capitalize }}</span>
+  <div class="checklist-group-items">
+  {% for t in r.task_groups[scope] %}
+  <label class="ck {{ 'done' if t.completed }}">
+    <input type="checkbox" data-entry="{{ entry.id }}" data-task="{{ t.task_name }}"
+           {{ 'checked' if t.completed }}
+           {{ 'disabled' if current_role == 'manager' or r.locked }}>
+    {{ t.task_name }}
+    {% if t.completed_at %}<span class="small muted">· {{ t.completed_at|et_time }}</span>{% endif %}
+    {% if t.completed and t.employee %}<span class="badge info" style="font-size:.6rem;padding:1px 5px;margin-left:4px">{{ t.employee.initials }}</span>{% endif %}
+  </label>
+  {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endmacro %}
+
 {% macro vehicle_row(r) %}
 {% set entry = r.entry %}
 {% set v = r.vehicle %}
@@ -286,53 +324,13 @@
     </div>
     <div class="prep-sets">
       {{ prep_set_block(r, prep.scopes.inside, status_badge) }}
+      {{ task_group_block(r, 'inside') }}
       {{ prep_set_block(r, prep.scopes.outside, status_badge) }}
+      {{ task_group_block(r, 'outside') }}
     </div>
   </div>
 
   {% if entry.status != 'skipped' and not r.replaced_by %}
-  {# Opening the row is what reveals the task list, so the checklist is never
-     hidden behind a flag of its own: the row is either folded or it is not.
-     The boxes themselves are the second thing: they stay folded away until the
-     crew has hit Start on that side of the vehicle, because the boxes inside
-     and the boxes outside are only worth ticking once somebody is working
-     that side. A group with work already ticked in it, or a finished vehicle,
-     is always shown -- that is a record of what happened, not an invitation,
-     so neither is ever hidden away by a clock nobody started. #}
-  <div class="checklist">
-    <div class="checklist-group" data-task-group="inside"
-         {% if not r.tasks_open.inside %}hidden{% endif %}>
-      <span class="checklist-group-label">Inside</span>
-      <div class="checklist-group-items">
-      {% for t in r.task_groups.inside %}
-      <label class="ck {{ 'done' if t.completed }}">
-        <input type="checkbox" data-entry="{{ entry.id }}" data-task="{{ t.task_name }}"
-               {{ 'checked' if t.completed }}
-               {{ 'disabled' if current_role == 'manager' or r.locked }}>
-        {{ t.task_name }}
-        {% if t.completed_at %}<span class="small muted">· {{ t.completed_at|et_time }}</span>{% endif %}
-        {% if t.completed and t.employee %}<span class="badge info" style="font-size:.6rem;padding:1px 5px;margin-left:4px">{{ t.employee.initials }}</span>{% endif %}
-      </label>
-      {% endfor %}
-      </div>
-    </div>
-    <div class="checklist-group" data-task-group="outside"
-         {% if not r.tasks_open.outside %}hidden{% endif %}>
-      <span class="checklist-group-label">Outside</span>
-      <div class="checklist-group-items">
-      {% for t in r.task_groups.outside %}
-      <label class="ck {{ 'done' if t.completed }}">
-        <input type="checkbox" data-entry="{{ entry.id }}" data-task="{{ t.task_name }}"
-               {{ 'checked' if t.completed }}
-               {{ 'disabled' if current_role == 'manager' or r.locked }}>
-        {{ t.task_name }}
-        {% if t.completed_at %}<span class="small muted">· {{ t.completed_at|et_time }}</span>{% endif %}
-        {% if t.completed and t.employee %}<span class="badge info" style="font-size:.6rem;padding:1px 5px;margin-left:4px">{{ t.employee.initials }}</span>{% endif %}
-      </label>
-      {% endfor %}
-      </div>
-    </div>
-  </div>
   {# The last way out of a vehicle: the crew has finished with it and says so,
      whether or not every box got ticked. It counts the vehicle as completed on
      the board exactly like ticking them all off does, stops any clock still

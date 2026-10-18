@@ -326,18 +326,21 @@ function applyTaskGroups(row, state, entryCompleted) {
   });
 }
 
-// The element the two task groups and the finished tick both live under.
+// The element the two task groups and the finished tick both live under: the
+// vehicle's own row.
 //
-// They are not inside the clock block: the checklist sits *beside* the clocks
-// in .vrow-body, and the row-complete mark is on the <details> itself, so a
-// lookup started from the .prep block (#prep-N) finds neither and every Start
-// press left the boxes it had just made worth ticking folded away until the
-// next page load rendered them open. Callers hand over whichever block they
-// just repainted, so climb to the vehicle's own row to do the finding.
+// The boxes of each side now sit under that side's clock set, inside the .prep
+// block a press repaints, so the groups themselves are found without leaving
+// it -- but the row-complete mark is still on the <details> itself, and the
+// open rule reads it, so a lookup started from the clock block has to climb
+// out to the row anyway. Callers hand over whichever block they just
+// repainted, so climb to the vehicle's own row to do the finding.
 function taskGroupHost(row) {
   if (!row) return null;
+  var vrow = row.closest ? row.closest('.vrow') : null;
+  if (vrow) return vrow;
   if (row.querySelector('[data-task-group]')) return row;
-  return row.closest ? row.closest('.vrow') : null;
+  return null;
 }
 
 // One clock set: its own total, status, employee clocks, buttons and history.
@@ -1104,8 +1107,11 @@ function markPrepSkipped(block) {
 }
 
 function markSkipped(row, entryId, reason, unskipUrl) {
-  var ck = row.querySelector('.checklist');
-  if (ck) ck.remove();
+  // The boxes of each side sit under that side's clock set, so they come out
+  // one by one rather than as one block below the clocks.
+  row.querySelectorAll('.checklist, [data-task-group]').forEach(function (el) {
+    el.remove();
+  });
   var prepBlock = row.querySelector('.prep');
   if (prepBlock) {
     // A skipped vehicle never runs a clock, so drop the controls of both clock
