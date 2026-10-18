@@ -13,8 +13,8 @@ import re
 from datetime import date, datetime
 
 from app.models import (
-    db, DailySchedule, ScheduleEntry, TaskCompletion, Vehicle,
-    Replacement, Note, Setting,
+    db, DailySchedule, ScheduleEntry, ScheduleEntryTrip, TaskCompletion,
+    Vehicle, Replacement, Note, Setting,
 )
 from app.services import prep_timer, settings, vehicles
 from app.services import timeutils
@@ -125,7 +125,17 @@ def refresh_type_entries(vtype):
 
 
 def ensure_entry(sched, vehicle, order_index=0, prep_time=None,
-                 pickup_time=None, driver_code=None):
+                 pickup_time=None, driver_code=None, trips=None):
+    """Get (or create) this vehicle's entry on the day's board.
+
+    ``trips`` is every outing the day's report lists for the vehicle, one
+    dict per outing with its own report time, pickup time and driver code.
+    It is synced only when the caller has that information: an import always
+    does, while a hand-added vehicle and an older saved preview do not, and
+    those leave any outings already on the entry alone. The entry's own
+    columns keep the first outing -- the board sorts by it, and a vehicle
+    out once shows it everywhere.
+    """
     _refuse_if_locked(sched)
     entry = ScheduleEntry.query.filter_by(schedule_id=sched.id,
                                           vehicle_id=vehicle.id).first()
@@ -142,7 +152,6 @@ def ensure_entry(sched, vehicle, order_index=0, prep_time=None,
         db.session.add(entry)
         db.session.flush()
         create_task_rows(entry)
-        db.session.commit()
     else:
         if prep_time is not None and entry.prep_time != prep_time:
             entry.prep_time = prep_time
@@ -150,8 +159,38 @@ def ensure_entry(sched, vehicle, order_index=0, prep_time=None,
             entry.pickup_time = pickup_time
         if driver_code is not None and entry.driver_code != driver_code:
             entry.driver_code = driver_code
-        db.session.commit()
+    if trips is not None:
+        _sync_entry_trips(entry, trips)
+    db.session.commit()
     return entry
+
+
+def _sync_entry_trips(entry, trips):
+    """Replace an entry's outing rows with the ones a report lists.
+
+    Re-importing the same report has to arrive at the same outings rather
+    than double them, so the whole set is swapped in one go (the relationship
+    deletes whatever it drops). A listing with no usable outing in it clears
+    the rows; the entry's own columns are untouched either way.
+    """
+    wanted = []
+    for trip in trips or []:
+        if not isinstance(trip, dict):
+            continue
+        prep = trip.get("prep_time") or None
+        pickup = trip.get("pickup_time") or None
+        driver = trip.get("driver_code") or None
+        if not (prep or pickup or driver):
+            continue
+        wanted.append((prep, pickup, driver))
+    current = [(t.prep_time, t.pickup_time, t.driver_code) for t in entry.trips]
+    if current == wanted:
+        return
+    entry.trips[:] = [
+        ScheduleEntryTrip(prep_time=prep, pickup_time=pickup,
+                          driver_code=driver, order_index=index)
+        for index, (prep, pickup, driver) in enumerate(wanted)
+    ]
 
 
 def _entry_categorized_checklist(entry):
@@ -537,7 +576,11 @@ def build_preview(parsed, location=None):
         existing = db_units.get(key)
         v = {"unit": p.unit, "type": p.type, "route": p.route, "raw": p.raw,
              "prep_time": p.prep_time, "notes": p.notes,
-             "pickup_time": p.pickup_time, "driver_code": p.driver_code}
+             "pickup_time": p.pickup_time, "driver_code": p.driver_code,
+             # Every outing the report lists for this unit, so applying the
+             # preview carries all of them onto the board rather than only
+             # the first one the columns above hold.
+             "trips": [dict(t) for t in p.trips]}
         if p.uncertain:
             preview["uncertain"].append(v)
 
@@ -609,7 +652,8 @@ def apply_import(preview, location=None, employee_id=None, source="import",
         entry = ensure_entry(sched, vehicle, order_index=position,
                              prep_time=item.get("prep_time"),
                              pickup_time=item.get("pickup_time"),
-                             driver_code=item.get("driver_code"))
+                             driver_code=item.get("driver_code"),
+                             trips=item.get("trips"))
         # Transit buses are not washed in this bay, so they are imported onto
         # the board but skipped and excluded from the day's work totals. Work
         # already done on the entry, or a manual skip, is never overwritten.

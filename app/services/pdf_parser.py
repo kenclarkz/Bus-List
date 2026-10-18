@@ -81,10 +81,11 @@ def normalize_notes(raw):
 
 class ParsedVehicle:
     __slots__ = ("unit", "type", "route", "raw", "uncertain", "prep_time",
-                 "pickup_time", "driver_code", "notes")
+                 "pickup_time", "driver_code", "notes", "trips")
 
     def __init__(self, unit, type=None, route=None, raw=None, uncertain=False,
-                 prep_time=None, pickup_time=None, driver_code=None, notes=None):
+                 prep_time=None, pickup_time=None, driver_code=None, notes=None,
+                 trips=None):
         self.unit = unit
         self.type = type
         self.route = route
@@ -94,6 +95,24 @@ class ParsedVehicle:
         self.pickup_time = pickup_time
         self.driver_code = driver_code
         self.notes = notes
+        # Every row the report lists for this unit, in report order. The
+        # columns above keep only the first of them, because a vehicle that
+        # goes out several times in one day is still one vehicle on the board.
+        self.trips = [dict(t) for t in trips] if trips else []
+
+    def add_trip(self, prep_time=None, pickup_time=None, driver_code=None):
+        """Record one outing of this unit as listed on the report.
+
+        A row carrying no time and no driver is not an outing and is
+        dropped; the identical outing listed twice (the same report printed
+        on two pages, say) is kept once.
+        """
+        if not (prep_time or pickup_time or driver_code):
+            return
+        trip = {"prep_time": prep_time, "pickup_time": pickup_time,
+                "driver_code": driver_code}
+        if trip not in self.trips:
+            self.trips.append(trip)
 
     def to_dict(self):
         return {
@@ -106,7 +125,25 @@ class ParsedVehicle:
             "pickup_time": self.pickup_time,
             "driver_code": self.driver_code,
             "notes": self.notes,
+            "trips": [dict(t) for t in self.trips],
         }
+
+
+def _merge_parsed(existing, incoming):
+    """Fold a vehicle parsed from a later page into one already found.
+
+    The same unit can run over several pages of one report: fields the
+    earlier pages did not carry are filled in, and every outing both pages
+    list is kept, so a second page of trips is not lost.
+    """
+    for attr in ("type", "route", "prep_time", "pickup_time", "driver_code",
+                 "notes", "raw"):
+        if not getattr(existing, attr) and getattr(incoming, attr):
+            setattr(existing, attr, getattr(incoming, attr))
+    for trip in incoming.trips:
+        if trip not in existing.trips:
+            existing.trips.append(trip)
+    return existing
 
 
 # ---------------------------------------------------------------------------
@@ -294,17 +331,19 @@ def _echo_row_to_vehicle(cols, found):
 
     existing = found.get(unit)
     if existing is None:
-        found[unit] = ParsedVehicle(unit, type=vt, route=route, raw=raw,
-                                    prep_time=prep_time, notes=notes)
+        existing = ParsedVehicle(unit, type=vt, route=route, raw=raw,
+                                 notes=notes)
+        found[unit] = existing
     else:
         if not existing.type and vt:
             existing.type = vt
         if not existing.route and route:
             existing.route = route
-        if not existing.prep_time and prep_time:
-            existing.prep_time = prep_time
         if not existing.notes and notes:
             existing.notes = notes
+    if not existing.prep_time and prep_time:
+        existing.prep_time = prep_time
+    existing.add_trip(prep_time, None, None)
 
 
 def _wash_row_to_vehicle(cols, found):
@@ -363,23 +402,25 @@ def _wash_row_to_vehicle(cols, found):
 
     existing = found.get(unit)
     if existing is None:
-        found[unit] = ParsedVehicle(unit, type=vt, route=route, raw=raw,
-                                    prep_time=prep_time, notes=notes,
-                                    pickup_time=pickup_time,
-                                    driver_code=driver_code)
+        existing = ParsedVehicle(unit, type=vt, route=route, raw=raw,
+                                 notes=notes)
+        found[unit] = existing
     else:
         if not existing.type and vt:
             existing.type = vt
         if not existing.route and route:
             existing.route = route
-        if not existing.prep_time and prep_time:
-            existing.prep_time = prep_time
-        if not existing.pickup_time and pickup_time:
-            existing.pickup_time = pickup_time
-        if not existing.driver_code and driver_code:
-            existing.driver_code = driver_code
         if not existing.notes and notes:
             existing.notes = notes
+    # The single columns carry the first listing of the vehicle (which is
+    # what the board sorts by); every row of the report is an outing of it.
+    if not existing.prep_time and prep_time:
+        existing.prep_time = prep_time
+    if not existing.pickup_time and pickup_time:
+        existing.pickup_time = pickup_time
+    if not existing.driver_code and driver_code:
+        existing.driver_code = driver_code
+    existing.add_trip(prep_time, pickup_time, driver_code)
 
 
 def _words_to_vehicle(words, found):
@@ -425,7 +466,11 @@ def extract_vehicles_from_pdf(file_bytes, filename=""):
         try:
             page_found = _find_table_cells(page)
             for u, v in page_found.items():
-                found.setdefault(u, v)
+                existing = found.get(u)
+                if existing is None:
+                    found[u] = v
+                else:
+                    _merge_parsed(existing, v)
         except Exception as exc:  # pragma: no cover
             logger.warning("page parse failed: %s", exc)
 

@@ -198,36 +198,42 @@ def test_echo_format_parsing():
     assert parsed["7101"].notes is None
 
 
-def _make_wash_report_pdf(rows):
+def _make_wash_report_pdf(rows, second_page_rows=None):
     """Build a Vehicle Wash Report format PDF using a bordered table.
 
     rows: list of (report_time, pickup_time, unit, loc, vtype, order_type,
                    driver_code, reservation)
+    second_page_rows: optional rows drawn as a second page of the same
+                      report, for a vehicle listed over more than one page.
     """
     import fitz
     doc = fitz.open()
-    page = doc.new_page(width=792, height=612)
     headers = ["Report Time", "Pickup Time", "Vehicle Code+Type", "Order Type",
                "Driver Code", "Reservation #"]
     col_widths = [60, 60, 130, 75, 130, 80]
     row_h = 28
     x0, y0 = 40, 60
 
-    all_rows = [headers]
-    for (rpt, pkup, unit, loc, vtype, stype, driver, res) in rows:
-        code = f"{unit}-{loc}" if loc else unit
-        all_rows.append([rpt, pkup, f"{code} [ {vtype} ]", stype, driver, res])
+    def draw(page, page_rows):
+        all_rows = [headers]
+        for (rpt, pkup, unit, loc, vtype, stype, driver, res) in page_rows:
+            code = f"{unit}-{loc}" if loc else unit
+            all_rows.append([rpt, pkup, f"{code} [ {vtype} ]", stype, driver,
+                             res])
+        for ri, row in enumerate(all_rows):
+            ry = y0 + ri * row_h
+            cx = x0
+            for ci, (cell, w) in enumerate(zip(row, col_widths)):
+                shape = page.new_shape()
+                shape.draw_rect(fitz.Rect(cx, ry, cx + w, ry + row_h))
+                shape.finish(color=(0, 0, 0))
+                shape.commit()
+                page.insert_text((cx + 3, ry + 14), cell, fontsize=8)
+                cx += w
 
-    for ri, row in enumerate(all_rows):
-        ry = y0 + ri * row_h
-        cx = x0
-        for ci, (cell, w) in enumerate(zip(row, col_widths)):
-            shape = page.new_shape()
-            shape.draw_rect(fitz.Rect(cx, ry, cx + w, ry + row_h))
-            shape.finish(color=(0, 0, 0))
-            shape.commit()
-            page.insert_text((cx + 3, ry + 14), cell, fontsize=8)
-            cx += w
+    draw(doc.new_page(width=792, height=612), rows)
+    if second_page_rows:
+        draw(doc.new_page(width=792, height=612), second_page_rows)
     return doc.tobytes()
 
 
@@ -318,6 +324,184 @@ def test_wash_import_end_to_end_and_dashboard(client, app):
         assert entry is not None
         assert entry.pickup_time == "05:00"
     assert "Res # 295185*1" not in html
+
+
+def test_wash_format_parsing_keeps_every_outing():
+    """A vehicle listed twice in one report keeps every outing: the single
+    columns hold the first listing (what the board sorts by) and ``trips``
+    holds each report time / pickup time / driver code pair."""
+    data = _make_wash_report_pdf([
+        ("04:30", "05:00", "9101", "JAXSDN", "SEDAN", "As Directed",
+         "291486*50", "295185*1"),
+        ("13:15", "14:00", "9101", "JAXSDN", "SEDAN", "Hourly",
+         "MIDDAYDRIVER", "295186*7"),
+        ("05:30", "07:30", "9417", "JAXMB", "MINIBUS", "Hourly",
+         "LAVERNEBELLAMY", "291281*2"),
+    ])
+    parsed, method, warnings = parse_prep_report(data, "wash.pdf")
+
+    assert len(parsed) == 2
+    v = parsed["9101"]
+    assert v.prep_time == "04:30"
+    assert v.pickup_time == "05:00"
+    assert v.driver_code == "291486*50"
+    assert v.route == "As Directed"
+    assert v.trips == [
+        {"prep_time": "04:30", "pickup_time": "05:00",
+         "driver_code": "291486*50"},
+        {"prep_time": "13:15", "pickup_time": "14:00",
+         "driver_code": "MIDDAYDRIVER"},
+    ]
+
+    single = parsed["9417"]
+    assert single.prep_time == "05:30"
+    assert single.trips == [
+        {"prep_time": "05:30", "pickup_time": "07:30",
+         "driver_code": "LAVERNEBELLAMY"},
+    ]
+
+
+def test_wash_format_duplicate_row_counts_as_one_outing():
+    """The same outing listed twice (the report printed on two pages of one
+    report body, say) is one outing, not two."""
+    data = _make_wash_report_pdf([
+        ("04:30", "05:00", "9101", "JAXSDN", "SEDAN", "As Directed",
+         "291486*50", "295185*1"),
+        ("04:30", "05:00", "9101", "JAXSDN", "SEDAN", "As Directed",
+         "291486*50", "295185*1"),
+    ])
+    parsed, _, _ = parse_prep_report(data, "wash.pdf")
+    assert len(parsed["9101"].trips) == 1
+
+
+def test_wash_format_outings_spread_over_two_pages():
+    """A vehicle listed on two pages of one report keeps both pages: the
+    outings from page two and the fields only page two carries."""
+    data = _make_wash_report_pdf(
+        [("04:30", "05:00", "9101", "JAXSDN", "SEDAN", "As Directed",
+          "291486*50", "295185*1")],
+        second_page_rows=[
+            ("13:15", "14:00", "9101", "JAXSDN", "SEDAN", "Hourly",
+             "MIDDAYDRIVER", "295186*7"),
+            ("05:30", "07:30", "9417", "JAXMB", "MINIBUS", "Hourly",
+             "LAVERNEBELLAMY", "291281*2"),
+        ])
+    parsed, method, warnings = parse_prep_report(data, "wash.pdf")
+
+    assert len(parsed) == 2
+    v = parsed["9101"]
+    assert v.prep_time == "04:30"
+    assert v.trips == [
+        {"prep_time": "04:30", "pickup_time": "05:00",
+         "driver_code": "291486*50"},
+        {"prep_time": "13:15", "pickup_time": "14:00",
+         "driver_code": "MIDDAYDRIVER"},
+    ]
+    assert parsed["9417"].prep_time == "05:30"
+
+
+def test_wash_import_multiple_trips_shows_all_times(client, app):
+    """A vehicle that goes out twice in a day shows every time it goes out on
+    the dashboard, and importing the same report twice does not double them."""
+    data = _make_wash_report_pdf([
+        ("04:30", "05:00", "9101", "JAXSDN", "SEDAN", "As Directed",
+         "291486*50", "295185*1"),
+        ("13:15", "14:00", "9101", "JAXSDN", "SEDAN", "Hourly",
+         "MIDDAYDRIVER", "295186*7"),
+    ])
+
+    r = client.post("/import", data={
+        "pdf": (io.BytesIO(data), "wash_report.pdf"),
+    }, content_type="multipart/form-data")
+    assert r.status_code == 200
+    # The preview already lists every outing before anything is applied.
+    assert b"04:30, 13:15" in r.data
+    assert b"05:00, 14:00" in r.data
+    assert b"291486*50, MIDDAYDRIVER" in r.data
+
+    with app.app_context():
+        from app.models import PrepReportImport
+        iid = PrepReportImport.query.first().id
+    assert client.post(f"/import/{iid}/apply").status_code == 302
+
+    # A second import of the same report replaces the outings rather than
+    # doubling them.
+    r = client.post("/import", data={
+        "pdf": (io.BytesIO(data), "wash_report.pdf"),
+    }, content_type="multipart/form-data")
+    assert r.status_code == 200
+    with app.app_context():
+        from app.models import PrepReportImport
+        iid = (PrepReportImport.query
+               .order_by(PrepReportImport.id.desc()).first().id)
+    assert client.post(f"/import/{iid}/apply").status_code == 302
+
+    with app.app_context():
+        sched = DailySchedule.query.filter_by(work_date=date.today()).first()
+        assert sched is not None
+        assert len(sched.entries) == 1
+        entry = sched.entries[0]
+        assert Vehicle.query.get(entry.vehicle_id).unit_number == "9101"
+        # The entry's own columns keep the first outing: the board sorts by
+        # them and a single-outing vehicle reads from them everywhere.
+        assert (entry.prep_time, entry.pickup_time, entry.driver_code) == (
+            "04:30", "05:00", "291486*50")
+        assert [(t.prep_time, t.pickup_time, t.driver_code)
+                for t in entry.trips] == [
+            ("04:30", "05:00", "291486*50"),
+            ("13:15", "14:00", "MIDDAYDRIVER"),
+        ]
+
+    html = client.get("/").data.decode()
+    # The folded line carries every time the vehicle goes out...
+    assert "Report 4:30 AM, 1:15 PM" in html
+    assert "Pickup 5:00 AM, 2:00 PM" in html
+    assert "Driver 291486*50, MIDDAYDRIVER" in html
+    # ...and the open card lists each outing with its own driver.
+    assert "Driver MIDDAYDRIVER" in html
+
+    # The printable report shows every outing too.
+    printed = client.get(f"/print/{date.today().isoformat()}").data.decode()
+    assert "4:30 AM, 1:15 PM" in printed
+    assert "5:00 AM, 2:00 PM" in printed
+
+
+def test_wash_import_multiple_trips_replaces_outings_on_time_change(client,
+                                                                    app):
+    """Re-importing a report whose times moved swaps the outings for the new
+    ones instead of appending to them."""
+    first = _make_wash_report_pdf([
+        ("04:30", "05:00", "9101", "JAXSDN", "SEDAN", "As Directed",
+         "291486*50", "295185*1"),
+        ("13:15", "14:00", "9101", "JAXSDN", "SEDAN", "Hourly",
+         "MIDDAYDRIVER", "295186*7"),
+    ])
+    moved = _make_wash_report_pdf([
+        ("04:45", "05:15", "9101", "JAXSDN", "SEDAN", "As Directed",
+         "291486*50", "295185*1"),
+    ])
+
+    for data in (first, moved):
+        r = client.post("/import", data={
+            "pdf": (io.BytesIO(data), "wash_report.pdf"),
+        }, content_type="multipart/form-data")
+        assert r.status_code == 200
+        with app.app_context():
+            from app.models import PrepReportImport
+            iid = (PrepReportImport.query
+                   .order_by(PrepReportImport.id.desc()).first().id)
+        assert client.post(f"/import/{iid}/apply").status_code == 302
+
+    with app.app_context():
+        entry = ScheduleEntry.query.filter_by(prep_time="04:45").one()
+        assert [(t.prep_time, t.pickup_time, t.driver_code)
+                for t in entry.trips] == [
+            ("04:45", "05:15", "291486*50"),
+        ]
+
+    html = client.get("/").data.decode()
+    assert "Report 4:45 AM" in html
+    assert "Report 4:30 AM" not in html
 
 
 def test_sample_vehicle_wash_report_in_repo():

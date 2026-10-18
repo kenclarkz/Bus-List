@@ -831,6 +831,30 @@ def status_indicator(last_washed):
     return ("Overdue", "status-overdue")
 
 
+def _entry_trips(entry):
+    """Every outing this vehicle has on this day, for display.
+
+    An imported vehicle carries one row per outing on its report; an entry
+    with none (added by hand, or imported before outings were recorded) has
+    its own single report/pickup/driver columns, which stand in as the one
+    outing those columns describe. Every surface that renders a row reads
+    this, so the board, the printable report and the drivers' list all show
+    the same outings for the same vehicle.
+    """
+    trips = [
+        {"prep_time": t.prep_time, "pickup_time": t.pickup_time,
+         "driver_code": t.driver_code}
+        for t in entry.trips
+    ]
+    if trips:
+        return trips
+    if entry.prep_time or entry.pickup_time or entry.driver_code:
+        return [{"prep_time": entry.prep_time,
+                 "pickup_time": entry.pickup_time,
+                 "driver_code": entry.driver_code}]
+    return []
+
+
 def _prep_time_sort_key(entry):
     """Sort schedule entries by prep time (earliest first). Entries without a
     prep time are moved after all timed ones, ordered by their import position."""
@@ -914,6 +938,9 @@ def build_schedule_view(sched):
             # checklist and in the order it is typed, so every surface that
             # renders this row shows the same tasks in the same order.
             "task_groups": task_groups,
+            # Every outing this vehicle has today (see _entry_trips), so a
+            # vehicle out several times shows all of its times.
+            "trips": _entry_trips(entry),
         })
     return rows
 
@@ -1955,6 +1982,7 @@ def register_routes(app):
                     "pct": pct,
                     "workers": workers,
                     "finished_at": finished_at,
+                    "trips": _entry_trips(entry),
                 })
             days.append({"date": d, "rows": rows})
         return render_template("driver.html", days=days)

@@ -3,6 +3,15 @@
 {% block content %}
 <h1>Import Preview</h1>
 
+{# One report/pickup/driver cell: every outing the vehicle has on the report,
+   in report order, so a vehicle out several times shows all of its times
+   here before anything is applied. A vehicle listed once shows exactly what
+   it always did. #}
+{% macro outing_times(v, key) -%}
+{%- set vals = (v.trips or [])|map(attribute=key)|select|list -%}
+{{- vals|join(', ') if vals else (v[key] or '—') -}}
+{%- endmacro %}
+
 <div class="flex between">
   <div class="flex">
     <span class="badge {{ 'success' if method != 'ocr' else 'info' }}">Method: {{ method }}</span>
@@ -31,7 +40,7 @@
   <table>
     <tr><th>Unit</th><th>Type</th><th>Route</th><th>Report</th><th>Pickup</th><th>Driver</th><th>Notes</th></tr>
     {% for v in preview.new %}
-    <tr><td><strong>{{ v.unit }}</strong></td><td>{{ v.type or '—' }}</td><td>{{ v.route or '—' }}</td><td>{{ v.prep_time or '—' }}</td><td>{{ v.pickup_time or '—' }}</td><td>{{ v.driver_code or '—' }}</td><td>{{ v.notes or '—' }}</td></tr>
+    <tr><td><strong>{{ v.unit }}</strong></td><td>{{ v.type or '—' }}</td><td>{{ v.route or '—' }}</td><td>{{ outing_times(v, 'prep_time') }}</td><td>{{ outing_times(v, 'pickup_time') }}</td><td>{{ outing_times(v, 'driver_code') }}</td><td>{{ v.notes or '—' }}</td></tr>
     {% endfor %}
   </table>
   </div>
@@ -45,11 +54,11 @@
   <table>
     <tr><th>Unit</th><th>Type</th><th>Route</th><th>Report</th><th>Pickup</th><th>Driver</th><th>Notes</th><th>Action</th></tr>
     {% for v in preview.updated %}
-    <tr><td><strong>{{ v.unit }}</strong></td><td>{{ v.type or '—' }}</td><td>{{ v.route or '—' }}</td><td>{{ v.prep_time or '—' }}</td><td>{{ v.pickup_time or '—' }}</td><td>{{ v.driver_code or '—' }}</td><td>{{ v.notes or '—' }}</td>
+    <tr><td><strong>{{ v.unit }}</strong></td><td>{{ v.type or '—' }}</td><td>{{ v.route or '—' }}</td><td>{{ outing_times(v, 'prep_time') }}</td><td>{{ outing_times(v, 'pickup_time') }}</td><td>{{ outing_times(v, 'driver_code') }}</td><td>{{ v.notes or '—' }}</td>
         <td><span class="badge warn">updated</span></td></tr>
     {% endfor %}
     {% for v in preview.unchanged %}
-    <tr><td>{{ v.unit }}</td><td>{{ v.type or '—' }}</td><td>{{ v.route or '—' }}</td><td>{{ v.prep_time or '—' }}</td><td>{{ v.pickup_time or '—' }}</td><td>{{ v.driver_code or '—' }}</td><td>{{ v.notes or '—' }}</td>
+    <tr><td>{{ v.unit }}</td><td>{{ v.type or '—' }}</td><td>{{ v.route or '—' }}</td><td>{{ outing_times(v, 'prep_time') }}</td><td>{{ outing_times(v, 'pickup_time') }}</td><td>{{ outing_times(v, 'driver_code') }}</td><td>{{ v.notes or '—' }}</td>
         <td><span class="badge muted">no change</span></td></tr>
     {% endfor %}
   </table>
@@ -81,7 +90,7 @@
   <table>
     <tr><th>Unit</th><th>Type</th><th>Route</th><th>Report</th></tr>
     {% for v in preview.transit %}
-    <tr><td><strong>{{ v.unit }}</strong></td><td>{{ v.type or '—' }}</td><td>{{ v.route or '—' }}</td><td>{{ v.prep_time or '—' }}</td></tr>
+    <tr><td><strong>{{ v.unit }}</strong></td><td>{{ v.type or '—' }}</td><td>{{ v.route or '—' }}</td><td>{{ outing_times(v, 'prep_time') }}</td></tr>
     {% endfor %}
   </table>
   </div>

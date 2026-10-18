@@ -214,11 +214,31 @@
     {% if v.vehicle_type %}
     <span class="vmeta vrow-type" title="Vehicle type">{{ v.vehicle_type.name }}</span>
     {% endif %}
+    {% set trips = r.trips %}
+    {% set report_times = trips|map(attribute='prep_time')|select|list %}
+    {% set pickup_times = trips|map(attribute='pickup_time')|select|list %}
+    {% set driver_codes = trips|map(attribute='driver_code')|select|list %}
+    {% if trips|length > 1 %}
+    {# A vehicle out several times in a day: the folded line carries every
+       report time and every pickup time it has today, so all of its outings
+       can be read off the board without opening the row. One line per
+       outing, with its own driver, is in the open card below. #}
+    {% if driver_codes %}
+    <span class="driver-code" title="Driver">Driver {{ driver_codes|join(', ') }}</span>
+    {% endif %}
+    {% if report_times %}
+    <span class="vmeta vrow-report" title="Report (prep) times">Report {{ report_times|map('prep_time')|join(', ') }}</span>
+    {% endif %}
+    {% if pickup_times %}
+    <span class="vmeta vrow-report" title="Pickup times">Pickup {{ pickup_times|map('prep_time')|join(', ') }}</span>
+    {% endif %}
+    {% else %}
     {% if entry.driver_code %}
     <span class="driver-code" title="Driver">Driver {{ entry.driver_code }}</span>
     {% endif %}
     {% if entry.prep_time %}
     <span class="vmeta vrow-report" title="Report (prep) time">Report {{ entry.prep_time|prep_time }}</span>
+    {% endif %}
     {% endif %}
     {# The one mark that says where a vehicle stands, on the folded line so a
        column of forty can be read without opening any of it: green once the
@@ -249,8 +269,10 @@
     <div class="vmeta">
       {{ v.vehicle_type.name if v.vehicle_type else '—' }}
       {% if v.route %} · Route {{ v.route }}{% endif %}
+      {% if trips|length <= 1 %}
       {% if entry.prep_time %} · Report {{ entry.prep_time|prep_time }}{% endif %}
       {% if entry.pickup_time %} · Pickup {{ entry.pickup_time|prep_time }}{% endif %}
+      {% endif %}
     </div>
     <span class="badge entry-status {{ 'warn' if entry.status == 'skipped' else ('success' if entry.status == 'completed' else ('info' if entry.status == 'in_progress' else 'muted')) }}">
       {{ {'pending': 'Pending', 'in_progress': 'In Progress', 'completed': 'Completed', 'skipped': 'Skipped'}[entry.status] }}
@@ -278,6 +300,22 @@
       {% endif %}
     {% endif %}
   </div>
+
+  {# Every outing of this vehicle today, one line each: its report time, the
+     time it goes out, and who it runs for on that outing. Only a vehicle
+     with more than one outing gets the list -- a vehicle out once reads the
+     same on the header line above, as it always has. #}
+  {% if trips|length > 1 %}
+  <ul class="vrow-trips">
+    {% for t in trips %}
+    <li>
+      {% if t.prep_time %}<span class="vmeta vrow-report" title="Report (prep) time">Report {{ t.prep_time|prep_time }}</span>{% endif %}
+      {% if t.pickup_time %}<span class="vmeta" title="Pickup (goes out) time">Pickup {{ t.pickup_time|prep_time }}</span>{% endif %}
+      {% if t.driver_code %}<span class="driver-code" title="Driver">Driver {{ t.driver_code }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
 
   {% set notes = v.notes | strip_res %}
   {% if notes %}
