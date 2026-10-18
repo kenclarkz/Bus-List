@@ -709,12 +709,25 @@ def test_imported_pdf_saved_and_viewable(client, app):
     assert r.status_code == 200
     assert r.headers["Content-Type"] != "application/pdf"
     assert f"/import/{imp.id}/pdf".encode() in r.data
+    # Full-document viewer (toolbar enabled) and an explicit download link.
+    assert b"#toolbar=0" not in r.data
+    assert b"Download PDF" in r.data
+    assert f"/import/{imp.id}/pdf?download=1".encode() in r.data
 
     # The original PDF is served back identically.
     r = client.get(f"/import/{imp.id}/pdf")
     assert r.status_code == 200
     assert r.data == data
     assert r.headers["Content-Type"] == "application/pdf"
+    assert "attachment" not in r.headers.get("Content-Disposition", "")
+
+    # Requesting with ?download=1 serves the file as an attachment.
+    r = client.get(f"/import/{imp.id}/pdf?download=1")
+    assert r.status_code == 200
+    assert r.data == data
+    assert r.headers["Content-Type"] == "application/pdf"
+    assert "attachment" in r.headers.get("Content-Disposition", "")
+    assert "viewme.pdf" in r.headers.get("Content-Disposition", "")
 
     # History page links to the original PDF.
     r = client.get("/history")
