@@ -48,9 +48,12 @@
         <td><strong>{{ r.vehicle.unit_number }}</strong>{% if r.entry.is_replacement and r.replacement_of %} <span style="font-size:10px;background:#fef3c7;padding:1px 4px;border-radius:3px">replaces {{ r.replacement_of.unit_number }}</span>{% elif r.replaced_by %} <span style="font-size:10px;background:#f1f5f9;padding:1px 4px;border-radius:3px">replaced by {{ r.replaced_by.unit_number }}</span>{% endif %}</td>
         <td>{{ r.vehicle.vehicle_type.name if r.vehicle.vehicle_type else '—' }}</td>
         <td>{{ r.vehicle.route or '—' }}</td>
-        <td>{{ r.entry.prep_time|prep_time }}</td>
-        <td>{{ r.entry.pickup_time|prep_time }}</td>
-        <td>{{ r.entry.driver_code or '—' }}</td>
+        {% set report_times = r.trips|map(attribute='prep_time')|select|list %}
+        {% set pickup_times = r.trips|map(attribute='pickup_time')|select|list %}
+        {% set driver_codes = r.trips|map(attribute='driver_code')|select|list %}
+        <td>{{ report_times|map('prep_time')|join(', ') if report_times else (r.entry.prep_time|prep_time) }}</td>
+        <td>{{ pickup_times|map('prep_time')|join(', ') if pickup_times else (r.entry.pickup_time|prep_time) }}</td>
+        <td>{{ driver_codes|join(', ') if driver_codes else (r.entry.driver_code or '—') }}</td>
         <td>{{ r.entry.status }}{% if r.entry.status == 'skipped' and r.entry.skip_reason %} — {{ r.entry.skip_reason }}{% endif %}</td>
         <td>
           <div style="margin-bottom:4px"><strong>Inside:</strong>

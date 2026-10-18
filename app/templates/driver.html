@@ -26,9 +26,12 @@
         <div class="vmeta">
           {{ v.vehicle_type.name if v.vehicle_type else '—' }}
           {% if v.route %} · Route {{ v.route }}{% endif %}
-          {% if r.entry.prep_time %} · Report {{ r.entry.prep_time }}{% endif %}
-          {% if r.entry.pickup_time %} · Pickup {{ r.entry.pickup_time }}{% endif %}
-          {% if r.entry.driver_code %} · Driver {{ r.entry.driver_code }}{% endif %}
+          {% set report_times = r.trips|map(attribute='prep_time')|select|list %}
+          {% set pickup_times = r.trips|map(attribute='pickup_time')|select|list %}
+          {% set driver_codes = r.trips|map(attribute='driver_code')|select|list %}
+          {% if report_times %} · Report {{ report_times|join(', ') }}{% endif %}
+          {% if pickup_times %} · Pickup {{ pickup_times|join(', ') }}{% endif %}
+          {% if driver_codes %} · Driver {{ driver_codes|join(', ') }}{% endif %}
         </div>
         <span class="badge success">Completed</span>
         {% if r.workers %}

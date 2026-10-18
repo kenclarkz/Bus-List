@@ -257,6 +257,41 @@ class ScheduleEntry(db.Model):
         "PrepSession", back_populates="entry",
         cascade="all, delete-orphan", order_by="PrepSession.id"
     )
+    # Every outing the vehicle has on this day, in report order. The vehicle
+    # appears only once on the board -- it is one vehicle to wash and tick
+    # off -- but a report may send it out several times, and each of those
+    # runs is one row here so all of its report/pickup times are kept and
+    # shown. Entries with no outings (added by hand, or imported before
+    # outings were recorded) fall back to the entry's own single columns,
+    # which always carry the first outing.
+    trips = db.relationship(
+        "ScheduleEntryTrip", back_populates="entry",
+        cascade="all, delete-orphan",
+        order_by="ScheduleEntryTrip.order_index, ScheduleEntryTrip.id"
+    )
+
+
+class ScheduleEntryTrip(db.Model):
+    """One outing a vehicle has on a day's schedule.
+
+    A vehicle listed twice on one report (a morning run and an afternoon
+    run, say) is still a single :class:`ScheduleEntry` -- one checklist, one
+    set of prep clocks, one thing to finish -- but each run carries its own
+    report time, pickup time and driver code, stored as one of these rows.
+    The entry's own ``prep_time`` / ``pickup_time`` / ``driver_code``
+    columns mirror the first outing, which is what the board sorts by.
+    """
+    __tablename__ = "schedule_entry_trips"
+
+    id = db.Column(db.Integer, primary_key=True)
+    entry_id = db.Column(db.Integer, db.ForeignKey("schedule_entries.id"),
+                         nullable=False, index=True)
+    order_index = db.Column(db.Integer, default=0)
+    prep_time = db.Column(db.String(40))      # report time this outing needs
+    pickup_time = db.Column(db.String(40))    # time this outing leaves the bay
+    driver_code = db.Column(db.String(120))   # driver assigned to this outing
+
+    entry = db.relationship("ScheduleEntry", back_populates="trips")
 
 
 class PrepSession(db.Model):
