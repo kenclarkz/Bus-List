@@ -695,6 +695,7 @@ def test_imported_pdf_saved_and_viewable(client, app):
         "pdf": (io.BytesIO(data), "viewme.pdf"),
     }, content_type="multipart/form-data")
     assert r.status_code == 200
+    preview_page = r.data
 
     with app.app_context():
         from app.models import PrepReportImport
@@ -703,6 +704,10 @@ def test_imported_pdf_saved_and_viewable(client, app):
         saved_path = imp.file_path
         saved_bytes = open(saved_path, "rb").read()
         assert saved_bytes == data
+
+    # The preview page (shown right after upload) links to the original PDF.
+    assert f"/import/{imp.id}/pdf".encode() in preview_page
+    assert f"/import/{imp.id}/pdf?download=1".encode() in preview_page
 
     # The viewer page embeds the original PDF and offers a way back.
     r = client.get(f"/import/{imp.id}/view")
@@ -713,6 +718,11 @@ def test_imported_pdf_saved_and_viewable(client, app):
     assert b"#toolbar=0" not in r.data
     assert b"Download PDF" in r.data
     assert f"/import/{imp.id}/pdf?download=1".encode() in r.data
+    # Small screens replace the embedded viewer (which traps phones in their
+    # full-screen PDF viewer) with direct open/download/back links.
+    assert b'class="pdf-mobile"' in r.data
+    assert b"Open PDF" in r.data
+    assert b"Back to History" in r.data
 
     # The original PDF is served back identically.
     r = client.get(f"/import/{imp.id}/pdf")
@@ -729,10 +739,13 @@ def test_imported_pdf_saved_and_viewable(client, app):
     assert "attachment" in r.headers.get("Content-Disposition", "")
     assert "viewme.pdf" in r.headers.get("Content-Disposition", "")
 
-    # History page links to the original PDF.
+    # History page links to the original PDF, and offers a one-tap download
+    # that does not require opening the viewer first.
     r = client.get("/history")
     assert b"View PDF" in r.data
     assert f"/import/{imp.id}/view".encode() in r.data
+    assert b"Download" in r.data
+    assert f"/import/{imp.id}/pdf?download=1".encode() in r.data
 
     # Deleting the import removes the saved file.
     r = client.post(f"/import/{imp.id}/delete")

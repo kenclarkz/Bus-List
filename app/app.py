@@ -2061,7 +2061,9 @@ def register_routes(app):
                 import_id=imp.id,
                 sched_date=sched_dt.isoformat(),
                 employees=employees_list(),
-                imported_by_employee_id=imp.employee_id)
+                imported_by_employee_id=imp.employee_id,
+                pdf_url=url_for("import_pdf", import_id=imp.id),
+                download_url=url_for("import_pdf", import_id=imp.id, download=1))
         return render_template("import.html", import_dates=_import_date_options(),
                                employees=employees_list())
 
