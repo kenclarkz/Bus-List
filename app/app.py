@@ -2072,7 +2072,9 @@ def register_routes(app):
             flash("Original PDF file is no longer available", "error")
             return redirect(url_for("history_days"))
         return render_template(
-            "import_view.html", imp=imp, pdf_url=url_for("import_pdf", import_id=import_id))
+            "import_view.html", imp=imp,
+            pdf_url=url_for("import_pdf", import_id=import_id),
+            download_url=url_for("import_pdf", import_id=import_id, download=1))
 
     @app.route("/import/<int:import_id>/pdf")
     def import_pdf(import_id):
@@ -2080,7 +2082,12 @@ def register_routes(app):
         if not imp.file_path or not os.path.isfile(imp.file_path):
             flash("Original PDF file is no longer available", "error")
             return redirect(url_for("history_days"))
-        return send_file(imp.file_path, mimetype="application/pdf")
+        as_attachment = request.args.get("download") is not None
+        kwargs = {"mimetype": "application/pdf"}
+        if as_attachment:
+            kwargs["as_attachment"] = True
+            kwargs["download_name"] = imp.filename or "report.pdf"
+        return send_file(imp.file_path, **kwargs)
 
     @app.route("/import/<int:import_id>/apply", methods=["POST"])
     def import_apply(import_id):
