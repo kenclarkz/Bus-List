@@ -857,12 +857,23 @@ def _entry_trips(entry):
 
 def _prep_time_sort_key(entry):
     """Sort schedule entries by prep time (earliest first). Entries without a
-    prep time are moved after all timed ones, ordered by their import position."""
+    prep time are moved after all timed ones, ordered by their import position.
+
+    A vehicle out several times in a day sorts by the earliest of its outings
+    (see _entry_trips), so the board keeps the order of earliest time even
+    when a later listing is what happens to sit on the entry's own columns.
+    """
     import re
-    m = re.match(r"\s*(\d{1,2}):(\d{2})", entry.prep_time or "")
-    if not m:
-        return (1, entry.order_index)
-    return (0, int(m.group(1)) * 60 + int(m.group(2)))
+
+    def _minutes(raw):
+        m = re.match(r"\s*(\d{1,2}):(\d{2})", raw or "")
+        return int(m.group(1)) * 60 + int(m.group(2)) if m else None
+
+    times = [t for t in (_minutes(t["prep_time"]) for t in _entry_trips(entry))
+             if t is not None]
+    if times:
+        return (0, min(times))
+    return (1, entry.order_index)
 
 
 def build_schedule_view(sched):
