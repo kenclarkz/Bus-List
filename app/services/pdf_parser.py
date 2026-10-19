@@ -150,6 +150,80 @@ def _merge_parsed(existing, incoming):
 # Table / text helpers
 # ---------------------------------------------------------------------------
 
+def _header_key(value):
+    """Whitespace-insensitive key for matching a table header cell.
+
+    PyMuPDF's table extraction has joined the words of one header cell
+    differently across versions ("Prep Time", "Prep  Time", "PrepTime"), so
+    header detection compares everything with whitespace removed rather than
+    trusting one exact spelling.
+    """
+    return re.sub(r"\s+", "", str(value or "")).lower()
+
+
+def _words_in_cell(words, rect):
+    """Rebuild one table cell's text from the page words inside its rectangle.
+
+    Words on the same visual line are joined with a space and the lines are
+    joined with a newline, so a cell reads the way the report prints it
+    ("As Directed", "Check AC before dispatch", "9205-\\nJAXSUV"). Building
+    the cells from word positions -- instead of trusting the table finder's
+    own text extraction -- keeps the result the same across PyMuPDF
+    versions: 2.0 concatenates the words of a cell without spaces
+    ("AsDirected"), which broke header detection and lost the spacing inside
+    routes, types and notes.
+    """
+    if not rect:
+        return ""
+    x0, y0, x1, y1 = rect
+    inside = []
+    for w in words:
+        cx = (w[0] + w[2]) / 2.0
+        cy = (w[1] + w[3]) / 2.0
+        if x0 <= cx <= x1 and y0 <= cy <= y1:
+            inside.append(w)
+    if not inside:
+        return ""
+    inside.sort(key=lambda w: ((w[1] + w[3]) / 2.0, w[0]))
+    lines = []
+    current = []
+    line_y = None
+    for w in inside:
+        y = (w[1] + w[3]) / 2.0
+        if current and abs(y - line_y) > 3.0:
+            lines.append(" ".join(current))
+            current = []
+        if not current:
+            line_y = y
+        current.append(w[4])
+    if current:
+        lines.append(" ".join(current))
+    return "\n".join(lines)
+
+
+def _table_rows(tab, words):
+    """Rows of cell texts for one detected table.
+
+    Prefers the row/cell rectangles the table finder reports -- each cell is
+    rebuilt from the words that fall inside it -- and falls back to the
+    finder's own extraction where those rectangles are unavailable.
+    """
+    rows = getattr(tab, "rows", None)
+    if rows:
+        data = []
+        for row in rows:
+            cells = getattr(row, "cells", None)
+            if not cells:
+                continue
+            data.append([_words_in_cell(words, c) for c in cells])
+        if data:
+            return data
+    try:
+        return tab.extract() or []
+    except Exception:  # pragma: no cover - defensive
+        return []
+
+
 def _find_table_cells(page):
     """Return dict: {unit: ParsedVehicle}. Uses PyMuPDF tables + word scan."""
     found = {}
@@ -159,8 +233,15 @@ def _find_table_cells(page):
     is_wash = False
     try:
         tabs = page.find_tables()
+        words = page.get_text("words")
         for tab in tabs:
-            data = tab.extract()
+            data = _table_rows(tab, words)
+            # A finder that reports doubled columns (empty ones between the
+            # real ones) still labels them correctly in the header; drop the
+            # unnamed blanks so every row keeps the column order the parsers
+            # below index by.
+            if data and (_is_echo_header(data[0]) or _is_wash_header(data[0])):
+                data = _drop_blank_header_columns(data)
             for row in data:
                 if _is_echo_header(row):
                     is_echo = True
@@ -193,22 +274,44 @@ def _find_table_cells(page):
 
 
 def _is_echo_header(row):
-    """Detect ECHO prep report header: ['Prep Time', 'Vehicle', 'Vehicle Type', ...]"""
-    if not row or len(row) < 3:
+    """Detect ECHO prep report header: ['Prep Time', 'Vehicle', 'Vehicle Type', ...]
+
+    Blank cells are ignored: some PyMuPDF versions split a table into
+    doubled columns with empty ones in between, and the header still reads
+    the same once the blanks are skipped.
+    """
+    if not row:
         return False
-    vals = [str(c).strip().replace("\n", " ") if c else "" for c in row]
-    return vals[0] == "Prep Time" and vals[1] == "Vehicle" and vals[2] == "Vehicle Type"
+    vals = [v for v in (_header_key(c) for c in row) if v]
+    return (len(vals) >= 3 and vals[0] == "preptime" and vals[1] == "vehicle"
+            and vals[2] == "vehicletype")
 
 
 def _is_wash_header(row):
     """Detect the Vehicle Wash Report header:
     ['Report Time', 'Pickup Time', 'Vehicle Code+Type', 'Order Type',
      'Driver Code', 'Reservation #', ...]"""
-    if not row or len(row) < 3:
+    if not row:
         return False
-    vals = [str(c).strip().replace("\n", " ") if c else "" for c in row]
-    return (vals[0] == "Report Time" and vals[1] == "Pickup Time"
-            and vals[2] == "Vehicle Code+Type")
+    vals = [v for v in (_header_key(c) for c in row) if v]
+    return (len(vals) >= 3 and vals[0] == "reporttime"
+            and vals[1] == "pickuptime" and vals[2] == "vehiclecode+type")
+
+
+def _drop_blank_header_columns(data):
+    """Remove columns whose header cell is blank from every row of a table.
+
+    The table finder sometimes reports a table with doubled columns, empty
+    ones interleaved between the real ones. Dropping the columns the header
+    does not name puts the cells back on the column indexes the row parsers
+    expect. Only called for the two known report formats, whose headers name
+    every column they use, so a data column is never lost by accident.
+    """
+    header = data[0]
+    keep = [i for i, cell in enumerate(header) if _header_key(cell)]
+    if not keep or len(keep) == len(header):
+        return data
+    return [[row[i] if i < len(row) else "" for i in keep] for row in data]
 
 
 def _is_wash_report_page(page):
