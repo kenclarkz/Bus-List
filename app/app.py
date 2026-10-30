@@ -71,6 +71,195 @@ def role_home(role):
     return url_for("dashboard")
 
 
+TUTORIALS = {
+    UserAccount.ROLE_MANAGER: (
+        {
+            "title": "Start on Today",
+            "body": "The Today tab is the shift board. Use the date buttons to "
+                    "look at today, tomorrow or the day after, and filter by "
+                    "unit, type, route or status to find one vehicle. The stat "
+                    "tiles show completed, in progress, skipped, remaining and "
+                    "prep time.",
+            "action": "Today",
+        },
+        {
+            "title": "Build the board from a report",
+            "body": "Open Import and upload the prep report PDF. Check the "
+                    "preview for every unit, outing time and driver code, then "
+                    "apply it to fill the day's board.",
+            "action": "Import",
+        },
+        {
+            "title": "Keep vehicle records current",
+            "body": "Open Vehicles to add or edit a unit. A vehicle's type, route, "
+                    "capacity, cleaning frequency and active status all live "
+                    "there. Vehicle type checklists are managed in Settings.",
+            "action": "Vehicles",
+        },
+        {
+            "title": "Set up the crew",
+            "body": "Open Staff to create Manager, Employee and Driver accounts. "
+                    "Give each person their first password, tie an Employee "
+                    "account to their staff record, and reset a password when "
+                    "somebody forgets theirs.",
+            "action": "Staff",
+        },
+        {
+            "title": "Watch the work in progress",
+            "body": "The Now Working card shows who is on which vehicle, which "
+                    "side they are clocking and how long they have been working. "
+                    "The Manager view is read-only, so cleaning stays with the "
+                    "Employee account.",
+            "action": "Now Working",
+        },
+        {
+            "title": "Review incidents",
+            "body": "Open Incidents to review a report, set its severity and "
+                    "status, assign it to somebody, add notes and photos, and "
+                    "resolve it once the issue is handled.",
+            "action": "Incidents",
+        },
+        {
+            "title": "Review and close the day",
+            "body": "Open Day Report to check the shift totals, prep clocks and "
+                    "notes, and print the report. The day finalizes automatically "
+                    "at 10:30 PM Eastern. Use History to review past days and only "
+                    "reopen a finalized day when a correction is needed.",
+            "action": "Day Report",
+        },
+        {
+            "title": "Make the app work for you",
+            "body": "Open Settings to choose your theme, layout and text size. "
+                    "The manager-only section holds the recent/due thresholds, the "
+                    "default location and the Inside/Outside checklists for every "
+                    "vehicle type.",
+            "action": "Settings",
+        },
+        {
+            "title": "Protect your account",
+            "body": "Open Password to change your own password. Employees and "
+                    "Drivers change theirs the same way after you give them their "
+                    "first one.",
+            "action": "Password",
+        },
+    ),
+    UserAccount.ROLE_EMPLOYEE: (
+        {
+            "title": "Start on Today",
+            "body": "Open Today to see your shift board. Pick Today, Tomorrow or "
+                    "+2 Days, then use the filters to find your unit by number, "
+                    "type, route or status.",
+            "action": "Today",
+        },
+        {
+            "title": "Start your prep clock",
+            "body": "On your vehicle, press Start beside Inside or Outside. The "
+                    "clock begins for you, and your name and timer appear in the "
+                    "Now Working card so everybody can see who has the vehicle.",
+            "action": "Start",
+        },
+        {
+            "title": "Pause when you step away",
+            "body": "Press Pause to stop your clock. Your time is kept, so you can "
+                    "pick up exactly where you left off instead of losing the work "
+                    "you already put in.",
+            "action": "Pause",
+        },
+        {
+            "title": "Resume the same clock",
+            "body": "Press Resume when you are back at the vehicle. The clock "
+                    "continues from the time you had already recorded.",
+            "action": "Resume",
+        },
+        {
+            "title": "Tick off the checklist",
+            "body": "Tick each task as you finish it. Ticking the last task finishes "
+                    "that vehicle automatically. Leave a task unticked only when it "
+                    "really was not done, so the Manager can see what was missed.",
+            "action": "Checklist",
+        },
+        {
+            "title": "Finish your side",
+            "body": "Press Done when your side of the vehicle is complete. A vehicle "
+                    "only closes when both Inside and Outside are finished and "
+                    "nobody is still clocked in on it.",
+            "action": "Done",
+        },
+        {
+            "title": "Skip a vehicle that cannot be worked",
+            "body": "If a vehicle cannot be washed, press Skip and give a reason. "
+                    "It moves out of the work totals but stays on the board so "
+                    "everybody can see why it was skipped.",
+            "action": "Skip",
+        },
+        {
+            "title": "Report an incident",
+            "body": "Open Incidents and press Report an Incident when there is a "
+                    "collision, damage, injury or safety problem. Add photos and "
+                    "details while they are still fresh.",
+            "action": "Report an Incident",
+        },
+        {
+            "title": "Review your shift",
+            "body": "Open Day Report to see the shift totals, your prep clocks and "
+                    "the notes for the day.",
+            "action": "Day Report",
+        },
+        {
+            "title": "Protect your account",
+            "body": "Open Password to set a new password for your own account.",
+            "action": "Password",
+        },
+    ),
+    UserAccount.ROLE_DRIVER: (
+        {
+            "title": "Start on Finished",
+            "body": "Open Finished to see every vehicle that is ready today and for "
+                    "the next two days. Only completed vehicles appear here, so "
+                    "anything on this screen is ready for you.",
+            "action": "Finished",
+        },
+        {
+            "title": "Check the report time",
+            "body": "Each finished vehicle shows its Report time. Use it to see when "
+                    "the vehicle was expected to be ready for its outing.",
+            "action": "Report",
+        },
+        {
+            "title": "Check the pickup time",
+            "body": "The Pickup time tells you when to collect the vehicle. A "
+                    "vehicle that goes out more than once lists every time, so read "
+                    "the one for your outing.",
+            "action": "Pickup",
+        },
+        {
+            "title": "Confirm the driver code",
+            "body": "The Driver code on each outing is how you confirm which trip is "
+                    "yours. Check it before you leave the lot.",
+            "action": "Driver",
+        },
+        {
+            "title": "Report an incident",
+            "body": "Press Report an Incident on the Finished screen when there is "
+                    "damage, a collision, an injury or any safety problem. Add photos "
+                    "and details while they are still fresh.",
+            "action": "Report an Incident",
+        },
+        {
+            "title": "Make the app work for you",
+            "body": "Open Settings to choose the theme, layout and text size that "
+                    "are easiest for you to read.",
+            "action": "Settings",
+        },
+        {
+            "title": "Protect your account",
+            "body": "Open Password to change your own password.",
+            "action": "Password",
+        },
+    ),
+}
+
+
 def _save_uploaded_pdf(data, filename):
     """Save uploaded PDF bytes to disk and return the path."""
     import uuid
@@ -1229,6 +1418,7 @@ def _nav_links(role):
     links = []
     if role == "driver":
         links.append(("driver_dashboard", "Finished", "✅"))
+        links.append(("tutorial_page", "Tutorial", "T"))
         links.append(("settings_page", "Settings", "⚙️"))
         links.append(("change_password", "Password", "🔑"))
         return links
@@ -1242,6 +1432,7 @@ def _nav_links(role):
     links.append(("trash_page", "Trash", "🗑️"))
     if role == "manager":
         links.append(("employees_page", "Staff", "👥"))
+    links.append(("tutorial_page", "Tutorial", "T"))
     links.append(("settings_page", "Settings", "⚙️"))
     links.append(("change_password", "Password", "🔑"))
     return links
@@ -1592,9 +1783,9 @@ def register_routes(app):
         # Drivers only see the finished-vehicles screen (plus their own Settings
         # and Password pages and the incident report submission flow).
         if user == "driver" and request.endpoint not in (
-                "driver_dashboard", "settings_page", "change_password",
-                "incidents_list", "incident_new", "incident_detail",
-                "incident_pdf", "incident_photo"):
+                "driver_dashboard", "tutorial_page", "settings_page",
+                "change_password", "incidents_list", "incident_new",
+                "incident_detail", "incident_pdf", "incident_photo"):
             return redirect(url_for("driver_dashboard"))
         # Vehicles, Staff and operational Settings are manager-only.
         if user != "manager" and request.endpoint in MANAGER_ONLY_ENDPOINTS:
@@ -1623,6 +1814,16 @@ def register_routes(app):
     def splash():
         """Fullscreen intro animation played after login before the dashboard."""
         return render_template("splash.html")
+
+    @app.route("/tutorial")
+    def tutorial_page():
+        """A role-specific, step-by-step guide that advances by touch."""
+        account = _signed_in_account()
+        role = account.role if account else UserAccount.ROLE_EMPLOYEE
+        role_label = account.role_label if account else "Employee"
+        return render_template(
+            "tutorial.html", role=role, role_label=role_label,
+            steps=TUTORIALS.get(role, TUTORIALS[UserAccount.ROLE_EMPLOYEE]))
 
     @app.route("/logout", methods=["POST"])
     def logout():
