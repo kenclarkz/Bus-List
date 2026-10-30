@@ -5165,3 +5165,78 @@ html[data-layout="sidepanel"][data-theme="bloomberg"] .sp-brand { font-family: v
   html[data-layout="sidepanel"] .sp-main { margin-left: 0; }
   html[data-layout="sidepanel"] h1::after { display: none; }
 }
+
+/* tutorial: one step at a time, each advanced by touching its button */
+.tutorial-card { overflow: hidden; }
+.tutorial-intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.tutorial-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.tutorial-progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--primary), var(--info));
+  transition: width .25s ease;
+}
+.tutorial-step[hidden],
+.tutorial-complete[hidden] { display: none; }
+.tutorial-step {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  background: var(--bg);
+}
+.tutorial-step-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tutorial-step-head h2 { margin: 0; }
+.tutorial-step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 800;
+}
+.tutorial-body {
+  margin: 12px 0 18px;
+  max-width: 70ch;
+}
+.tutorial-touch { max-width: 460px; }
+.tutorial-complete {
+  border: 1px solid var(--success);
+  border-radius: var(--radius);
+  padding: 18px;
+  background: var(--success-bg);
+}
+.tutorial-complete h2 { margin-top: 0; color: var(--success); }
+.tutorial-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 600px) {
+  .tutorial-step { padding: 14px; }
+  .tutorial-touch { width: 100%; }
+}

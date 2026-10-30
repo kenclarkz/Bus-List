@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Tutorial — {{ app_name }}{% endblock %}
+
+{% block content %}
+<h1>Tutorial <span class="muted small">{{ role_label }} guide</span></h1>
+
+<div class="card tutorial-card" data-tutorial data-role="{{ role }}"
+     data-total-steps="{{ steps|length }}">
+  <div class="tutorial-intro">
+    <p class="muted" style="margin:0">
+      Learn the app one button at a time. Each step only moves on when you
+      touch its button, so you can take your time.
+    </p>
+    <span class="badge info" id="tutorial-progress-label" aria-live="polite">
+      Step 1 of {{ steps|length }}
+    </span>
+  </div>
+
+  <div class="tutorial-progress" aria-hidden="true">
+    <div class="tutorial-progress-fill" id="tutorial-progress-fill"></div>
+  </div>
+
+  <div id="tutorial-steps">
+    {% for step in steps %}
+    <section class="tutorial-step" data-tutorial-step="{{ loop.index0 }}"
+             {% if not loop.first %}hidden{% endif %}>
+      <div class="tutorial-step-head">
+        <span class="tutorial-step-number">{{ loop.index }}</span>
+        <h2>{{ step.title }}</h2>
+      </div>
+      <p class="tutorial-body">{{ step.body }}</p>
+      <button type="button" class="btn big tutorial-touch" data-tutorial-next>
+        {% if loop.last %}
+        Finish tutorial
+        {% else %}
+        Touch “{{ step.action }}” to continue →
+        {% endif %}
+      </button>
+    </section>
+    {% endfor %}
+  </div>
+
+  <div class="tutorial-complete" id="tutorial-complete" hidden>
+    <h2>Tutorial complete</h2>
+    <p class="muted">
+      You finished the {{ role_label }} tutorial. You can come back to this tab
+      whenever you need a reminder, or restart it from the beginning.
+    </p>
+    <div class="flex">
+      {% if role == 'driver' %}
+      <a class="btn success" href="{{ url_for('driver_dashboard') }}">Open Finished</a>
+      {% else %}
+      <a class="btn success" href="{{ url_for('dashboard') }}">Open Today</a>
+      {% endif %}
+      <button type="button" class="btn secondary" id="tutorial-restart-2">
+        Restart tutorial
+      </button>
+    </div>
+  </div>
+
+  <div class="tutorial-footer">
+    <span class="muted small" id="tutorial-step-count" aria-live="polite">
+      Step 1 of {{ steps|length }}
+    </span>
+    <span class="spacer"></span>
+    <button type="button" class="btn small secondary" id="tutorial-restart">
+      Restart tutorial
+    </button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/tutorial.js') }}"></script>
+{% endblock %}

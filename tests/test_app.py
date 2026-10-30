@@ -4577,6 +4577,66 @@ def test_manager_header_shows_all_tabs(manager_client):
         assert href in html
 
 
+def test_tutorial_tab_is_available_to_every_role(client, manager_client, app):
+    """Managers, Employees and Drivers each get a Tutorial tab they can open."""
+    assert client.get("/tutorial").status_code == 200
+    assert manager_client.get("/tutorial").status_code == 200
+
+    d = app.test_client()
+    d.post("/login", data={"username": "driver", "password": "driver"})
+    assert d.get("/tutorial").status_code == 200
+    assert 'href="/tutorial"' in d.get("/driver").data.decode()
+
+    assert 'href="/tutorial"' in client.get("/").data.decode()
+    assert 'href="/tutorial"' in manager_client.get("/").data.decode()
+
+
+def test_tutorial_teaches_each_role_what_they_can_do(client, manager_client,
+                                                     app):
+    """The guide follows the title of the person who is signed in."""
+    employee = client.get("/tutorial").get_data(as_text=True)
+    assert "Employee guide" in employee
+    assert 'data-role="employee"' in employee
+    for text in ("Start your prep clock", "Pause when you step away",
+                 "Tick off the checklist", "Finish your side",
+                 "Skip a vehicle that cannot be worked"):
+        assert text in employee
+    assert "Set up the crew" not in employee
+
+    manager = manager_client.get("/tutorial").get_data(as_text=True)
+    assert "Manager guide" in manager
+    assert 'data-role="manager"' in manager
+    for text in ("Build the board from a report", "Set up the crew",
+                 "Watch the work in progress", "Review incidents",
+                 "Review and close the day"):
+        assert text in manager
+    assert "Start your prep clock" not in manager
+
+    d = app.test_client()
+    d.post("/login", data={"username": "driver", "password": "driver"})
+    driver = d.get("/tutorial").get_data(as_text=True)
+    assert "Driver guide" in driver
+    assert 'data-role="driver"' in driver
+    for text in ("Start on Finished", "Check the report time",
+                 "Confirm the driver code", "Report an incident"):
+        assert text in driver
+    assert "Set up the crew" not in driver
+
+
+def test_tutorial_advances_only_when_each_step_button_is_touched(client):
+    """Every step carries the button that has to be touched to reach the next
+    one, and only the current step is shown at a time."""
+    html = client.get("/tutorial").get_data(as_text=True)
+    assert 'data-tutorial' in html
+    assert 'id="tutorial-steps"' in html
+    assert 'data-tutorial-next' in html
+    assert 'id="tutorial-progress-fill"' in html
+    assert 'src="/static/js/tutorial.js"' in html
+    sections = re.findall(r'<section class="tutorial-step"[^>]*>', html)
+    assert len(sections) == 10
+    assert sum("hidden" in section for section in sections) == 9
+
+
 # ---------------------------------------------------------------------------
 # Force-complete ("Done") button
 # ---------------------------------------------------------------------------
