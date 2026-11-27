@@ -6,6 +6,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
   var steps = Array.prototype.slice.call(
     root.querySelectorAll('[data-tutorial-step]'));
+  var reportRows = Array.prototype.slice.call(
+    document.querySelectorAll('[data-report-unit]'));
   var total = steps.length;
   var role = root.getAttribute('data-role') || 'employee';
   var key = 'tutorial-progress-' + role;
@@ -31,12 +33,33 @@ document.addEventListener('DOMContentLoaded', function () {
   var current = readProgress();
   if (current < 0 || current > total) current = 0;
 
+  function highlightCurrent() {
+    var finished = current >= total;
+    var step = finished ? null : steps[current];
+    var action = step ? step.getAttribute('data-tutorial-action') : '';
+    var unit = step ? step.getAttribute('data-tutorial-report-unit') : '';
+
+    steps.forEach(function (section) {
+      var button = section.querySelector('[data-tutorial-demo-button]');
+      if (!button) return;
+      var circled = section === step &&
+        button.getAttribute('data-tutorial-demo-button') === action;
+      button.classList.toggle('is-circled', Boolean(circled));
+    });
+
+    reportRows.forEach(function (row) {
+      row.classList.toggle('is-example',
+        Boolean(unit) && row.getAttribute('data-report-unit') === unit);
+    });
+  }
+
   function render() {
     var finished = current >= total;
     steps.forEach(function (step, index) {
       step.hidden = finished || index !== current;
     });
     if (complete) complete.hidden = !finished;
+    highlightCurrent();
 
     var label = finished ? 'Tutorial complete'
       : 'Step ' + (current + 1) + ' of ' + total;

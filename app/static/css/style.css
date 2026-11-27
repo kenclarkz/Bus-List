@@ -5220,7 +5220,38 @@ html[data-layout="sidepanel"][data-theme="bloomberg"] .sp-brand { font-family: v
   margin: 12px 0 18px;
   max-width: 70ch;
 }
-.tutorial-touch { max-width: 460px; }
+.tutorial-report { margin-bottom: 16px; }
+.tutorial-report-head { gap: 12px; flex-wrap: wrap; }
+.tutorial-report tr.is-example { background: var(--info-bg); }
+.tutorial-report tr.is-example td:first-child {
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+.tutorial-example {
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  border-left: 4px solid var(--primary);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--info-bg);
+}
+.tutorial-touch { max-width: 460px; position: relative; }
+.tutorial-touch.is-circled { border-color: var(--primary); }
+.tutorial-touch.is-circled::after {
+  content: "";
+  position: absolute;
+  inset: -9px;
+  border: 3px solid var(--primary);
+  border-radius: 999px;
+  box-shadow: 0 0 0 4px var(--card);
+  animation: tutorial-circle 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes tutorial-circle {
+  0%, 100% { transform: scale(1); opacity: .95; }
+  50% { transform: scale(1.035); opacity: .45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-touch.is-circled::after { animation: none; }
+}
 .tutorial-complete {
   border: 1px solid var(--success);
   border-radius: var(--radius);

@@ -4,12 +4,46 @@
 {% block content %}
 <h1>Tutorial <span class="muted small">{{ role_label }} guide</span></h1>
 
+{% if report %}
+{% set example_unit = steps[0].report_unit if steps else '' %}
+<div class="card tutorial-report" data-tutorial-report>
+  <div class="flex between tutorial-report-head">
+    <div>
+      <h2>Example: {{ report.title }}</h2>
+      <p class="muted" style="margin:0">
+        {{ report.company }} · {{ report.date }}. Every step below uses these
+        real rows, so you can follow unit {{ example_unit }} from the report to
+        the board.
+      </p>
+    </div>
+    <a class="btn small secondary" href="{{ url_for('tutorial_sample_report') }}">
+      Open the real PDF
+    </a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Unit</th><th>Type</th><th>Report</th><th>Pickup</th><th>Driver</th></tr>
+      {% for row in report.rows %}
+      <tr data-report-unit="{{ row.unit }}"
+          class="{{ 'is-example' if row.unit == example_unit else '' }}">
+        <td><strong>{{ row.unit }}</strong></td>
+        <td>{{ row.type }}</td>
+        <td>{{ row.report }}</td>
+        <td>{{ row.pickup }}</td>
+        <td>{{ row.driver }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+{% endif %}
+
 <div class="card tutorial-card" data-tutorial data-role="{{ role }}"
      data-total-steps="{{ steps|length }}">
   <div class="tutorial-intro">
     <p class="muted" style="margin:0">
-      Learn the app one button at a time. Each step only moves on when you
-      touch its button, so you can take your time.
+      Learn the app one button at a time. Each step highlights its row in the
+      report and circles the button to touch, so you can take your time.
     </p>
     <span class="badge info" id="tutorial-progress-label" aria-live="polite">
       Step 1 of {{ steps|length }}
@@ -23,18 +57,22 @@
   <div id="tutorial-steps">
     {% for step in steps %}
     <section class="tutorial-step" data-tutorial-step="{{ loop.index0 }}"
+             data-tutorial-action="{{ step.action }}"
+             data-tutorial-report-unit="{{ step.report_unit }}"
              {% if not loop.first %}hidden{% endif %}>
       <div class="tutorial-step-head">
         <span class="tutorial-step-number">{{ loop.index }}</span>
         <h2>{{ step.title }}</h2>
       </div>
       <p class="tutorial-body">{{ step.body }}</p>
-      <button type="button" class="btn big tutorial-touch" data-tutorial-next>
-        {% if loop.last %}
-        Finish tutorial
-        {% else %}
-        Touch “{{ step.action }}” to continue →
-        {% endif %}
+      <p class="tutorial-example">
+        <strong>Example from the report:</strong> {{ step.example }}
+      </p>
+      <button type="button"
+              class="btn big tutorial-touch {{ 'is-circled' if loop.first else '' }}"
+              data-tutorial-next
+              data-tutorial-demo-button="{{ step.action }}">
+        Touch “{{ step.action }}” to {{ 'finish' if loop.last else 'continue' }} →
       </button>
     </section>
     {% endfor %}
@@ -43,8 +81,10 @@
   <div class="tutorial-complete" id="tutorial-complete" hidden>
     <h2>Tutorial complete</h2>
     <p class="muted">
-      You finished the {{ role_label }} tutorial. You can come back to this tab
-      whenever you need a reminder, or restart it from the beginning.
+      You finished the {{ role_label }} tutorial using unit {{ example_unit }}
+      from {{ report.title if report else 'the prep report' }}. You can come
+      back to this tab whenever you need a reminder, or restart it from the
+      beginning.
     </p>
     <div class="flex">
       {% if role == 'driver' %}

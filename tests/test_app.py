@@ -4637,6 +4637,52 @@ def test_tutorial_advances_only_when_each_step_button_is_touched(client):
     assert sum("hidden" in section for section in sections) == 9
 
 
+def test_tutorial_uses_real_prep_report_for_every_step(client):
+    """Each step points at the same row from the shipped wash report and
+    carries the button that the tutorial circles while that step is shown."""
+    html = client.get("/tutorial").get_data(as_text=True)
+    assert "Example: Vehicle Wash Report" in html
+    assert "ECHO East Coast Transportation" in html
+    assert "/tutorial/sample-report.pdf" in html
+    for value in ("7101", "MINIC34", "05:00", "07:15", "LEOJEREZ"):
+        assert value in html
+    assert 'data-report-unit="7101"' in html
+    assert html.count('data-tutorial-report-unit="7101"') == 10
+    assert html.count('data-tutorial-demo-button=') == 10
+    assert html.count("Example from the report:") == 10
+    assert html.count('class="btn big tutorial-touch is-circled"') == 1
+    js = client.get("/static/js/tutorial.js").get_data(as_text=True)
+    assert "is-circled" in js
+
+
+def test_tutorial_example_matches_every_role_step():
+    """Every role step has its own example line tied to the report row."""
+    from app.app import TUTORIAL_EXAMPLES, TUTORIALS, tutorial_steps
+    from app.models import UserAccount
+
+    for role in (UserAccount.ROLE_MANAGER, UserAccount.ROLE_EMPLOYEE,
+                 UserAccount.ROLE_DRIVER):
+        assert len(TUTORIAL_EXAMPLES[role]) == len(TUTORIALS[role])
+        steps = tutorial_steps(role)
+        assert len(steps) == len(TUTORIALS[role])
+        assert all(step["example"] for step in steps)
+        assert all(step["report_unit"] == "7101" for step in steps)
+
+
+def test_tutorial_sample_report_is_available_to_every_role(client,
+                                                           manager_client, app):
+    """The real PDF behind the examples opens for Managers, Employees and
+    Drivers alike."""
+    for test_client in (client, manager_client):
+        response = test_client.get("/tutorial/sample-report.pdf")
+        assert response.status_code == 200
+        assert response.data.startswith(b"%PDF")
+
+    d = app.test_client()
+    d.post("/login", data={"username": "driver", "password": "driver"})
+    assert d.get("/tutorial/sample-report.pdf").status_code == 200
+
+
 # ---------------------------------------------------------------------------
 # Force-complete ("Done") button
 # ---------------------------------------------------------------------------

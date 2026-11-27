@@ -71,6 +71,35 @@ def role_home(role):
     return url_for("dashboard")
 
 
+# The rows shown in the tutorial come straight from the Vehicle Wash Report
+# shipped with the app (scripts/make_sample_report.py). Using one real report
+# throughout means every role can follow the same unit from import to pickup.
+TUTORIAL_REPORT = {
+    "company": "ECHO East Coast Transportation",
+    "title": "Vehicle Wash Report",
+    "date": "09/16/2026",
+    "filename": "sample_vehicle_wash_report.pdf",
+    "rows": (
+        {"unit": "9101", "type": "SEDAN", "report": "04:30",
+         "pickup": "05:00", "driver": "291486*50"},
+        {"unit": "9301", "type": "Van.", "report": "05:00",
+         "pickup": "06:30", "driver": "290777*7"},
+        {"unit": "7101", "type": "MINIC34", "report": "05:00",
+         "pickup": "07:15", "driver": "LEOJEREZ"},
+        {"unit": "9417", "type": "MINIBUS", "report": "05:30",
+         "pickup": "07:30", "driver": "LAVERNEBELLAMY"},
+        {"unit": "9440", "type": "MINIC40", "report": "06:30",
+         "pickup": "08:30", "driver": "ARNALDOTORRES"},
+        {"unit": "4301", "type": "TRANSITB", "report": "06:30",
+         "pickup": "07:00", "driver": "JAMESMILNER"},
+        {"unit": "9422", "type": "MINIBUS", "report": "10:15",
+         "pickup": "12:30", "driver": "RAHDEEMJONES"},
+    ),
+}
+
+TUTORIAL_EXAMPLE_UNIT = "7101"
+
+
 TUTORIALS = {
     UserAccount.ROLE_MANAGER: (
         {
@@ -258,6 +287,81 @@ TUTORIALS = {
         },
     ),
 }
+
+
+# One concrete example per step, written in the order of TUTORIALS above. The
+# template highlights the matching row in TUTORIAL_REPORT and circles the named
+# button, so every instruction is tied to the same real unit.
+TUTORIAL_EXAMPLES = {
+    UserAccount.ROLE_MANAGER: (
+        "Unit 7101 is due at 05:00 and picked up at 07:15 by LEOJEREZ. "
+        "Find it on Today once the report is applied.",
+        "Upload sample_vehicle_wash_report.pdf. The preview should show 7101 "
+        "with Report 05:00, Pickup 07:15 and Driver LEOJEREZ.",
+        "7101 is a MINIC34. Its vehicle record holds that type, its route and "
+        "the checklist the crew will use.",
+        "The report names LEOJEREZ on 7101. Create that Driver login here so "
+        "he can check the finished vehicle.",
+        "When somebody presses Start on 7101, their name and Inside or "
+        "Outside timer appear in Now Working.",
+        "If 7101 is damaged on this run, file the report against that unit "
+        "while the details are fresh.",
+        "At close, the 7101 prep time, any skip reason and the day's notes all "
+        "appear in Day Report.",
+        "The MINIC34 checklist shown for 7101 is maintained here for every "
+        "vehicle of that type.",
+        "This is the login used to import the report and manage 7101; change "
+        "its Password here.",
+    ),
+    UserAccount.ROLE_EMPLOYEE: (
+        "Find unit 7101 on Today: Report 05:00, Pickup 07:15, Driver "
+        "LEOJEREZ.",
+        "Open 7101 and press Start Inside (or Start Outside) to time your "
+        "side of that vehicle.",
+        "Step away from 7101? Press Pause on its clock so the time already "
+        "worked is kept.",
+        "Back at 7101, press Resume and the same clock continues from where "
+        "you paused it.",
+        "Tick the MINIC34 tasks on 7101 as you finish them; the last tick "
+        "closes that side.",
+        "Press Done on 7101's Inside side; Outside has its own Done, and the "
+        "vehicle closes only when both are done.",
+        "If 7101 cannot be washed, press Skip and record why so it stays "
+        "visible with a reason.",
+        "Notice damage on 7101? Report an Incident with the unit and photos "
+        "before it leaves.",
+        "Day Report shows the prep time you spent on 7101 along with the rest "
+        "of the shift.",
+        "Protect the Employee login that records your work on 7101 by "
+        "changing its Password.",
+    ),
+    UserAccount.ROLE_DRIVER: (
+        "Once the crew finishes 7101, it appears on Finished with its 05:00 "
+        "report and 07:15 pickup.",
+        "7101's Report time is 05:00 — when the wash crew expected it ready.",
+        "7101's Pickup time is 07:15 — when you should collect it.",
+        "7101's Driver code is LEOJEREZ, so you can confirm the outing is "
+        "yours.",
+        "If 7101 has damage or a safety problem, press Report an Incident on "
+        "this screen.",
+        "Choose a theme, layout and text size that make 7101's times easy to "
+        "read on your phone.",
+        "Protect the Driver login you use to check 7101 by changing its "
+        "Password.",
+    ),
+}
+
+
+def tutorial_steps(role):
+    """Role steps paired with their example line from the real prep report."""
+    steps = TUTORIALS.get(role, TUTORIALS[UserAccount.ROLE_EMPLOYEE])
+    examples = TUTORIAL_EXAMPLES.get(
+        role, TUTORIAL_EXAMPLES[UserAccount.ROLE_EMPLOYEE])
+    return tuple(
+        dict(step, example=examples[index] if index < len(examples) else "",
+             report_unit=TUTORIAL_EXAMPLE_UNIT)
+        for index, step in enumerate(steps)
+    )
 
 
 def _save_uploaded_pdf(data, filename):
@@ -1783,9 +1887,10 @@ def register_routes(app):
         # Drivers only see the finished-vehicles screen (plus their own Settings
         # and Password pages and the incident report submission flow).
         if user == "driver" and request.endpoint not in (
-                "driver_dashboard", "tutorial_page", "settings_page",
-                "change_password", "incidents_list", "incident_new",
-                "incident_detail", "incident_pdf", "incident_photo"):
+                "driver_dashboard", "tutorial_page", "tutorial_sample_report",
+                "settings_page", "change_password", "incidents_list",
+                "incident_new", "incident_detail", "incident_pdf",
+                "incident_photo"):
             return redirect(url_for("driver_dashboard"))
         # Vehicles, Staff and operational Settings are manager-only.
         if user != "manager" and request.endpoint in MANAGER_ONLY_ENDPOINTS:
@@ -1823,7 +1928,18 @@ def register_routes(app):
         role_label = account.role_label if account else "Employee"
         return render_template(
             "tutorial.html", role=role, role_label=role_label,
-            steps=TUTORIALS.get(role, TUTORIALS[UserAccount.ROLE_EMPLOYEE]))
+            report=TUTORIAL_REPORT, steps=tutorial_steps(role))
+
+    @app.route("/tutorial/sample-report.pdf")
+    def tutorial_sample_report():
+        """Serve the real wash report the tutorial walks through."""
+        project_root = os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(project_root, TUTORIAL_REPORT["filename"])
+        if not os.path.isfile(path):
+            abort(404)
+        return send_file(path, mimetype="application/pdf",
+                         download_name=TUTORIAL_REPORT["filename"])
 
     @app.route("/logout", methods=["POST"])
     def logout():
